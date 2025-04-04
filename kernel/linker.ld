@@ -2,23 +2,23 @@ ENTRY(_start)
 
 SECTIONS {
     . = 0x1000;
-    
+
     .text : {
         *(.text*)
     }
-    
+
     .rodata : {
         *(.rodata*)
     }
-    
+
     .data : {
         *(.data*)
     }
-    
+
     .bss : {
         *(.bss*)
     }
-    
-    /* カーネルのサイズを4KBに確保する（元のカーネルと同様） */
+
+    /* Reserve 4KB for the kernel (same as the original kernel) */
     . = ALIGN(4096);
 }

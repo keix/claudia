@@ -1,15 +1,15 @@
 #!/bin/bash
 
-# ディレクトリの作成
+# Create output directory
 mkdir -p bin
 
-# ELFからバイナリへ変換
+# Convert ELF to raw binary
 objcopy -O binary zig-out/bin/kernel bin/kernel.bin
 
-# ブートローダーのアセンブル
+# Assemble the bootloader
 nasm -f bin src/bootloader_32bit.asm -o bin/bootloader.bin
 
-# OSイメージの作成
+# Create OS image by concatenating bootloader and kernel
 cat bin/bootloader.bin bin/kernel.bin > bin/os.img
 
 echo "Build completed. OS image created at bin/os.img"
