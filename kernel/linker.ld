@@ -1,24 +1,35 @@
 ENTRY(_start)
 
-SECTIONS {
-    . = 0x1000;
+SECTIONS
+{
+    /* QEMU RISC-V virt machine loads kernel at 0x80200000 */
+    . = 0x80200000;
 
-    .text : {
-        *(.text*)
+    .text :
+    {
+        *(.text.boot)
+        *(.text .text.*)
     }
 
-    .rodata : {
-        *(.rodata*)
+    .rodata :
+    {
+        *(.rodata .rodata.*)
     }
 
-    .data : {
-        *(.data*)
+    .data :
+    {
+        *(.data .data.*)
     }
 
-    .bss : {
-        *(.bss*)
+    .bss :
+    {
+        . = ALIGN(8);
+        _bss_start = .;
+        *(.bss .bss.*)
+        *(COMMON)
+        . = ALIGN(8);
+        _bss_end = .;
     }
 
-    /* Reserve 4KB for the kernel (same as the original kernel) */
-    . = ALIGN(4096);
+    _end = .;
 }
