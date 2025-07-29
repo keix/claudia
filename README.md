@@ -4,8 +4,8 @@ It aims to teach systems programming without libc, without runtime, and without 
 
 This project contains:
 
-- A Linux userland built with raw syscalls in Zig
-- A freestanding RISC-V64 kernel, bootable with QEMU
+- A Linux userland built with raw system calls in Zig
+- A freestanding RISC-V64 kernel, designed to run on bare metal
 
 If you want to understand how a system works, you must write one — under the POSIX.
 
@@ -14,18 +14,25 @@ A quiet name for a quiet system.
 No noise. No frameworks. Just code and the machine beneath it.
 
 ## Requirements
-- Linux (x86_64)
-- Zig 0.14.0
-- QEMU 8.0 or later
-- NASM for bootloader assembly
+Zig is the only requirement.  
+You can build and run Claudia with the Zig compiler version 0.14.0, available at [ziglang.org](https://ziglang.org/download/).
+
+Claudia depends on no operating system, no runtime, and no external libraries.
+It builds a system — from first principles, not from dependencies.
+
+You may run it on QEMU, or on real hardware.
+That's an implementation detail.
 
 ## Philosophy
-No libc.  
-No runtime.  
-No magic.  
+A system is just structure. POSIX is the sugar that coats it.
 
-This is a teaching OS. You write the code, you get the result. Nothing more.
-Understand the system by building one.
+Claudia doesn't hide the machine — it reveals it.  
+There is no runtime, no libc, no illusion. Only instructions, traps, and agreements.
+
+What you see is what the hardware sees.  
+POSIX is not the system — but a contract you implement to make it human.
+
+To understand it, you must write it.
 
 ## License
 Copyright KEI SAWAMURA 2025 All rights reserved.  
