@@ -4,7 +4,7 @@ It aims to teach systems programming without libc, without runtime, and without 
 
 This project contains:
 
-- A Linux userland built with raw system calls in Zig
+- A Linux userland built with raw system calls
 - A freestanding RISC-V64 kernel, designed to run on bare metal
 
 If you want to understand how a system works, you must write one — under the POSIX.
@@ -27,12 +27,15 @@ That's an implementation detail.
 A system is just structure. POSIX is the sugar that coats it.
 
 Claudia doesn't hide the machine — it reveals it.  
-There is no runtime, no libc, no illusion. Only instructions, traps, and agreements.
-
 What you see is what the hardware sees.  
 POSIX is not the system — but a contract you implement to make it human.
 
-To understand it, you must write it.
+## Acknowledgements
+Claudia is an independent system.
+
+However, I would like to acknowledge the [Debian project](https://www.debian.org/), whose sid-based initrd (rebuilt for our purposes) was temporarily used to test RISC-V binary execution in the early stages of development.
+
+And I was inspired by the elegance of [xv6-riscv](https://pdos.csail.mit.edu/6.1810/2024/xv6.html), a clean and minimal RISC-V operating system developed by MIT — A Sixth Edition of UNIX, rewritten for the next architecture.
 
 ## License
 Copyright KEI SAWAMURA 2025 All rights reserved.  
