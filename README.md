@@ -1,4 +1,4 @@
-# Claudia
+# Claudia — A Rewrite of UNIX Sixth Edition
 **Claudia** is a minimal operating system written entirely in [Zig](https://ziglang.org/).  
 It aims to teach systems programming without libc, without runtime, and without compromise.
 
@@ -33,9 +33,7 @@ POSIX is not the system — but a contract you implement to make it human.
 ## Acknowledgements
 Claudia is an independent system.
 
-However, I would like to acknowledge the [Debian project](https://www.debian.org/), whose sid-based initrd (rebuilt for our purposes) was temporarily used to test RISC-V binary execution in the early stages of development.
-
-And I was inspired by the elegance of [xv6-riscv](https://pdos.csail.mit.edu/6.1810/2024/xv6.html), a clean and minimal RISC-V operating system developed by MIT — A Sixth Edition of UNIX, rewritten for the next architecture.
+I was inspired by the elegance of [xv6-riscv](https://pdos.csail.mit.edu/6.1810/2024/xv6.html), a clean and minimal RISC-V operating system developed by MIT — A Sixth Edition of UNIX, rewritten for the next architecture.
 
 ## License
 Copyright KEI SAWAMURA 2025 All rights reserved.  

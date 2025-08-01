@@ -17,7 +17,7 @@ clear_bss:
 clear_bss_done:
 
     # Jump to kernel main
-    call kernel_main
+    call start
 
     # If kernel returns, hang
 hang:

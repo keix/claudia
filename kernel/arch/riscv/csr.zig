@@ -10,7 +10,7 @@ pub const HartLocal = struct {
     scratch: [5]u64,
 };
 
-// CSR (Control and Status Register) numbers
+// CSR (Control and Status Register) addresses
 pub const CSR = struct {
     // Machine-level CSRs
     pub const mstatus: u64 = 0x300;
@@ -25,6 +25,7 @@ pub const CSR = struct {
     pub const mcause: u64 = 0x342;
     pub const mtval: u64 = 0x343;
     pub const mip: u64 = 0x344;
+    pub const mhartid: u64 = 0xF14;
 
     // Supervisor-level CSRs
     pub const sstatus: u64 = 0x100;
@@ -37,6 +38,10 @@ pub const CSR = struct {
     pub const stval: u64 = 0x143;
     pub const sip: u64 = 0x144;
     pub const satp: u64 = 0x180;
+
+    // User-level CSRs
+    pub const time: u64 = 0xC01;
+    pub const cycle: u64 = 0xC00;
 };
 
 // mstatus register bits
@@ -52,16 +57,23 @@ pub const MSTATUS = struct {
     pub const SIE: u64 = 1 << 1;
 };
 
-// CSR read operation
-pub inline fn readCsr(comptime csr: u64) u64 {
+// sstatus register bits (subset of mstatus)
+pub const SSTATUS = struct {
+    pub const SPP: u64 = 1 << 8;
+    pub const SPIE: u64 = 1 << 5;
+    pub const SIE: u64 = 1 << 1;
+};
+
+// CSR read (csrr instruction)
+pub inline fn csrr(comptime csr: u64) u64 {
     return asm volatile ("csrr %[ret], %[csr]"
         : [ret] "=r" (-> u64),
         : [csr] "i" (csr),
     );
 }
 
-// CSR write operation
-pub inline fn writeCsr(comptime csr: u64, value: u64) void {
+// CSR write (csrw instruction)
+pub inline fn csrw(comptime csr: u64, value: u64) void {
     asm volatile ("csrw %[csr], %[value]"
         :
         : [csr] "i" (csr),
@@ -69,8 +81,8 @@ pub inline fn writeCsr(comptime csr: u64, value: u64) void {
     );
 }
 
-// CSR set bits operation
-pub inline fn setCsr(comptime csr: u64, value: u64) void {
+// CSR set bits (csrs instruction)
+pub inline fn csrs(comptime csr: u64, value: u64) void {
     asm volatile ("csrs %[csr], %[value]"
         :
         : [csr] "i" (csr),
@@ -78,8 +90,8 @@ pub inline fn setCsr(comptime csr: u64, value: u64) void {
     );
 }
 
-// CSR clear bits operation
-pub inline fn clearCsr(comptime csr: u64, value: u64) void {
+// CSR clear bits (csrc instruction)
+pub inline fn csrc(comptime csr: u64, value: u64) void {
     asm volatile ("csrc %[csr], %[value]"
         :
         : [csr] "i" (csr),
@@ -87,38 +99,88 @@ pub inline fn clearCsr(comptime csr: u64, value: u64) void {
     );
 }
 
-// Read mstatus
+// CSR read and write (csrrw instruction)
+pub inline fn csrrw(comptime csr: u64, value: u64) u64 {
+    return asm volatile ("csrrw %[ret], %[csr], %[value]"
+        : [ret] "=r" (-> u64),
+        : [csr] "i" (csr),
+          [value] "r" (value),
+    );
+}
+
+// CSR read and set (csrrs instruction)
+pub inline fn csrrs(comptime csr: u64, value: u64) u64 {
+    return asm volatile ("csrrs %[ret], %[csr], %[value]"
+        : [ret] "=r" (-> u64),
+        : [csr] "i" (csr),
+          [value] "r" (value),
+    );
+}
+
+// CSR read and clear (csrrc instruction)
+pub inline fn csrrc(comptime csr: u64, value: u64) u64 {
+    return asm volatile ("csrrc %[ret], %[csr], %[value]"
+        : [ret] "=r" (-> u64),
+        : [csr] "i" (csr),
+          [value] "r" (value),
+    );
+}
+
+// Convenience functions for common CSRs
 pub inline fn readMstatus() u64 {
-    return readCsr(CSR.mstatus);
+    return csrr(CSR.mstatus);
 }
 
-// Write mstatus
 pub inline fn writeMstatus(value: u64) void {
-    writeCsr(CSR.mstatus, value);
+    csrw(CSR.mstatus, value);
 }
 
-// Read mepc
 pub inline fn readMepc() u64 {
-    return readCsr(CSR.mepc);
+    return csrr(CSR.mepc);
 }
 
-// Write mepc
 pub inline fn writeMepc(value: u64) void {
-    writeCsr(CSR.mepc, value);
+    csrw(CSR.mepc, value);
 }
 
-// Read satp
+pub inline fn readSstatus() u64 {
+    return csrr(CSR.sstatus);
+}
+
+pub inline fn writeSstatus(value: u64) void {
+    csrw(CSR.sstatus, value);
+}
+
+pub inline fn readSepc() u64 {
+    return csrr(CSR.sepc);
+}
+
+pub inline fn writeSepc(value: u64) void {
+    csrw(CSR.sepc, value);
+}
+
 pub inline fn readSatp() u64 {
-    return readCsr(CSR.satp);
+    return csrr(CSR.satp);
 }
 
-// Write satp
 pub inline fn writeSatp(value: u64) void {
-    writeCsr(CSR.satp, value);
+    csrw(CSR.satp, value);
 }
 
-// Memory barriers
-pub inline fn sfenceVma() void {
+pub inline fn readMhartid() u64 {
+    return csrr(CSR.mhartid);
+}
+
+pub inline fn readTime() u64 {
+    return csrr(CSR.time);
+}
+
+pub inline fn readCycle() u64 {
+    return csrr(CSR.cycle);
+}
+
+// Memory barriers and fences
+pub inline fn sfence_vma() void {
     asm volatile ("sfence.vma zero, zero" ::: "memory");
 }
 
@@ -126,7 +188,7 @@ pub inline fn fence() void {
     asm volatile ("fence" ::: "memory");
 }
 
-pub inline fn fenceI() void {
+pub inline fn fence_i() void {
     asm volatile ("fence.i" ::: "memory");
 }
 
@@ -143,6 +205,16 @@ pub inline fn sret() void {
 // Machine return
 pub inline fn mret() void {
     asm volatile ("mret");
+}
+
+// Ecall (environment call) instruction
+pub inline fn ecall() void {
+    asm volatile ("ecall");
+}
+
+// Ebreak instruction
+pub inline fn ebreak() void {
+    asm volatile ("ebreak");
 }
 
 // Make SBI (Supervisor Binary Interface) call
@@ -164,42 +236,35 @@ pub fn sbiConsolePutchar(c: u8) void {
     _ = sbiCall(0x01, 0, c, 0, 0);
 }
 
-// Read time register
-pub inline fn readTime() u64 {
-    return asm volatile ("rdtime %[ret]"
-        : [ret] "=r" (-> u64),
-    );
-}
-
-// Read cycle counter
-pub inline fn readCycle() u64 {
-    return asm volatile ("rdcycle %[ret]"
-        : [ret] "=r" (-> u64),
-    );
-}
-
-// Hardware thread ID
-pub inline fn readMhartid() u64 {
-    return readCsr(0xF14);
-}
-
-// Read stack pointer
+// Read general purpose registers
 pub inline fn readSp() u64 {
     return asm volatile ("mv %[ret], sp"
         : [ret] "=r" (-> u64),
     );
 }
 
-// Read thread pointer
 pub inline fn readTp() u64 {
     return asm volatile ("mv %[ret], tp"
         : [ret] "=r" (-> u64),
     );
 }
 
-// Write thread pointer
+pub inline fn readGp() u64 {
+    return asm volatile ("mv %[ret], gp"
+        : [ret] "=r" (-> u64),
+    );
+}
+
+// Write general purpose registers
 pub inline fn writeTp(value: u64) void {
     asm volatile ("mv tp, %[value]"
+        :
+        : [value] "r" (value),
+    );
+}
+
+pub inline fn writeGp(value: u64) void {
+    asm volatile ("mv gp, %[value]"
         :
         : [value] "r" (value),
     );
@@ -257,9 +322,11 @@ pub inline fn makeSatp(mode: u64, ppn: u64) u64 {
 pub const UART0: u64 = 0x10000000;
 pub const UART0_IRQ: u32 = 10;
 
+// QEMU virt machine test device
+pub const VIRT_TEST: u64 = 0x100000;
+
 // Power off the machine (QEMU test device)
 pub fn poweroff() noreturn {
-    const VIRT_TEST = 0x100000;
     const addr = @intToPtr(*volatile u32, VIRT_TEST);
     addr.* = 0x5555; // Magic value for poweroff
     while (true) {
