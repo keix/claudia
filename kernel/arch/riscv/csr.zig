@@ -327,7 +327,7 @@ pub const VIRT_TEST: u64 = 0x100000;
 
 // Power off the machine (QEMU test device)
 pub fn poweroff() noreturn {
-    const addr = @intToPtr(*volatile u32, VIRT_TEST);
+    const addr = @as(*volatile u32, @ptrFromInt(VIRT_TEST));
     addr.* = 0x5555; // Magic value for poweroff
     while (true) {
         wfi();
