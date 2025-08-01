@@ -317,19 +317,3 @@ pub const SATP_SV39: u64 = 8 << 60;
 pub inline fn makeSatp(mode: u64, ppn: u64) u64 {
     return mode | ppn;
 }
-
-// Physical memory layout (for QEMU virt machine)
-pub const UART0: u64 = 0x10000000;
-pub const UART0_IRQ: u32 = 10;
-
-// QEMU virt machine test device
-pub const VIRT_TEST: u64 = 0x100000;
-
-// Power off the machine (QEMU test device)
-pub fn poweroff() noreturn {
-    const addr = @as(*volatile u32, @ptrFromInt(VIRT_TEST));
-    addr.* = 0x5555; // Magic value for poweroff
-    while (true) {
-        wfi();
-    }
-}

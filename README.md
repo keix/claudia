@@ -31,8 +31,6 @@ What you see is what the hardware sees.
 POSIX is not the system — but a contract you implement to make it human.
 
 ## Acknowledgements
-Claudia is an independent system.
-
 I was inspired by the elegance of [xv6-riscv](https://pdos.csail.mit.edu/6.1810/2024/xv6.html), a clean and minimal RISC-V operating system developed by MIT — A Sixth Edition of UNIX, rewritten for the next architecture.
 
 ## License

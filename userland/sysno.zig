@@ -3,8 +3,8 @@
 // RISC-V uses the generic syscall numbers
 
 // Process control
-pub const sys_fork: usize = 1079;      // Not available, use clone
-pub const sys_vfork: usize = 1071;     // Not available, use clone
+pub const sys_fork: usize = 1079; // Not available, use clone
+pub const sys_vfork: usize = 1071; // Not available, use clone
 pub const sys_clone: usize = 220;
 pub const sys_execve: usize = 221;
 pub const sys_exit: usize = 93;
@@ -24,12 +24,12 @@ pub const sys_setuid: usize = 146;
 // File I/O
 pub const sys_read: usize = 63;
 pub const sys_write: usize = 64;
-pub const sys_openat: usize = 56;      // open is not available, use openat
+pub const sys_openat: usize = 56; // open is not available, use openat
 pub const sys_close: usize = 57;
 pub const sys_lseek: usize = 62;
-pub const sys_mkdirat: usize = 34;     // mkdir is not available, use mkdirat
-pub const sys_unlinkat: usize = 35;    // rmdir/unlink not available, use unlinkat
-pub const sys_renameat2: usize = 276;  // rename not available, use renameat2
+pub const sys_mkdirat: usize = 34; // mkdir is not available, use mkdirat
+pub const sys_unlinkat: usize = 35; // rmdir/unlink not available, use unlinkat
+pub const sys_renameat2: usize = 276; // rename not available, use renameat2
 
 // Memory
 pub const sys_brk: usize = 214;
@@ -39,7 +39,7 @@ pub const sys_mprotect: usize = 226;
 
 // IO control
 pub const sys_ioctl: usize = 29;
-pub const sys_pselect6: usize = 72;    // select not available, use pselect6
+pub const sys_pselect6: usize = 72; // select not available, use pselect6
 pub const sys_readv: usize = 65;
 pub const sys_writev: usize = 66;
 
@@ -56,7 +56,7 @@ pub const sys_rt_sigreturn: usize = 139;
 // Socket
 pub const sys_socket: usize = 198;
 pub const sys_connect: usize = 203;
-pub const sys_accept4: usize = 202;    // accept not available, use accept4
+pub const sys_accept4: usize = 202; // accept not available, use accept4
 pub const sys_bind: usize = 200;
 pub const sys_listen: usize = 201;
 pub const sys_sendto: usize = 206;
