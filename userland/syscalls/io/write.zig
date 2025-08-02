@@ -1,5 +1,5 @@
-const syscall = @import("../../syscall.zig");
-const sysno = @import("../../sysno.zig");
+const syscall = @import("syscall");
+const sysno = @import("sysno");
 
 /// Writes the contents of a buffer to a file descriptor using the raw `write` syscall.
 ///
