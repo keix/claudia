@@ -1,7 +1,7 @@
 # Claudia — A Rewrite of UNIX Sixth Edition
 For a crystal-clear understanding of the system’s structure, start here.
 
-This project reimagines the spirit of UNIX Sixth Edition, rewritten with modern clarity and minimalism on the RISC-V architecture. No libc. No runtime. No frameworks. Only the machine, the language, and your intent.
+This project reimagines the spirit of UNIX Sixth Edition, rewritten with modern clarity and minimalism on the RISC-V architecture. No libc. No runtime. No frameworks. Only the language.
 
 If you want to understand how a system works, you must write one — under the POSIX.
 

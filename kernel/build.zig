@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
 
     kernel.addAssemblyFile(b.path("arch/riscv/entry.S"));
 
-    kernel.setLinkerScript(b.path("linker.ld"));
+    kernel.setLinkerScript(b.path("arch/riscv/linker.ld"));
     kernel.linkage = .static;
 
     // RISC-V specific: use medany code model for position-independent addressing
