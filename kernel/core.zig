@@ -1,7 +1,8 @@
 const std = @import("std");
 const csr = @import("arch/riscv/csr.zig");
 const uart = @import("driver/uart.zig");
-const proc = @import("process/proc.zig");
+const proc = @import("process/core.zig");
+const file = @import("file/core.zig");
 
 // Simple stack allocator for testing
 var stack_memory: [4096 * 4]u8 = undefined;
@@ -21,6 +22,9 @@ fn allocStack(size: usize) []u8 {
 pub fn init() noreturn {
     uart.init();
     uart.puts("Hello Claudia!!\n");
+
+    // Initialize file system
+    file.FileTable.init();
 
     // Initialize process scheduler
     proc.Scheduler.init();
