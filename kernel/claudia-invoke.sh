@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Run QEMU with RISC-V 64-bit virt machine
-# Use OpenSBI but handle M-mode transition in software
+# OpenSBI runs in M-mode and starts our kernel in S-mode
 qemu-system-riscv64 \
     -machine virt \
     -kernel zig-out/bin/kernel \
