@@ -1,5 +1,5 @@
-const syscall = @import("../../syscall.zig");
-const sysno = @import("../../sysno.zig");
+const syscall = @import("syscall");
+const sysno = @import("sysno");
 
 // File open flags (can be ORed together)
 pub const O_RDONLY: usize = 0; // open for reading only

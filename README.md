@@ -15,7 +15,7 @@ No noise. No frameworks. Just code and the machine beneath it.
 
 ## Requirements
 Zig is the only requirement.  
-You can build and run Claudia with the Zig compiler version 0.14.0, available at [ziglang.org](https://ziglang.org/download/).
+You can build and run Claudia with the Zig compiler version 0.14.1, available at [ziglang.org](https://ziglang.org/download/).
 
 Claudia depends on no operating system, no runtime, and no external libraries.
 It builds a system — from first principles, not from dependencies.

@@ -1,5 +1,5 @@
-const syscall = @import("../syscall.zig");
-const sysno = @import("../../sysno.zig");
+const syscall = @import("syscall");
+const sysno = @import("sysno");
 
 /// Reads data from a file descriptor into a buffer using the raw `read` syscall.
 ///
