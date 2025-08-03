@@ -239,21 +239,21 @@ pub const Scheduler = struct {
             schedule(); // Find next process to run
         }
     }
-    
+
     // Main scheduler loop - handles all scheduling and idle
     pub fn run() noreturn {
         uart.debug("Starting scheduler main loop\n");
-        
+
         while (true) {
             // Try to schedule a process
             schedule();
-            
+
             // If no process is running, enter idle state
             if (current_process == null) {
                 // No runnable processes, wait for interrupt
                 csr.wfi();
             }
-            
+
             // In a real implementation, this would be driven by:
             // - Timer interrupts (for preemptive scheduling)
             // - I/O completion interrupts
@@ -261,7 +261,7 @@ pub const Scheduler = struct {
             // - Inter-process communication
         }
     }
-    
+
     // Request scheduler to run (e.g., from timer interrupt)
     pub fn yield() void {
         // In a real implementation, this would be called from:

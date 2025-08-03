@@ -9,11 +9,11 @@ pub const FD = i32;
 
 // File types
 pub const FileType = enum {
-    REGULAR,    // Regular file
-    DEVICE,     // Device file (character/block)
-    PIPE,       // Named pipe (FIFO)
-    SOCKET,     // Socket
-    DIRECTORY,  // Directory
+    REGULAR, // Regular file
+    DEVICE, // Device file (character/block)
+    PIPE, // Named pipe (FIFO)
+    SOCKET, // Socket
+    DIRECTORY, // Directory
 };
 
 // File operations function pointers
@@ -29,10 +29,10 @@ pub const File = struct {
     operations: *const FileOperations,
     ref_count: u32,
     flags: u32,
-    
+
     // Device-specific data
     device_data: ?*anyopaque,
-    
+
     pub fn init(file_type: FileType, ops: *const FileOperations) File {
         return File{
             .type = file_type,
@@ -42,15 +42,15 @@ pub const File = struct {
             .device_data = null,
         };
     }
-    
+
     pub fn read(self: *File, buffer: []u8) isize {
         return self.operations.read(self, buffer);
     }
-    
+
     pub fn write(self: *File, data: []const u8) isize {
         return self.operations.write(self, data);
     }
-    
+
     pub fn close(self: *File) void {
         if (self.ref_count > 0) {
             self.ref_count -= 1;
@@ -59,7 +59,7 @@ pub const File = struct {
             }
         }
     }
-    
+
     pub fn addRef(self: *File) void {
         self.ref_count += 1;
     }
@@ -68,7 +68,7 @@ pub const File = struct {
 // Console device operations (stdout/stderr)
 const ConsoleOperations = FileOperations{
     .read = consoleRead,
-    .write = consoleWrite, 
+    .write = consoleWrite,
     .close = consoleClose,
 };
 
@@ -102,31 +102,30 @@ var console_file = File.init(.DEVICE, &ConsoleOperations);
 
 // File descriptor management
 pub const FileTable = struct {
-    
     pub fn init() void {
         uart.debug("Initializing file system\n");
-        
+
         // Initialize standard file descriptors
         // fd 0: stdin (not implemented yet)
         file_table[0] = null;
-        
+
         // fd 1: stdout -> console (UART)
         file_table[1] = &console_file;
-        
-        // fd 2: stderr -> console (UART)  
+
+        // fd 2: stderr -> console (UART)
         file_table[2] = &console_file;
         console_file.addRef(); // Two references (stdout + stderr)
-        
+
         uart.debug("Standard file descriptors initialized\n");
     }
-    
+
     pub fn getFile(fd: FD) ?*File {
         if (fd < 0 or fd >= MAX_FDS) {
             return null;
         }
         return file_table[@as(usize, @intCast(fd))];
     }
-    
+
     pub fn allocFd(file: *File) ?FD {
         // Start from 3 (after stdin/stdout/stderr)
         for (3..MAX_FDS) |i| {
@@ -138,19 +137,19 @@ pub const FileTable = struct {
         }
         return null; // No free file descriptors
     }
-    
+
     pub fn closeFd(fd: FD) void {
         if (fd < 0 or fd >= MAX_FDS) {
             return;
         }
-        
+
         const idx = @as(usize, @intCast(fd));
         if (file_table[idx]) |file| {
             file.close();
             file_table[idx] = null;
         }
     }
-    
+
     // System call implementations
     pub fn sysRead(fd: FD, buffer: []u8) isize {
         if (getFile(fd)) |file| {
@@ -158,24 +157,24 @@ pub const FileTable = struct {
         }
         return -9; // EBADF - bad file descriptor
     }
-    
+
     pub fn sysWrite(fd: FD, data: []const u8) isize {
         if (getFile(fd)) |file| {
             return file.write(data);
         }
         return -9; // EBADF - bad file descriptor
     }
-    
+
     pub fn sysClose(fd: FD) isize {
         if (fd < 0 or fd >= MAX_FDS) {
             return -9; // EBADF
         }
-        
+
         // Don't allow closing standard descriptors
         if (fd <= 2) {
             return -16; // EBUSY
         }
-        
+
         closeFd(fd);
         return 0;
     }
