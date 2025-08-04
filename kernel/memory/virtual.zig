@@ -1,11 +1,11 @@
 const std = @import("std");
-const physical = @import("physical.zig");
-const memory = @import("core.zig");
+const types = @import("types.zig");
+const allocator = @import("allocator.zig");
 const csr = @import("../arch/riscv/csr.zig");
 const uart = @import("../driver/uart.zig");
 
-const PAGE_SIZE = physical.PAGE_SIZE;
-const PAGE_SHIFT = physical.PAGE_SHIFT;
+const PAGE_SIZE = types.PAGE_SIZE;
+const PAGE_SHIFT = types.PAGE_SHIFT;
 const PAGE_ENTRIES: usize = 512; // 2^9 entries per page table
 
 // Virtual address breakdown for Sv39
@@ -14,15 +14,15 @@ const VA_VPN1_SHIFT: u6 = 21;
 const VA_VPN0_SHIFT: u6 = 12;
 const VA_VPN_MASK: u64 = 0x1FF; // 9 bits
 
-// Page table entry flags
-pub const PTE_V: u64 = 1 << 0; // Valid
-pub const PTE_R: u64 = 1 << 1; // Read
-pub const PTE_W: u64 = 1 << 2; // Write
-pub const PTE_X: u64 = 1 << 3; // Execute
-pub const PTE_U: u64 = 1 << 4; // User
-pub const PTE_G: u64 = 1 << 5; // Global
-pub const PTE_A: u64 = 1 << 6; // Accessed
-pub const PTE_D: u64 = 1 << 7; // Dirty
+// Re-export PTE flags from types
+pub const PTE_V = types.PTE_V;
+pub const PTE_R = types.PTE_R;
+pub const PTE_W = types.PTE_W;
+pub const PTE_X = types.PTE_X;
+pub const PTE_U = types.PTE_U;
+pub const PTE_G = types.PTE_G;
+pub const PTE_A = types.PTE_A;
+pub const PTE_D = types.PTE_D;
 
 // Page table entry type
 pub const PageTableEntry = u64;
@@ -46,7 +46,7 @@ pub const PageTable = struct {
     // Initialize a new page table
     pub fn init(self: *Self) !void {
         // Allocate a page for root page table
-        const root_page = memory.allocFrame() orelse return error.OutOfMemory;
+        const root_page = allocator.allocFrame() orelse return error.OutOfMemory;
         self.root_ppn = root_page >> PAGE_SHIFT;
         
         // Clear the page table
@@ -77,7 +77,7 @@ pub const PageTable = struct {
         
         if ((pte.* & PTE_V) == 0) {
             // Allocate new page table
-            const new_page = memory.allocFrame() orelse return error.OutOfMemory;
+            const new_page = allocator.allocFrame() orelse return error.OutOfMemory;
             pte.* = addrToPte(new_page, PTE_V);
             
             // Clear new table
@@ -94,7 +94,7 @@ pub const PageTable = struct {
         
         if ((pte.* & PTE_V) == 0) {
             // Allocate new page table
-            const new_page = memory.allocFrame() orelse return error.OutOfMemory;
+            const new_page = allocator.allocFrame() orelse return error.OutOfMemory;
             pte.* = addrToPte(new_page, PTE_V);
             
             // Clear new table

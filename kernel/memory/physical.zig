@@ -1,11 +1,8 @@
-pub const PAGE_SIZE: usize = 4096;
-pub const PAGE_SHIFT: u6 = 12;
+const types = @import("types.zig");
 
-pub const PhysicalMemory = struct {
-    base: usize,
-    size: usize,
-    available: usize,
-};
+// Re-export for backward compatibility
+pub const PAGE_SIZE = types.PAGE_SIZE;
+pub const PAGE_SHIFT = types.PAGE_SHIFT;
 
 pub const FrameAllocator = struct {
     bitmap: []u8,
@@ -15,7 +12,7 @@ pub const FrameAllocator = struct {
 
     const Self = @This();
 
-    pub fn init(self: *Self, mem: PhysicalMemory, bitmap_storage: []u8) void {
+    pub fn init(self: *Self, mem: types.PhysicalMemory, bitmap_storage: []u8) void {
         self.base_addr = mem.base;
         self.bitmap = bitmap_storage;
 
