@@ -3,6 +3,7 @@ const csr = @import("arch/riscv/csr.zig");
 const uart = @import("driver/uart.zig");
 const proc = @import("process/core.zig");
 const file = @import("file/core.zig");
+const memory = @import("memory/core.zig");
 
 // Simple stack allocator for testing
 var stack_memory: [4096 * 4]u8 = undefined;
@@ -23,11 +24,28 @@ pub fn init() noreturn {
     uart.init();
     uart.puts("Hello Claudia!!\n");
 
+    // Initialize memory subsystem
+    memory.init();
+
+    // Initialize virtual memory
+    memory.initVirtual() catch |err| {
+        uart.puts("Failed to initialize virtual memory: ");
+        uart.putHex(@intFromError(err));
+        uart.puts("\n");
+        while (true) {}
+    };
+
     // Initialize file system
     file.FileTable.init();
 
     // Initialize process scheduler
     proc.Scheduler.init();
+
+    // Test memory allocator
+    testMemorySystem();
+
+    // Test virtual memory system
+    testVirtualMemorySystem();
 
     // Test process creation
     testProcessSystem();
@@ -73,4 +91,88 @@ fn testProcessSystem() void {
     }
 
     uart.puts("Process system test completed\n");
+}
+
+fn testMemorySystem() void {
+    uart.puts("Testing memory system...\n");
+
+    // Get initial memory info
+    const info1 = memory.getMemoryInfo();
+    uart.puts("Initial memory: ");
+    uart.putHex(info1.free);
+    uart.puts(" bytes free\n");
+
+    // Test allocation
+    const page1 = memory.allocFrame();
+    const page2 = memory.allocFrame();
+    const page3 = memory.allocFrame();
+
+    if (page1) |p1| {
+        uart.puts("Allocated page1 at: ");
+        uart.putHex(p1);
+        uart.puts("\n");
+    }
+
+    if (page2) |p2| {
+        uart.puts("Allocated page2 at: ");
+        uart.putHex(p2);
+        uart.puts("\n");
+    }
+
+    if (page3) |p3| {
+        uart.puts("Allocated page3 at: ");
+        uart.putHex(p3);
+        uart.puts("\n");
+    }
+
+    // Check memory after allocation
+    const info2 = memory.getMemoryInfo();
+    uart.puts("After allocation: ");
+    uart.putHex(info2.free);
+    uart.puts(" bytes free\n");
+
+    // Test free
+    if (page2) |p2| {
+        memory.freeFrame(p2);
+        uart.puts("Freed page2\n");
+    }
+
+    // Check memory after free
+    const info3 = memory.getMemoryInfo();
+    uart.puts("After free: ");
+    uart.putHex(info3.free);
+    uart.puts(" bytes free\n");
+
+    uart.puts("Memory system test completed\n");
+}
+
+fn testVirtualMemorySystem() void {
+    uart.puts("Testing virtual memory system...\n");
+
+    // Test address translation before MMU
+    const page_table = memory.virtual.getCurrentPageTable();
+    
+    // Test translation for kernel memory
+    const test_vaddr: usize = 0x80200000; // Kernel start
+    if (page_table.translate(test_vaddr)) |paddr| {
+        uart.puts("Translation test: ");
+        uart.putHex(test_vaddr);
+        uart.puts(" -> ");
+        uart.putHex(paddr);
+        uart.puts("\n");
+    } else {
+        uart.puts("Translation failed for kernel address\n");
+    }
+
+    // Enable MMU
+    uart.puts("Enabling MMU...\n");
+    memory.enableMMU();
+
+    // Test that we can still access memory after MMU
+    uart.puts("MMU enabled successfully - kernel still accessible\n");
+
+    // Test UART access after MMU
+    uart.puts("UART still working after MMU enablement\n");
+
+    uart.puts("Virtual memory system test completed\n");
 }
