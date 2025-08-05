@@ -4,17 +4,15 @@
 const std = @import("std");
 const uart = @import("../driver/uart.zig");
 
-// File descriptor type
-pub const FD = i32;
+// Import submodules
+pub const types = @import("types.zig");
+const inode = @import("inode.zig");
 
-// File types
-pub const FileType = enum {
-    REGULAR, // Regular file
-    DEVICE, // Device file (character/block)
-    PIPE, // Named pipe (FIFO)
-    SOCKET, // Socket
-    DIRECTORY, // Directory
-};
+// Re-export common types
+pub const FD = types.FD;
+pub const FileType = types.FileType;
+pub const Inode = inode.Inode;
+pub const InodeOperations = inode.InodeOperations;
 
 // File operations function pointers
 pub const FileOperations = struct {
@@ -25,7 +23,7 @@ pub const FileOperations = struct {
 
 // File structure
 pub const File = struct {
-    type: FileType,
+    type: types.FileType,
     operations: *const FileOperations,
     ref_count: u32,
     flags: u32,
@@ -33,13 +31,28 @@ pub const File = struct {
     // Device-specific data
     device_data: ?*anyopaque,
 
-    pub fn init(file_type: FileType, ops: *const FileOperations) File {
+    // Associated inode (optional for device files)
+    inode: ?*Inode,
+
+    pub fn init(file_type: types.FileType, ops: *const FileOperations) File {
         return File{
             .type = file_type,
             .operations = ops,
             .ref_count = 1,
             .flags = 0,
             .device_data = null,
+            .inode = null,
+        };
+    }
+
+    pub fn initWithInode(inode_ptr: *Inode, ops: *const FileOperations) File {
+        return File{
+            .type = inode_ptr.type,
+            .operations = ops,
+            .ref_count = 1,
+            .flags = 0,
+            .device_data = null,
+            .inode = inode_ptr,
         };
     }
 
@@ -179,3 +192,16 @@ pub const FileTable = struct {
         return 0;
     }
 };
+
+// Inode management API
+pub const allocInode = inode.alloc;
+pub const freeInode = inode.free;
+
+// Integrated file creation
+pub fn createFile(file_type: types.FileType, inode_ops: *const InodeOperations, file_ops: *const FileOperations) ?*File {
+    _ = file_ops; // TODO: Use this parameter
+    const new_inode = allocInode(file_type, inode_ops) orelse return null;
+    _ = new_inode; // TODO: Use this to create actual file
+    // This would need integration with FileTable for actual file creation
+    return null; // Placeholder - would return allocated File
+}

@@ -151,7 +151,7 @@ fn testVirtualMemorySystem() void {
 
     // Test address translation before MMU
     const page_table = memory.virtual.getCurrentPageTable();
-    
+
     // Test translation for kernel memory
     const test_vaddr: usize = 0x80200000; // Kernel start
     if (page_table.translate(test_vaddr)) |paddr| {
