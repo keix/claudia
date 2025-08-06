@@ -1,5 +1,6 @@
 const std = @import("std");
 const types = @import("types.zig");
+const memory = @import("../memory/core.zig");
 
 // Inode structure
 pub const Inode = struct {
@@ -54,6 +55,10 @@ pub const Inode = struct {
     pub fn unref(self: *Inode) void {
         if (self.ref_count > 0) {
             self.ref_count -= 1;
+            if (self.ref_count == 0) {
+                // Automatically free when ref_count reaches 0
+                InodeTable.freeInode(self);
+            }
         }
     }
 };
@@ -68,34 +73,65 @@ pub const InodeOperations = struct {
 
 // Simple inode table (in-memory for now)
 const InodeTable = struct {
-    inodes: [64]?Inode,
+    inodes: [64]?*Inode, // Pointer array for stable references
+    free_list: [64]bool, // Free slot management
     next_inum: u32,
 
     var instance: InodeTable = .{
-        .inodes = [_]?Inode{null} ** 64,
+        .inodes = [_]?*Inode{null} ** 64,
+        .free_list = [_]bool{true} ** 64,
         .next_inum = 1,
     };
 
     pub fn alloc(file_type: types.FileType, ops: *const InodeOperations) ?*Inode {
-        for (0..instance.inodes.len) |i| {
-            if (instance.inodes[i] == null) {
-                instance.inodes[i] = Inode.init(instance.next_inum, file_type, ops);
+        // Find free slot
+        for (0..instance.free_list.len) |i| {
+            if (instance.free_list[i]) {
+                // Allocate memory for new inode
+                const frame = memory.allocFrame() orelse return null;
+                const new_inode = @as(*Inode, @ptrFromInt(frame));
+                new_inode.* = Inode.init(instance.next_inum, file_type, ops);
+
+                instance.inodes[i] = new_inode;
+                instance.free_list[i] = false;
                 instance.next_inum += 1;
-                return &instance.inodes[i].?;
+
+                return new_inode;
             }
         }
-        return null; // No free inodes
+        return null; // No free slots
     }
 
-    pub fn free(inode: *Inode) void {
+    fn freeInode(inode: *Inode) void {
         for (0..instance.inodes.len) |i| {
-            if (instance.inodes[i]) |*existing| {
-                if (existing.inum == inode.inum) {
+            if (instance.inodes[i]) |existing| {
+                if (existing == inode) {
+                    // Free the memory frame
+                    memory.freeFrame(@intFromPtr(existing));
                     instance.inodes[i] = null;
+                    instance.free_list[i] = true;
                     break;
                 }
             }
         }
+    }
+
+    // Public free should only decrement ref_count
+    pub fn free(inode: *Inode) void {
+        inode.unref();
+    }
+
+    // Get inode by inode number
+    pub fn get(inum: u32) ?*Inode {
+        for (instance.inodes) |inode_ptr| {
+            if (inode_ptr) |inode| {
+                if (inode.inum == inum) {
+                    inode.ref(); // Increment ref_count when returning
+                    return inode;
+                }
+            }
+        }
+        return null;
     }
 };
 

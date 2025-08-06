@@ -191,7 +191,8 @@ pub const Scheduler = struct {
     }
 
     // Simple round-robin scheduler
-    pub fn schedule() void {
+    // Returns the process to switch to, or null if none available
+    pub fn schedule() ?*Process {
         // Save current process context if running
         if (current_process) |current| {
             if (current.state == .RUNNING) {
@@ -211,10 +212,12 @@ pub const Scheduler = struct {
 
             // TODO: Actual context switch
             switchToProcess(next_proc);
+            return next_proc;
         } else {
             // No runnable processes, idle
             current_process = null;
             uart.debug("No runnable processes, idling\n");
+            return null;
         }
     }
 
@@ -236,7 +239,7 @@ pub const Scheduler = struct {
             uart.puts("\n");
 
             current_process = null;
-            schedule(); // Find next process to run
+            _ = schedule(); // Find next process to run
         }
     }
 
@@ -246,7 +249,7 @@ pub const Scheduler = struct {
 
         while (true) {
             // Try to schedule a process
-            schedule();
+            _ = schedule();
 
             // If no process is running, enter idle state
             if (current_process == null) {

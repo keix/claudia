@@ -47,6 +47,9 @@ pub fn init() noreturn {
     // Test virtual memory system
     testVirtualMemorySystem();
 
+    // Test file system
+    testFileSystem();
+
     // Test process creation
     testProcessSystem();
 
@@ -87,7 +90,16 @@ fn testProcessSystem() void {
         uart.puts("Schedule iteration ");
         uart.putHex(i);
         uart.puts("\n");
-        proc.Scheduler.schedule();
+        const next_proc = proc.Scheduler.schedule();
+        if (next_proc) |p| {
+            uart.puts("  -> Scheduled process: ");
+            uart.puts(p.getName());
+            uart.puts(" (PID ");
+            uart.putHex(p.pid);
+            uart.puts(")\n");
+        } else {
+            uart.puts("  -> No process scheduled (idle)\n");
+        }
     }
 
     uart.puts("Process system test completed\n");
@@ -175,4 +187,64 @@ fn testVirtualMemorySystem() void {
     uart.puts("UART still working after MMU enablement\n");
 
     uart.puts("Virtual memory system test completed\n");
+}
+
+fn testFileSystem() void {
+    uart.puts("Testing file system...\n");
+
+    // Test inode allocation with reference counting
+    const TestInodeOps = struct {
+        fn read(inode: *file.Inode, buffer: []u8, offset: u64) isize {
+            _ = inode;
+            _ = buffer;
+            _ = offset;
+            return 0;
+        }
+
+        fn write(inode: *file.Inode, data: []const u8, offset: u64) isize {
+            _ = inode;
+            _ = offset;
+            return @intCast(data.len);
+        }
+
+        fn truncate(inode: *file.Inode, size: u64) !void {
+            _ = inode;
+            _ = size;
+        }
+
+        const ops = file.InodeOperations{
+            .read = read,
+            .write = write,
+            .truncate = truncate,
+            .lookup = null,
+        };
+    };
+
+    // Test inode allocation
+    const inode1 = file.allocInode(.REGULAR, &TestInodeOps.ops);
+    if (inode1) |i| {
+        uart.puts("Allocated inode ");
+        uart.putHex(i.inum);
+        uart.puts(" with ref_count=");
+        uart.putHex(i.ref_count);
+        uart.puts("\n");
+
+        // Test reference counting
+        i.ref();
+        uart.puts("After ref(): ref_count=");
+        uart.putHex(i.ref_count);
+        uart.puts("\n");
+
+        // Release one reference
+        i.unref();
+        uart.puts("After unref(): ref_count=");
+        uart.putHex(i.ref_count);
+        uart.puts("\n");
+
+        // Release final reference (should auto-free)
+        file.freeInode(i);
+        uart.puts("Inode freed\n");
+    }
+
+    uart.puts("File system test completed\n");
 }
