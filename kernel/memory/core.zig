@@ -1,7 +1,7 @@
 // Memory subsystem public API
 
 const allocator = @import("allocator.zig");
-const uart = @import("../driver/uart.zig");
+const uart = @import("../driver/uart/core.zig");
 
 pub const types = @import("types.zig");
 pub const virtual = @import("virtual.zig");

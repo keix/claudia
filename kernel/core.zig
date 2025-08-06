@@ -1,6 +1,6 @@
 const std = @import("std");
 const csr = @import("arch/riscv/csr.zig");
-const uart = @import("driver/uart.zig");
+const uart = @import("driver/uart/core.zig");
 const proc = @import("process/core.zig");
 const file = @import("file/core.zig");
 const memory = @import("memory/core.zig");

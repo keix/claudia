@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const csr = @import("../arch/riscv/csr.zig");
-const uart = @import("../driver/uart.zig");
+const uart = @import("../driver/uart/core.zig");
 
 // Process ID type
 pub const PID = u32;

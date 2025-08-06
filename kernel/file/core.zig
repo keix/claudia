@@ -2,7 +2,7 @@
 // Provides POSIX-like file interface with device drivers
 
 const std = @import("std");
-const uart = @import("../driver/uart.zig");
+const uart = @import("../driver/uart/core.zig");
 
 // Import submodules
 pub const types = @import("types.zig");

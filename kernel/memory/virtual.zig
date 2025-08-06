@@ -2,7 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const allocator = @import("allocator.zig");
 const csr = @import("../arch/riscv/csr.zig");
-const uart = @import("../driver/uart.zig");
+const uart = @import("../driver/uart/core.zig");
 
 const PAGE_SIZE = types.PAGE_SIZE;
 const PAGE_SHIFT = types.PAGE_SHIFT;
