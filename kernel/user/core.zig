@@ -5,12 +5,14 @@ const std = @import("std");
 const uart = @import("../driver/uart/core.zig");
 const memory = @import("memory.zig");
 const csr = @import("../arch/riscv/csr.zig");
+const virtual = @import("../memory/virtual.zig");
+const types = @import("../memory/types.zig");
 
 // Import test module
 const test_loader = @import("test/loader.zig");
 
-// Import user mode switch function
-extern fn switch_to_user_mode(entry_point: u64, user_stack: u64, kernel_stack: u64) void;
+// Import safe user mode switch function (includes SATP switching)
+extern fn switch_to_user_mode(entry_point: u64, user_stack: u64, kernel_stack: u64, satp_val: u64) void;
 
 // Global user memory context for testing
 var test_user_context: memory.UserMemoryContext = undefined;
@@ -56,34 +58,45 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !void {
         return;
     };
 
-    // Set up user stack address
-    const user_stack = memory.USER_STACK_BASE + memory.USER_STACK_SIZE - 16;
-
-    // Set up kernel stack for trap handling
-    var kernel_stack: [4096]u8 = undefined;
-    const kernel_sp = @intFromPtr(&kernel_stack) + kernel_stack.len - 8;
-
     uart.puts("[user] Switching to user address space\n");
     uart.puts("[user] User PPN: ");
     uart.putHex(user_ppn);
     uart.puts("\n");
 
-    // Switch to user page table
-    const satp_value = csr.SATP_SV39 | user_ppn;
-    csr.writeSatp(satp_value);
-    csr.sfence_vma();
+    // User page table is now complete with kernel global mappings and user regions
+    uart.puts("[user] User page table ready, switching to U-mode\n");
 
-    uart.puts("[user] Switching to U-mode...\n");
+    const asid: u16 = 0; // Use ASID 0 for simplicity first
+    const satp_value = composeSatp(user_ppn, asid);
+
+    // Set up user stack address
+    const user_stack = memory.USER_STACK_BASE + memory.USER_STACK_SIZE - 16;
+
+    // Get proper kernel stack from high common region
+    const kernel_sp = memory.getKernelStackTop();
+
     uart.puts("[user] Entry: ");
     uart.putHex(memory.USER_CODE_BASE);
     uart.puts(" User stack: ");
     uart.putHex(user_stack);
+    uart.puts(" Kernel stack: ");
+    uart.putHex(kernel_sp);
+    uart.puts(" SATP: ");
+    uart.putHex(satp_value);
     uart.puts("\n");
 
-    // Switch to user mode
-    switch_to_user_mode(memory.USER_CODE_BASE, user_stack, kernel_sp);
+    // Verify kernel stack is properly mapped in user PT
+    if (!test_user_context.verifyMapping(kernel_sp)) {
+        uart.puts("[user] ERROR: Kernel stack not mapped in user PT!\n");
+        return;
+    }
+    uart.puts("[user] Kernel stack mapping verified\n");
 
-    // Should never reach here
+    // CRITICAL: After this call, we switch page tables inside the trampoline
+    // No more UART access until we return via trap or the program exits
+    switch_to_user_mode(memory.USER_CODE_BASE, user_stack, kernel_sp, satp_value);
+
+    // Should never reach here normally (user program exits via system call)
     uart.puts("[user] ERROR: Unexpectedly returned from user mode\n");
 }
 
@@ -94,6 +107,12 @@ pub fn runTests() void {
     // Test the new user memory system
     uart.puts("[user] Testing new user memory system\n");
     testActualUserMode();
+}
+
+// Compose SATP value with proper SV39 mode and ASID
+fn composeSatp(ppn: u64, asid: u16) u64 {
+    const MODE_SV39: u64 = 8;
+    return (MODE_SV39 << 60) | (@as(u64, asid) << 44) | ppn;
 }
 
 fn testActualUserMode() void {

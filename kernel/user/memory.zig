@@ -5,13 +5,17 @@ const types = @import("../memory/types.zig");
 const allocator = @import("../memory/allocator.zig");
 const virtual = @import("../memory/virtual.zig");
 
-// User memory layout constants
-pub const USER_CODE_BASE: u64 = 0x10000000;
+// User memory layout constants (avoid conflicts with MMIO)
+pub const USER_CODE_BASE: u64 = 0x40000000; // Safe user space region
 pub const USER_CODE_SIZE: usize = 16 * types.PAGE_SIZE;
-pub const USER_STACK_BASE: u64 = 0x20000000;
+pub const USER_STACK_BASE: u64 = 0x50000000;
 pub const USER_STACK_SIZE: usize = 16 * types.PAGE_SIZE;
-pub const USER_HEAP_BASE: u64 = 0x30000000;
+pub const USER_HEAP_BASE: u64 = 0x60000000;
 pub const USER_HEAP_SIZE: usize = 16 * types.PAGE_SIZE;
+
+// Kernel stack in kernel region (will be mapped in all page tables)
+pub const KERNEL_STACK_BASE: u64 = 0x87F00000; // Near end of kernel region
+pub const KERNEL_STACK_SIZE: usize = 4 * types.PAGE_SIZE;
 
 const MAX_REGION_PAGES: usize = 16;
 
@@ -87,6 +91,10 @@ pub const UserMemoryContext = struct {
 
     pub fn setupAddressSpace(self: *UserMemoryContext) !void {
         try self.createPageTable();
+
+        // Add kernel mappings for trap handling
+        try self.addKernelMappings();
+
         if (!allocateRegion(&self.code_region)) {
             return error.OutOfMemory;
         }
@@ -102,6 +110,40 @@ pub const UserMemoryContext = struct {
         try self.mapRegion(&self.code_region);
         try self.mapRegion(&self.stack_region);
         try self.mapRegion(&self.heap_region);
+    }
+
+    // Add kernel global mappings to user page table
+    fn addKernelMappings(self: *UserMemoryContext) !void {
+        if (self.page_table == null) return;
+
+        const page_table = &self.page_table.?;
+        try virtual.buildKernelGlobalMappings(page_table);
+    }
+
+    // Map current kernel stack into user page table with extensive range
+    pub fn mapCurrentStack(self: *UserMemoryContext, stack_ptr: u64, stack_size: usize) !void {
+        if (self.page_table == null) return;
+
+        var page_table = &self.page_table.?;
+
+        // Map a much larger range around the stack pointer to be safe
+        const stack_base = (stack_ptr - stack_size) & ~(types.PAGE_SIZE - 1);
+        const stack_end = stack_ptr + stack_size;
+        const pages_needed = ((stack_end - stack_base) + types.PAGE_SIZE - 1) / types.PAGE_SIZE;
+
+        var i: usize = 0;
+        while (i < pages_needed) : (i += 1) {
+            const page_addr = stack_base + (i * types.PAGE_SIZE);
+            try page_table.map(page_addr, page_addr, virtual.PTE_R | virtual.PTE_W | virtual.PTE_G);
+        }
+    }
+
+    // Debug function to verify mappings
+    pub fn verifyMapping(self: *UserMemoryContext, vaddr: u64) bool {
+        if (self.page_table == null) return false;
+
+        var page_table = &self.page_table.?;
+        return page_table.translate(vaddr) != null;
     }
 
     pub fn getPageTablePPN(self: *const UserMemoryContext) ?u64 {
@@ -218,6 +260,28 @@ pub fn copyToRegion(region: *const UserRegion, offset: usize, data: []const u8) 
     return true;
 }
 
+// Global kernel stack storage
+var kernel_stack_frames: [4]?u64 = [_]?u64{null} ** 4;
+
 pub fn init() void {
-    // Initialize user memory management
+    // Allocate physical frames for kernel stack
+    for (0..4) |i| {
+        kernel_stack_frames[i] = allocator.allocFrame();
+    }
+}
+
+// Get kernel stack top address
+pub fn getKernelStackTop() u64 {
+    return KERNEL_STACK_BASE + KERNEL_STACK_SIZE - 8;
+}
+
+// Map kernel stack to any page table (called from buildKernelGlobalMappings)
+pub fn mapKernelStackToPageTable(page_table: *virtual.PageTable) !void {
+    // Map each kernel stack page
+    for (0..4) |i| {
+        if (kernel_stack_frames[i]) |frame| {
+            const vaddr = KERNEL_STACK_BASE + (i * types.PAGE_SIZE);
+            try page_table.map(vaddr, frame, virtual.PTE_R | virtual.PTE_W | virtual.PTE_G);
+        }
+    }
 }
