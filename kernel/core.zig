@@ -4,6 +4,7 @@ const uart = @import("driver/uart/core.zig");
 const proc = @import("process/core.zig");
 const file = @import("file/core.zig");
 const memory = @import("memory/core.zig");
+const trap = @import("trap/core.zig");
 
 // Simple stack allocator for testing
 var stack_memory: [4096 * 4]u8 = undefined;
@@ -41,6 +42,9 @@ pub fn init() noreturn {
     // Initialize process scheduler
     proc.Scheduler.init();
 
+    // Initialize trap handling
+    trap.init();
+
     // Test memory allocator
     testMemorySystem();
 
@@ -52,6 +56,9 @@ pub fn init() noreturn {
 
     // Test process creation
     testProcessSystem();
+
+    // Test user mode system calls
+    testUserMode();
 
     // Hand over control to scheduler
     uart.puts("Handing control to scheduler\n");
@@ -247,4 +254,64 @@ fn testFileSystem() void {
     }
 
     uart.puts("File system test completed\n");
+}
+
+fn testUserMode() void {
+    uart.puts("Testing user mode system calls...\n");
+    
+    // Simple test: make a write syscall from kernel mode
+    // This tests the syscall mechanism without actual user mode switch
+    const test_msg = "Hello from syscall!\n";
+    
+    // Simulate syscall by calling trap handler directly
+    var frame = trap.TrapFrame{
+        .epc = 0,
+        .ra = 0,
+        .gp = 0,
+        .tp = 0,
+        .t0 = 0,
+        .t1 = 0,
+        .t2 = 0,
+        .s0 = 0,
+        .s1 = 0,
+        .a0 = 1, // stdout
+        .a1 = @intFromPtr(test_msg.ptr),
+        .a2 = test_msg.len,
+        .a3 = 0,
+        .a4 = 0,
+        .a5 = 0,
+        .a6 = 0,
+        .a7 = 64, // sys_write
+        .s2 = 0,
+        .s3 = 0,
+        .s4 = 0,
+        .s5 = 0,
+        .s6 = 0,
+        .s7 = 0,
+        .s8 = 0,
+        .s9 = 0,
+        .s10 = 0,
+        .s11 = 0,
+        .t3 = 0,
+        .t4 = 0,
+        .t5 = 0,
+        .t6 = 0,
+        .sp = 0,
+        .cause = 8, // EcallFromUMode
+        .tval = 0,
+    };
+    
+    trap.trapHandler(&frame);
+    
+    if (frame.a0 == test_msg.len) {
+        uart.puts("System call test passed! (bytes written: ");
+        uart.putHex(frame.a0);
+        uart.puts(")\n");
+    } else {
+        uart.puts("System call test failed! (result: ");
+        uart.putHex(frame.a0);
+        uart.puts(")\n");
+    }
+    
+    uart.puts("User mode test completed\n");
 }
