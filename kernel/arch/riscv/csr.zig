@@ -167,6 +167,30 @@ pub inline fn writeSatp(value: u64) void {
     csrw(CSR.satp, value);
 }
 
+pub inline fn readStvec() u64 {
+    return csrr(CSR.stvec);
+}
+
+pub inline fn writeStvec(value: u64) void {
+    csrw(CSR.stvec, value);
+}
+
+pub inline fn readSscratch() u64 {
+    return csrr(CSR.sscratch);
+}
+
+pub inline fn writeSscratch(value: u64) void {
+    csrw(CSR.sscratch, value);
+}
+
+pub inline fn setSstatus(bits: u64) void {
+    csrs(CSR.sstatus, bits);
+}
+
+pub inline fn clearSstatus(bits: u64) void {
+    csrc(CSR.sstatus, bits);
+}
+
 pub inline fn readMhartid() u64 {
     return csrr(CSR.mhartid);
 }
@@ -211,6 +235,14 @@ pub inline fn mret() void {
 pub inline fn ecall() void {
     asm volatile ("ecall");
 }
+
+// Exception codes
+pub const ExceptionCode = enum(u64) {
+    UserEcall = 8,
+    SupervisorEcall = 9,
+    MachineEcall = 11,
+    _,
+};
 
 // Ebreak instruction
 pub inline fn ebreak() void {
