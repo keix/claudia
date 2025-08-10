@@ -193,3 +193,32 @@ pub fn enableMMU() void {
 pub fn getCurrentPageTable() *PageTable {
     return &kernel_page_table;
 }
+
+// Build global kernel mappings for any page table (including user page tables)
+pub fn buildKernelGlobalMappings(page_table: *PageTable) !void {
+    const user_memory = @import("../user/memory.zig");
+
+    // Map kernel text/data/bss (supervisor only, global)
+    var addr: usize = 0x80000000;
+    while (addr < 0x88000000) : (addr += PAGE_SIZE) {
+        try page_table.map(addr, addr, PTE_R | PTE_W | PTE_X | PTE_G);
+    }
+
+    // Map UART (supervisor only, global)
+    try page_table.map(0x10000000, 0x10000000, PTE_R | PTE_W | PTE_G);
+
+    // Map CLINT for timer interrupts (supervisor only, global)
+    var clint_addr: usize = 0x02000000;
+    while (clint_addr < 0x02010000) : (clint_addr += PAGE_SIZE) {
+        try page_table.map(clint_addr, clint_addr, PTE_R | PTE_W | PTE_G);
+    }
+
+    // Map PLIC for external interrupts (supervisor only, global)
+    var plic_addr: usize = 0x0c000000;
+    while (plic_addr < 0x0c600000) : (plic_addr += PAGE_SIZE) {
+        try page_table.map(plic_addr, plic_addr, PTE_R | PTE_W | PTE_G);
+    }
+
+    // Map kernel stack (supervisor only, global) - CRITICAL for trap handling
+    try user_memory.mapKernelStackToPageTable(page_table);
+}

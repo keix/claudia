@@ -6,13 +6,25 @@
 .align 4  # RISC-V requires 4-byte alignment for trap vectors
 
 trap_vector:
-    # Swap sp and sscratch
+    # Check if we came from user mode or kernel mode
+    csrr t0, sstatus
+    andi t0, t0, (1 << 8)  # Check SPP bit
+    bnez t0, kernel_trap   # If SPP=1, came from S-mode (kernel)
+
+user_trap:
+    # Came from user mode - swap sp and sscratch
     # sscratch holds kernel stack pointer when in user mode
     csrrw sp, sscratch, sp
-    
-    # Save all user registers on kernel stack
+    j trap_common
+
+kernel_trap:
+    # Came from kernel mode - don't swap stack, just save sscratch
+    csrrw t0, sscratch, t0  # Save sscratch, restore original value
+
+trap_common:
+    # Save all registers on kernel stack
     addi sp, sp, -264
-    
+
     # Save general purpose registers
     sd ra,   8(sp)
     sd gp,  16(sp)
@@ -44,11 +56,11 @@ trap_vector:
     sd t4, 224(sp)
     sd t5, 232(sp)
     sd t6, 240(sp)
-    
+
     # Save user sp from sscratch
     csrr t0, sscratch
     sd t0, 248(sp)
-    
+
     # Save trap info
     csrr t0, sepc
     csrr t1, scause
@@ -56,19 +68,32 @@ trap_vector:
     sd t0, 0(sp)    # epc at offset 0
     sd t1, 256(sp)  # cause
     sd t2, 264(sp)  # tval
-    
+
     # Call C trap handler
     mv a0, sp  # Pass trap frame pointer
     call trapHandler
-    
+
     # Restore trap info
     ld t0, 0(sp)
     csrw sepc, t0
-    
-    # Restore user sp to sscratch
+
+    # Check if we're returning to user mode or kernel mode
+    csrr t0, sstatus
+    andi t0, t0, (1 << 8)  # Check SPP bit
+    bnez t0, kernel_return  # If SPP=1, returning to S-mode (kernel)
+
+user_return:
+    # Returning to user mode - restore user sp to sscratch
     ld t0, 248(sp)
     csrw sscratch, t0
-    
+    j restore_regs
+
+kernel_return:
+    # Returning to kernel mode - sscratch should keep kernel stack
+    # Don't modify sscratch
+
+restore_regs:
+
     # Restore general purpose registers
     ld ra,   8(sp)
     ld gp,  16(sp)
@@ -100,13 +125,19 @@ trap_vector:
     ld t4, 224(sp)
     ld t5, 232(sp)
     ld t6, 240(sp)
-    
+
     addi sp, sp, 264
-    
-    # Swap sp and sscratch again
+
+    # Check if we're returning to user mode
+    csrr t0, sstatus
+    andi t0, t0, (1 << 8)  # Check SPP bit
+    bnez t0, kernel_sret   # If SPP=1, returning to kernel - don't swap stacks
+
+    # Returning to user mode - swap sp and sscratch again
     csrrw sp, sscratch, sp
-    
-    # Return to user mode
+
+kernel_sret:
+    # Return to user or kernel mode
     sret
 
 # Make trap_vector accessible from Zig
