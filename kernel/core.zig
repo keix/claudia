@@ -265,23 +265,23 @@ fn testFileSystem() void {
 
 fn testUserMode() void {
     uart.puts("Testing user mode system calls...\n");
-    
+
     // Simple test: make a write syscall from kernel mode
     // This tests the syscall mechanism without actual user mode switch
     const test_msg = "Hello from syscall!\n";
-    
+
     // Simulate syscall by calling trap handler directly
     var frame = std.mem.zeroes(trap.TrapFrame);
-    
+
     // Set only the required fields for this test
     frame.a0 = 1; // stdout
     frame.a1 = @intFromPtr(test_msg.ptr);
     frame.a2 = test_msg.len;
     frame.a7 = 64; // sys_write
     frame.cause = 8; // EcallFromUMode
-    
+
     trap.trapHandler(&frame);
-    
+
     if (frame.a0 == test_msg.len) {
         uart.puts("System call test passed! (bytes written: ");
         uart.putHex(frame.a0);
@@ -291,6 +291,6 @@ fn testUserMode() void {
         uart.putHex(frame.a0);
         uart.puts(")\n");
     }
-    
+
     uart.puts("User mode test completed\n");
 }
