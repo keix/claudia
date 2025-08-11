@@ -6,6 +6,7 @@ const csr = @import("../arch/riscv/csr.zig");
 const uart = @import("../driver/uart/core.zig");
 const proc = @import("../process/core.zig");
 const file = @import("../file/core.zig");
+const defs = @import("abi");
 
 // Import trap vector from assembly
 extern const trap_vector: u8;
@@ -155,7 +156,7 @@ fn syscallHandler(frame: *TrapFrame) void {
             uart.puts("[syscall] Unknown syscall: ");
             uart.putHex(syscall_num);
             uart.puts("\n");
-            frame.a0 = @bitCast(@as(isize, -38)); // ENOSYS
+            frame.a0 = @bitCast(defs.ENOSYS);
         },
     }
 }
@@ -165,7 +166,7 @@ fn sysWrite(fd: usize, buf: [*]const u8, len: usize) isize {
     // Validate buffer address (basic check)
     const buf_addr = @intFromPtr(buf);
     if (buf_addr < 0x10000) {
-        return -14; // EFAULT
+        return defs.EFAULT;
     }
 
     uart.puts("[syscall] sysWrite: fd=");
@@ -202,7 +203,7 @@ fn sysWrite(fd: usize, buf: [*]const u8, len: usize) isize {
         return result;
     }
 
-    return -9; // EBADF
+    return defs.EBADF;
 }
 
 fn sysExit(code: i32) noreturn {

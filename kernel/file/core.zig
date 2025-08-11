@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const uart = @import("../driver/uart/core.zig");
+const defs = @import("abi");
 
 // Import submodules
 pub const types = @import("types.zig");
@@ -89,7 +90,7 @@ fn consoleRead(file: *File, buffer: []u8) isize {
     _ = file;
     _ = buffer;
     // Console read not implemented (would need keyboard input)
-    return -1; // ENOSYS
+    return defs.ENOSYS;
 }
 
 fn consoleWrite(file: *File, data: []const u8) isize {
@@ -168,24 +169,24 @@ pub const FileTable = struct {
         if (getFile(fd)) |file| {
             return file.read(buffer);
         }
-        return -9; // EBADF - bad file descriptor
+        return defs.EBADF;
     }
 
     pub fn sysWrite(fd: FD, data: []const u8) isize {
         if (getFile(fd)) |file| {
             return file.write(data);
         }
-        return -9; // EBADF - bad file descriptor
+        return defs.EBADF;
     }
 
     pub fn sysClose(fd: FD) isize {
         if (fd < 0 or fd >= MAX_FDS) {
-            return -9; // EBADF
+            return defs.EBADF;
         }
 
         // Don't allow closing standard descriptors
         if (fd <= 2) {
-            return -16; // EBUSY
+            return defs.EBUSY;
         }
 
         closeFd(fd);
