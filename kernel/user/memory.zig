@@ -5,17 +5,15 @@ const types = @import("../memory/types.zig");
 const allocator = @import("../memory/allocator.zig");
 const virtual = @import("../memory/virtual.zig");
 
-// User memory layout constants (avoid conflicts with MMIO)
-pub const USER_CODE_BASE: u64 = 0x40000000; // Safe user space region
-pub const USER_CODE_SIZE: usize = 16 * types.PAGE_SIZE;
-pub const USER_STACK_BASE: u64 = 0x50000000;
-pub const USER_STACK_SIZE: usize = 16 * types.PAGE_SIZE;
-pub const USER_HEAP_BASE: u64 = 0x60000000;
-pub const USER_HEAP_SIZE: usize = 16 * types.PAGE_SIZE;
-
-// Kernel stack in kernel region (will be mapped in all page tables)
-pub const KERNEL_STACK_BASE: u64 = 0x87F00000; // Near end of kernel region
-pub const KERNEL_STACK_SIZE: usize = 4 * types.PAGE_SIZE;
+// Import memory layout constants from types.zig
+pub const USER_CODE_BASE = types.USER_CODE_BASE;
+pub const USER_CODE_SIZE = types.USER_CODE_SIZE;
+pub const USER_STACK_BASE = types.USER_STACK_BASE;
+pub const USER_STACK_SIZE = types.USER_STACK_SIZE;
+pub const USER_HEAP_BASE = types.USER_HEAP_BASE;
+pub const USER_HEAP_SIZE = types.USER_HEAP_SIZE;
+pub const KERNEL_STACK_BASE = types.KERNEL_STACK_BASE;
+pub const KERNEL_STACK_SIZE = types.KERNEL_STACK_SIZE;
 
 const MAX_REGION_PAGES: usize = 16;
 
@@ -30,7 +28,7 @@ pub const UserMemoryContext = struct {
     code_region: UserRegion,
     stack_region: UserRegion,
     heap_region: UserRegion,
-    page_table: ?virtual.PageTable,
+    page_table: ?*virtual.PageTable,
 
     pub fn init() UserMemoryContext {
         return UserMemoryContext{
@@ -64,12 +62,14 @@ pub const UserMemoryContext = struct {
             return;
         }
 
-        var new_page_table = virtual.PageTable{
-            .root_ppn = 0,
-        };
+        // Allocate PageTable struct from kernel heap
+        const kalloc = @import("../memory/kalloc.zig");
+        const pt_ptr = try kalloc.kcreate(virtual.PageTable);
 
-        try new_page_table.init();
-        self.page_table = new_page_table;
+        // Initialize the PageTable struct
+        // init() will allocate the root page internally
+        try pt_ptr.init();
+        self.page_table = pt_ptr;
     }
 
     pub fn mapRegion(self: *UserMemoryContext, region: *const UserRegion) !void {
@@ -77,12 +77,12 @@ pub const UserMemoryContext = struct {
             return;
         }
 
-        var page_table = &self.page_table.?;
+        const page_table = self.page_table.?;
         const page_count = (region.size + types.PAGE_SIZE - 1) / types.PAGE_SIZE;
         var i: usize = 0;
 
         while (i < page_count) : (i += 1) {
-            const virtual_addr = region.virtual_base + (i * types.PAGE_SIZE);
+            const virtual_addr = region.virtual_base + @as(u64, @intCast(i * types.PAGE_SIZE));
             const physical_frame = region.physical_frames[i] orelse continue;
 
             try page_table.map(virtual_addr, physical_frame, region.permissions);
@@ -113,41 +113,42 @@ pub const UserMemoryContext = struct {
     }
 
     // Add kernel global mappings to user page table
+    // This includes: kernel text/data/bss, MMIO, trampoline, AND kernel stack
     fn addKernelMappings(self: *UserMemoryContext) !void {
         if (self.page_table == null) return;
 
-        const page_table = &self.page_table.?;
+        const page_table = self.page_table.?;
+
+        // Build all kernel global mappings
         try virtual.buildKernelGlobalMappings(page_table);
+
+        // Explicitly ensure kernel stack is mapped (defensive programming)
+        // This is redundant as buildKernelGlobalMappings() already calls it,
+        // but ensures kernel stack is always accessible from trap handler
+        try mapKernelStackToPageTable(page_table);
     }
 
-    // Map current kernel stack into user page table with extensive range
+    // DEPRECATED: Old approach - used dynamic stack mapping instead of fixed kernel stack
+    // Now superseded by mapKernelStackToPageTable() in buildKernelGlobalMappings()
+    // TODO: Remove this function entirely once confirmed unused
     pub fn mapCurrentStack(self: *UserMemoryContext, stack_ptr: u64, stack_size: usize) !void {
-        if (self.page_table == null) return;
-
-        var page_table = &self.page_table.?;
-
-        // Map a much larger range around the stack pointer to be safe
-        const stack_base = (stack_ptr - stack_size) & ~(types.PAGE_SIZE - 1);
-        const stack_end = stack_ptr + stack_size;
-        const pages_needed = ((stack_end - stack_base) + types.PAGE_SIZE - 1) / types.PAGE_SIZE;
-
-        var i: usize = 0;
-        while (i < pages_needed) : (i += 1) {
-            const page_addr = stack_base + (i * types.PAGE_SIZE);
-            try page_table.map(page_addr, page_addr, virtual.PTE_R | virtual.PTE_W | virtual.PTE_G);
-        }
+        _ = self;
+        _ = stack_ptr;
+        _ = stack_size; // Silence unused parameter warnings
+        // NO-OP: This function is deprecated and should not be used
+        return;
     }
 
     // Debug function to verify mappings
     pub fn verifyMapping(self: *UserMemoryContext, vaddr: u64) bool {
         if (self.page_table == null) return false;
 
-        var page_table = &self.page_table.?;
+        const page_table = self.page_table.?;
         return page_table.translate(vaddr) != null;
     }
 
     pub fn getPageTablePPN(self: *const UserMemoryContext) ?u64 {
-        if (self.page_table) |*pt| {
+        if (self.page_table) |pt| {
             return pt.root_ppn;
         }
         return null;
@@ -158,8 +159,13 @@ pub const UserMemoryContext = struct {
         deallocateRegion(&self.stack_region);
         deallocateRegion(&self.heap_region);
 
-        if (self.page_table) |*pt| {
-            _ = pt; // TODO: Free page table pages
+        if (self.page_table) |pt| {
+            // First deinit the page table (frees internal pages)
+            pt.deinit();
+
+            // Then free the page table struct itself
+            const kalloc = @import("../memory/kalloc.zig");
+            kalloc.kdestroy(pt);
         }
         self.page_table = null;
     }
@@ -217,14 +223,14 @@ pub fn getPhysicalAddress(region: *const UserRegion, virtual_addr: u64) ?u64 {
     }
 
     if (virtual_addr < region.virtual_base or
-        virtual_addr >= region.virtual_base + region.size)
+        virtual_addr >= region.virtual_base + @as(u64, region.size))
     {
         return null;
     }
 
     const offset = virtual_addr - region.virtual_base;
-    const frame_index = offset / types.PAGE_SIZE;
-    const page_offset = offset % types.PAGE_SIZE;
+    const frame_index = @as(usize, @intCast(offset / types.PAGE_SIZE));
+    const page_offset = @as(usize, @intCast(offset % types.PAGE_SIZE));
 
     if (frame_index >= region.physical_frames.len) {
         return null;
@@ -237,6 +243,10 @@ pub fn getPhysicalAddress(region: *const UserRegion, virtual_addr: u64) ?u64 {
     return null;
 }
 
+// FIXME: Uses physical direct access assuming kernel VA=PA identity mapping
+// This will break when kernel moves to high-only mapping. Need to replace with:
+// A) Temporary kernel mapping window (kmap/kunmap), or
+// B) Switch to kernel PT temporarily during copy
 pub fn copyToRegion(region: *const UserRegion, offset: usize, data: []const u8) bool {
     if (!region.allocated or offset + data.len > region.size) {
         return false;
@@ -244,13 +254,14 @@ pub fn copyToRegion(region: *const UserRegion, offset: usize, data: []const u8) 
 
     var bytes_copied: usize = 0;
     while (bytes_copied < data.len) {
-        const virtual_addr = region.virtual_base + offset + bytes_copied;
+        const virtual_addr = region.virtual_base + @as(u64, @intCast(offset + bytes_copied));
         const physical_addr = getPhysicalAddress(region, virtual_addr) orelse return false;
 
         // Handle page boundary crossing
         const page_offset = (offset + bytes_copied) % types.PAGE_SIZE;
         const bytes_in_page = @min(types.PAGE_SIZE - page_offset, data.len - bytes_copied);
 
+        // WARNING: Direct physical access - assumes kernel VA=PA identity mapping
         const dest = @as([*]u8, @ptrFromInt(physical_addr));
         @memcpy(dest[0..bytes_in_page], data[bytes_copied .. bytes_copied + bytes_in_page]);
 
@@ -260,7 +271,9 @@ pub fn copyToRegion(region: *const UserRegion, offset: usize, data: []const u8) 
     return true;
 }
 
-// Global kernel stack storage
+// FIXME: Global kernel stack storage - single stack for all processes
+// This will cause conflicts when multiple processes run concurrently.
+// Future: Move to per-process kernel stack in PCB (Process Control Block)
 var kernel_stack_frames: [4]?u64 = [_]?u64{null} ** 4;
 
 pub fn init() void {
@@ -270,7 +283,8 @@ pub fn init() void {
     }
 }
 
-// Get kernel stack top address
+// Get kernel stack top address from common kernel high mapping
+// Returns VA in kernel region (0x87F00000+), NOT a local array address
 pub fn getKernelStackTop() u64 {
     return KERNEL_STACK_BASE + KERNEL_STACK_SIZE - 8;
 }
@@ -280,8 +294,8 @@ pub fn mapKernelStackToPageTable(page_table: *virtual.PageTable) !void {
     // Map each kernel stack page
     for (0..4) |i| {
         if (kernel_stack_frames[i]) |frame| {
-            const vaddr = KERNEL_STACK_BASE + (i * types.PAGE_SIZE);
-            try page_table.map(vaddr, frame, virtual.PTE_R | virtual.PTE_W | virtual.PTE_G);
+            const vaddr = KERNEL_STACK_BASE + @as(u64, @intCast(i * types.PAGE_SIZE));
+            try page_table.map(vaddr, frame, virtual.PTE_R | virtual.PTE_W | virtual.PTE_G); // U=0: kernel only
         }
     }
 }

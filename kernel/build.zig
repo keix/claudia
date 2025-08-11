@@ -28,6 +28,11 @@ pub fn build(b: *std.Build) void {
     kernel.setLinkerScript(b.path("arch/riscv/linker.ld"));
     kernel.linkage = .static;
 
+    // Add ABI directory to module path
+    kernel.root_module.addAnonymousImport("abi", .{
+        .root_source_file = b.path("../abi/defs.zig"),
+    });
+
     // RISC-V specific: use medany code model for position-independent addressing
     kernel.root_module.code_model = .medium;
 

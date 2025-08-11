@@ -37,6 +37,15 @@ pub fn init() noreturn {
         while (true) {}
     };
 
+    // Initialize kernel heap before enabling MMU
+    const kalloc = @import("memory/kalloc.zig");
+    kalloc.init() catch |err| {
+        uart.puts("Failed to initialize kernel heap: ");
+        uart.putHex(@intFromError(err));
+        uart.puts("\n");
+        while (true) {}
+    };
+
     // Initialize file system
     file.FileTable.init();
 

@@ -1,33 +1,32 @@
 const syscall = @import("syscall");
 const sysno = @import("sysno");
+const defs = @import("defs");
 
-// File open flags (can be ORed together)
-pub const O_RDONLY: usize = 0; // open for reading only
-pub const O_WRONLY: usize = 1; // open for writing only
-pub const O_RDWR: usize = 2; // open for reading and writing
-pub const O_CREAT: usize = 64; // create file if it does not exist
-pub const O_EXCL: usize = 128; // error if O_CREAT and file exists
-pub const O_TRUNC: usize = 512; // truncate file to zero length if it exists
-pub const O_APPEND: usize = 1024; // append on each write
-pub const O_NONBLOCK: usize = 2048; // non-blocking mode
-pub const O_DIRECTORY: usize = 65536; // fail if not a directory
-pub const O_CLOEXEC: usize = 524288; // close on exec
+// Re-export flags from abi/defs.zig
+pub const O_RDONLY = defs.O_RDONLY;
+pub const O_WRONLY = defs.O_WRONLY;
+pub const O_RDWR = defs.O_RDWR;
+pub const O_CREAT = defs.O_CREAT;
+pub const O_EXCL = defs.O_EXCL;
+pub const O_TRUNC = defs.O_TRUNC;
+pub const O_APPEND = defs.O_APPEND;
+pub const O_NONBLOCK = defs.O_NONBLOCK;
+pub const O_DIRECTORY = defs.O_DIRECTORY;
+pub const O_CLOEXEC = defs.O_CLOEXEC;
 
-// File mode (permission bits)
-pub const S_IRWXU: usize = 0o700; // read, write, execute: owner
-pub const S_IRUSR: usize = 0o400; // read: owner
-pub const S_IWUSR: usize = 0o200; // write: owner
-pub const S_IXUSR: usize = 0o100; // execute: owner
-
-pub const S_IRWXG: usize = 0o070; // read, write, execute: group
-pub const S_IRGRP: usize = 0o040; // read: group
-pub const S_IWGRP: usize = 0o020; // write: group
-pub const S_IXGRP: usize = 0o010; // execute: group
-
-pub const S_IRWXO: usize = 0o007; // read, write, execute: others
-pub const S_IROTH: usize = 0o004; // read: others
-pub const S_IWOTH: usize = 0o002; // write: others
-pub const S_IXOTH: usize = 0o001; // execute: others
+// Re-export file mode bits from abi/defs.zig
+pub const S_IRWXU = defs.S_IRWXU;
+pub const S_IRUSR = defs.S_IRUSR;
+pub const S_IWUSR = defs.S_IWUSR;
+pub const S_IXUSR = defs.S_IXUSR;
+pub const S_IRWXG = defs.S_IRWXG;
+pub const S_IRGRP = defs.S_IRGRP;
+pub const S_IWGRP = defs.S_IWGRP;
+pub const S_IXGRP = defs.S_IXGRP;
+pub const S_IRWXO = defs.S_IRWXO;
+pub const S_IROTH = defs.S_IROTH;
+pub const S_IWOTH = defs.S_IWOTH;
+pub const S_IXOTH = defs.S_IXOTH;
 
 // Special value for openat to use current working directory
 pub const AT_FDCWD: isize = -100;

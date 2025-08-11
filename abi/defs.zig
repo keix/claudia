@@ -33,3 +33,9 @@ pub const S_IXOTH = 0o001; // others: execute
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
+
+// Error codes (errno values)
+pub const ENOSYS: isize = -38; // Function not implemented
+pub const EBADF: isize = -9; // Bad file descriptor
+pub const EFAULT: isize = -14; // Bad address
+pub const EBUSY: isize = -16; // Device or resource busy
