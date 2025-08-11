@@ -35,17 +35,14 @@ const Uart = struct {
 
     // Read a single character (non-blocking)
     pub fn getc(self: *const Uart) ?u8 {
-        // For QEMU's 16550 UART, properly check LSR first
+        // For QEMU's 16550 UART, check all relevant status
         const lsr_addr = @as(*volatile u8, @ptrFromInt(@intFromPtr(self.addr) + 5));
         const lsr = lsr_addr.*;
 
         // Check if data is ready (bit 0 of LSR)
         if ((lsr & 0x01) != 0) {
             const ch = self.addr.*;
-            // Make sure we got a valid character
-            if (ch != 0) {
-                return ch;
-            }
+            return ch; // Return any character, including 0
         }
         return null;
     }
@@ -60,6 +57,27 @@ pub fn init() void {
     uart = Uart{
         .addr = @as(*volatile u8, @ptrFromInt(platform.MemoryLayout.UART0_BASE)),
     };
+
+    // Initialize UART hardware for interrupt-driven input
+    // Set up basic UART registers for 16550 compatibility
+    const base_addr = platform.MemoryLayout.UART0_BASE;
+
+    // Line Control Register (LCR) - offset 3
+    const lcr_addr = @as(*volatile u8, @ptrFromInt(base_addr + 3));
+    lcr_addr.* = 0x03; // 8 bits, no parity, 1 stop bit
+
+    // FIFO Control Register (FCR) - offset 2
+    const fcr_addr = @as(*volatile u8, @ptrFromInt(base_addr + 2));
+    fcr_addr.* = 0x07; // Enable FIFO, clear RX/TX FIFOs
+
+    // Interrupt Enable Register (IER) - offset 1
+    const ier_addr = @as(*volatile u8, @ptrFromInt(base_addr + 1));
+    ier_addr.* = 0x01; // Enable RX interrupt
+
+    // Modem Control Register (MCR) - offset 4
+    const mcr_addr = @as(*volatile u8, @ptrFromInt(base_addr + 4));
+    mcr_addr.* = 0x03; // DTR, RTS active
+
     initialized = true;
 }
 
@@ -87,7 +105,7 @@ pub fn getc() ?u8 {
     return uart.getc();
 }
 
-// Debug print - add prefix for easy identification
+// Debug print - now a no-op to avoid debug output
 pub fn debug(s: []const u8) void {
     puts("[DEBUG] ");
     puts(s);

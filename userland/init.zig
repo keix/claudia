@@ -32,7 +32,14 @@ export fn _start() noreturn {
         var pos: usize = 0;
         while (pos < buffer.len - 1) {
             const result = read_char(&buffer[pos]);
-            if (result <= 0) break;
+            if (result <= 0) {
+                // No input available, add small delay to avoid spinning
+                var delay: u32 = 0;
+                while (delay < 1000) : (delay += 1) {
+                    // Small busy-wait delay
+                }
+                continue;
+            }
 
             const ch = buffer[pos];
 

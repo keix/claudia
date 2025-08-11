@@ -151,9 +151,42 @@ pub export fn trapHandler(frame: *TrapFrame) void {
 
 fn interruptHandler(frame: *TrapFrame, code: u64) void {
     _ = frame;
-    uart.puts("[trap] Unhandled interrupt: ");
-    uart.putHex(code);
-    uart.puts("\n");
+    switch (code) {
+        csr.Interrupt.SupervisorExternal => {
+            // Handle external interrupt via PLIC
+            handlePLICInterrupt();
+        },
+        else => {
+            uart.puts("[trap] Unhandled interrupt: ");
+            uart.putHex(code);
+            uart.puts("\n");
+        },
+    }
+}
+
+fn handlePLICInterrupt() void {
+    // PLIC addresses
+    const PLIC_BASE: u64 = 0x0c000000;
+    const PLIC_CLAIM = PLIC_BASE + 0x200004; // Hart 0, context 1 claim/complete
+
+    // Claim the interrupt
+    const claim_addr = @as(*volatile u32, @ptrFromInt(PLIC_CLAIM));
+    const irq = claim_addr.*;
+
+    if (irq == 10) { // UART IRQ
+        // uart.debug("[PLIC] UART interrupt claimed\n");
+        file.uart_isr();
+
+        // Complete the interrupt
+        claim_addr.* = irq;
+    } else if (irq != 0) {
+        uart.puts("[PLIC] Unknown interrupt: ");
+        uart.putHex(irq);
+        uart.puts("\n");
+
+        // Complete the interrupt anyway
+        claim_addr.* = irq;
+    }
 }
 
 fn exceptionHandler(frame: *TrapFrame, code: u64) void {

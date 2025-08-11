@@ -349,3 +349,12 @@ pub const SATP_SV39: u64 = 8 << 60;
 pub inline fn makeSatp(mode: u64, ppn: u64) u64 {
     return mode | ppn;
 }
+
+// Enable/disable interrupts
+pub inline fn enableInterrupts() void {
+    setSstatus(SSTATUS.SIE);
+}
+
+pub inline fn disableInterrupts() void {
+    clearSstatus(SSTATUS.SIE);
+}

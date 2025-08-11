@@ -4,6 +4,7 @@
 const std = @import("std");
 const uart = @import("../driver/uart/core.zig");
 const defs = @import("abi");
+const proc = @import("../process/core.zig");
 
 // Import submodules
 pub const types = @import("types.zig");
@@ -79,6 +80,96 @@ pub const File = struct {
     }
 };
 
+// TTY structure with input buffer and wait queue
+const RingBuffer = struct {
+    buffer: [256]u8,
+    head: usize,
+    tail: usize,
+
+    fn init() RingBuffer {
+        return RingBuffer{
+            .buffer = std.mem.zeroes([256]u8),
+            .head = 0,
+            .tail = 0,
+        };
+    }
+
+    fn isEmpty(self: *const RingBuffer) bool {
+        return self.head == self.tail;
+    }
+
+    fn isFull(self: *const RingBuffer) bool {
+        return (self.head + 1) % self.buffer.len == self.tail;
+    }
+
+    fn put(self: *RingBuffer, ch: u8) bool {
+        if (self.isFull()) return false;
+        self.buffer[self.head] = ch;
+        self.head = (self.head + 1) % self.buffer.len;
+        return true;
+    }
+
+    fn get(self: *RingBuffer) ?u8 {
+        if (self.isEmpty()) return null;
+        const ch = self.buffer[self.tail];
+        self.tail = (self.tail + 1) % self.buffer.len;
+        return ch;
+    }
+};
+
+const TTY = struct {
+    input_buffer: RingBuffer,
+    read_wait: proc.WaitQ,
+
+    fn init() TTY {
+        return TTY{
+            .input_buffer = RingBuffer.init(),
+            .read_wait = proc.WaitQ.init(),
+        };
+    }
+
+    fn putChar(self: *TTY, ch: u8) void {
+        if (self.input_buffer.put(ch)) {
+            // Wake up any processes waiting for input
+            proc.Scheduler.wakeAll(&self.read_wait);
+        }
+    }
+
+    fn getChar(self: *TTY) ?u8 {
+        return self.input_buffer.get();
+    }
+};
+
+var console_tty = TTY.init();
+
+// Global counters for lost-wakeup debugging
+var isr_rx_count: u32 = 0;
+var read_consumed_count: u32 = 0;
+var loop_counter: u32 = 0;
+
+// UART interrupt handler to feed TTY - drain FIFO completely
+pub fn uart_isr() void {
+    uart.debug("UART ISR triggered\n");
+
+    // Drain RX FIFO completely - critical for preventing lost chars
+    while (uart.getc()) |ch| {
+        uart.debug("UART ISR received char: ");
+        uart.putHex(ch);
+        uart.debug("\n");
+
+        // Feed directly to TTY ring buffer
+        if (console_tty.input_buffer.put(ch)) {
+            isr_rx_count += 1;
+        }
+        // If ring buffer full, drop character (could log this)
+    }
+
+    // Always wake all processes waiting on console input
+    // Even if no characters were successfully put (ring might be full)
+    // uart.debug("UART ISR waking processes\n");
+    proc.Scheduler.wakeAll(&console_tty.read_wait);
+}
+
 // Console device operations (stdout/stderr)
 const ConsoleOperations = FileOperations{
     .read = consoleRead,
@@ -88,22 +179,30 @@ const ConsoleOperations = FileOperations{
 
 fn consoleRead(file: *File, buffer: []u8) isize {
     _ = file;
+
     if (buffer.len == 0) return 0;
 
-    // Block until input is available
+    const copy = @import("../user/copy.zig");
+    const user_addr = @intFromPtr(buffer.ptr);
+
+    // Input mode: Check TTY buffer and UART directly
     while (true) {
-        if (uart.getc()) |ch| {
-            // Use copyout to safely copy to user space
-            const copy = @import("../user/copy.zig");
-            const user_addr = @intFromPtr(buffer.ptr);
+        // Check TTY buffer first
+        if (console_tty.getChar()) |ch| {
             const char_buf = [1]u8{ch};
-
-            _ = copy.copyout(user_addr, &char_buf) catch {
-                return -1; // Return error if copy fails
-            };
-
+            _ = copy.copyout(user_addr, &char_buf) catch return -defs.EFAULT;
             return 1;
         }
+
+        // Check UART directly
+        if (uart.getc()) |ch| {
+            const char_buf = [1]u8{ch};
+            _ = copy.copyout(user_addr, &char_buf) catch return -defs.EFAULT;
+            return 1;
+        }
+
+        // No input available, yield to prevent 100% CPU
+        proc.Scheduler.yield();
     }
 }
 
