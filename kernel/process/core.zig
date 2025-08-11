@@ -4,9 +4,13 @@
 const std = @import("std");
 const csr = @import("../arch/riscv/csr.zig");
 const uart = @import("../driver/uart/core.zig");
+const trap = @import("../trap/core.zig");
 
 // Process ID type
 pub const PID = u32;
+
+// External assembly function for context switching
+extern fn context_switch(old_context: *Context, new_context: *Context) void;
 
 // Process states
 pub const ProcessState = enum {
@@ -27,44 +31,23 @@ pub const WaitQ = struct {
     }
 };
 
-// RISC-V CPU context for process switching
+// RISC-V CPU context for process switching (callee-saved registers only)
+// Matches the layout expected by context.S
 pub const Context = struct {
-    // General purpose registers
-    ra: u64, // x1 - return address
-    sp: u64, // x2 - stack pointer
-    gp: u64, // x3 - global pointer
-    tp: u64, // x4 - thread pointer
-    t0: u64, // x5 - temporary
-    t1: u64, // x6 - temporary
-    t2: u64, // x7 - temporary
-    s0: u64, // x8 - saved register / frame pointer
-    s1: u64, // x9 - saved register
-    a0: u64, // x10 - argument/return value
-    a1: u64, // x11 - argument/return value
-    a2: u64, // x12 - argument
-    a3: u64, // x13 - argument
-    a4: u64, // x14 - argument
-    a5: u64, // x15 - argument
-    a6: u64, // x16 - argument
-    a7: u64, // x17 - argument
-    s2: u64, // x18 - saved register
-    s3: u64, // x19 - saved register
-    s4: u64, // x20 - saved register
-    s5: u64, // x21 - saved register
-    s6: u64, // x22 - saved register
-    s7: u64, // x23 - saved register
-    s8: u64, // x24 - saved register
-    s9: u64, // x25 - saved register
+    ra: u64,  // x1 - return address
+    sp: u64,  // x2 - stack pointer  
+    s0: u64,  // x8 - saved register / frame pointer
+    s1: u64,  // x9 - saved register
+    s2: u64,  // x18 - saved register
+    s3: u64,  // x19 - saved register
+    s4: u64,  // x20 - saved register
+    s5: u64,  // x21 - saved register
+    s6: u64,  // x22 - saved register
+    s7: u64,  // x23 - saved register
+    s8: u64,  // x24 - saved register
+    s9: u64,  // x25 - saved register
     s10: u64, // x26 - saved register
     s11: u64, // x27 - saved register
-    t3: u64, // x28 - temporary
-    t4: u64, // x29 - temporary
-    t5: u64, // x30 - temporary
-    t6: u64, // x31 - temporary
-
-    // Control and status registers
-    sepc: u64, // Supervisor exception program counter
-    sstatus: u64, // Supervisor status register
 
     pub fn zero() Context {
         return std.mem.zeroes(Context);
@@ -75,7 +58,8 @@ pub const Context = struct {
 pub const Process = struct {
     pid: PID, // Process ID
     state: ProcessState, // Process state
-    context: Context, // CPU context for switching
+    context: Context, // CPU context for kernel-level switching
+    user_frame: ?*trap.TrapFrame, // User mode trap frame (null for kernel processes)
     stack: []u8, // Process stack
     name: [16]u8, // Process name (null-terminated)
     parent: ?*Process, // Parent process
@@ -89,6 +73,7 @@ pub const Process = struct {
             .pid = pid,
             .state = .EMBRYO,
             .context = Context.zero(),
+            .user_frame = null,
             .stack = stack,
             .name = std.mem.zeroes([16]u8),
             .parent = null,
@@ -100,6 +85,23 @@ pub const Process = struct {
         const copy_len = @min(name.len, 15);
         @memcpy(proc.name[0..copy_len], name[0..copy_len]);
         proc.name[copy_len] = 0;
+
+        // Debug: verify name was copied
+        uart.puts("Process.init: copying name '");
+        uart.puts(name);
+        uart.puts("' (len=");
+        uart.putHex(name.len);
+        uart.puts(") to process ");
+        uart.putHex(pid);
+        uart.puts("\n");
+
+        // Initialize context for new process
+        initProcessContext(&proc);
+
+        // Debug: verify name after context init
+        uart.puts("Process.init: final name '");
+        uart.puts(proc.getName());
+        uart.puts("'\n");
 
         return proc;
     }
@@ -214,11 +216,19 @@ pub const Scheduler = struct {
 
         // Get next runnable process
         if (dequeueRunnable()) |next_proc| {
+            const old_proc = current_process;
             next_proc.state = .RUNNING;
             current_process = next_proc;
 
-            // TODO: Actual context switch
-            switchToProcess(next_proc);
+            // Perform actual context switch
+            if (old_proc) |old| {
+                old.state = .RUNNABLE; // Put old process back to runnable if it wasn't sleeping
+                context_switch(&old.context, &next_proc.context);
+            } else {
+                // No previous process - this is the first process
+                // Call the process entry point directly
+                jumpToProcess(next_proc);
+            }
             return next_proc;
         } else {
             // No runnable processes, idle
@@ -297,33 +307,92 @@ pub const Scheduler = struct {
 
     // Request scheduler to run (e.g., from timer interrupt)
     pub fn yield() void {
-        // In a real implementation, this would be called from:
-        // - Timer interrupt handler
-        // - System call that should yield CPU
-        // - Voluntary yield from current process
-        _ = schedule();
+        if (current_process) |proc| {
+            // Put current process back to runnable state
+            proc.state = .RUNNABLE;
+            makeRunnable(proc);
+            
+            // Schedule next process
+            _ = schedule();
+        }
     }
 };
 
-// Context switching (simplified implementation)
-fn switchToProcess(proc: *Process) void {
+// Jump to a process directly (for first process startup)
+fn jumpToProcess(proc: *Process) noreturn {
+    uart.puts("Starting first process: ");
+    uart.puts(proc.getName());
+    uart.puts("\n");
+    
+    // Call processEntryPoint directly with the process pointer
+    // This avoids the complexity of register passing
+    processEntryPointWithProc(proc);
+}
 
-    // For sleeping processes, don't actually run them - just yield
-    if (proc.state == .SLEEPING) {
-        return;
-    }
-
-    // For init process, switch to user mode
-    if (std.mem.eql(u8, proc.getName(), "init")) {
-
-        // Import user module to access switch_to_user_mode
+// Entry point for process with direct pointer passing
+fn processEntryPointWithProc(proc: *Process) noreturn {
+    uart.puts("Process entry point reached\n");
+    uart.puts("Process name: '");
+    uart.puts(proc.getName());
+    uart.puts("'\n");
+    
+    // Run process-specific code based on process name
+    const name = proc.getName();
+    if (std.mem.eql(u8, name, "init")) {
+        uart.puts("Running init process\n");
         const user = @import("../user/core.zig");
-
-        // Call user mode setup (this will run the shell)
         user.runTests();
-
-        // If we return here, the user process has exited
-        proc.state = .ZOMBIE;
-        proc.exit_code = 0;
+    } else {
+        // Generic process - just print and exit
+        uart.puts("Running generic process\n");
+    }
+    
+    // Process finished - mark as zombie and yield
+    uart.puts("Process finished\n");
+    proc.state = .ZOMBIE;
+    proc.exit_code = 0;
+    
+    // Yield to scheduler
+    Scheduler.yield();
+    
+    // Should never reach here
+    while (true) {
+        csr.wfi();
     }
 }
+
+// Initialize process context for context switching
+fn initProcessContext(proc: *Process) void {
+    // Set up stack pointer to top of allocated stack (grows downward)
+    proc.context.sp = @intFromPtr(proc.stack.ptr) + proc.stack.len - 16;
+    
+    // Set return address to process entry point
+    proc.context.ra = @intFromPtr(&processEntryPoint);
+    
+    // Initialize all callee-saved registers to zero
+    proc.context.s0 = 0;
+    proc.context.s1 = 0;
+    proc.context.s2 = 0; 
+    proc.context.s3 = 0;
+    proc.context.s4 = 0;
+    proc.context.s5 = 0;
+    proc.context.s6 = 0;
+    proc.context.s7 = 0;
+    proc.context.s8 = 0;
+    proc.context.s9 = 0;
+    proc.context.s10 = 0;
+    proc.context.s11 = 0;
+    
+    // Store process pointer in s0 so entry point can access it
+    proc.context.s0 = @intFromPtr(proc);
+}
+
+// Entry point for newly created processes (called via context switch)
+fn processEntryPoint() noreturn {
+    // Get process pointer from s0 register (passed from context init)
+    const proc: *Process = asm volatile ("mv %[proc], s0" : [proc] "=r" (-> *Process));
+    
+    // Delegate to common entry point
+    processEntryPointWithProc(proc);
+}
+

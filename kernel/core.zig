@@ -112,6 +112,7 @@ fn setupUserProcess(process: *proc.Process) void {
     // This function will set up the process context to run the user shell
     // For now, we'll set up a basic context that will be used when the process
     // is scheduled to run
+    _ = process; // Mark parameter as used
 
     // Get the init program code
     const _user_shell_start = @extern([*]const u8, .{ .name = "_user_shell_start" });
@@ -125,16 +126,9 @@ fn setupUserProcess(process: *proc.Process) void {
     uart.putHex(code_size);
     uart.puts("\n");
 
-    // Store user program entry point in process context
-    // This will be used when the process is scheduled
-    process.context.sepc = 0x1001474; // Entry point from ELF header
-
-    // Set up user stack pointer
-    const mtypes = @import("memory/types.zig");
-    process.context.sp = mtypes.USER_STACK_BASE + mtypes.USER_STACK_SIZE - 16;
-
-    // Set up sstatus for user mode
-    process.context.sstatus = csr.SSTATUS.SPIE; // Enable interrupts when returning to user
+    // For init process, we'll setup user mode execution through the trap system
+    // The process context is already initialized for kernel-level context switching
+    // User mode setup will be handled when the process runs
 
     uart.puts("User process context setup complete\n");
 }

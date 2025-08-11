@@ -23,6 +23,7 @@ pub fn build(b: *std.Build) void {
     kernel.addAssemblyFile(b.path("arch/riscv/entry.S"));
     kernel.addAssemblyFile(b.path("arch/riscv/trap.S"));
     kernel.addAssemblyFile(b.path("arch/riscv/umode.S"));
+    kernel.addAssemblyFile(b.path("arch/riscv/context.S"));
 
     // Create a simple assembly wrapper to embed shell binary
     const shell_asm = b.addWriteFiles();
