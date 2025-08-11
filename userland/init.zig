@@ -72,27 +72,27 @@ export fn _start() noreturn {
             write_str("  version  - Show OS version\n");
             write_str("  uptime   - Show system uptime (stub)\n");
             write_str("  clear    - Clear screen (stub)\n");
-            write_str("  exit     - Exit the system\n");
+            write_str("  exit     - Exit the system\n\n");
         } else if (str_eq(trimmed_cmd, "echo")) {
-            write_str("Echo: Hello from Claudia!\n");
+            write_str("Echo: Hello from Claudia!\n\n");
         } else if (str_eq(trimmed_cmd, "hello")) {
             write_str("Hello! Welcome to Claudia.\n");
-            write_str("This is a minimal RISC-V kernel with userland shell.\n");
+            write_str("This is a minimal RISC-V kernel with userland shell.\n\n");
         } else if (str_eq(trimmed_cmd, "version")) {
-            write_str("Claudia v0.1.0 - RISC-V 64-bit kernel in Zig\n");
+            write_str("Claudia v0.1.0 - RISC-V 64-bit kernel in Zig\n\n");
         } else if (str_eq(trimmed_cmd, "uptime")) {
-            write_str("System uptime: [Not implemented yet]\n");
+            write_str("System uptime: [Not implemented yet]\n\n");
         } else if (str_eq(trimmed_cmd, "clear")) {
             write_str("\x1b[2J\x1b[H"); // ANSI clear screen
-            write_str("Screen cleared (if terminal supports ANSI).\n");
+            write_str("Screen cleared (if terminal supports ANSI).\n\n");
         } else if (str_eq(trimmed_cmd, "exit")) {
-            write_str("Shutting down... Thank you for using Claudia!\n");
+            write_str("Shutting down... Thank you for using Claudia!\n\n");
             running = false;
         } else if (trimmed_cmd.len > 0) {
             write_str("Command not found: '");
             write_str(trimmed_cmd);
             write_str("'\n");
-            write_str("Type 'help' to see available commands.\n");
+            write_str("Type 'help' to see available commands.\n\n");
         }
     }
 
