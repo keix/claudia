@@ -55,6 +55,15 @@ pub fn init() noreturn {
     // Initialize trap handling
     trap.init();
 
+    // Enable supervisor external interrupts for UART
+    csr.enableInterrupts();
+
+    // Enable external interrupts in SIE
+    csr.csrs(csr.CSR.sie, 1 << 9); // SEIE bit
+
+    // Initialize PLIC for UART interrupts
+    initPLIC();
+
     // Initialize user subsystem
     user.init();
 
@@ -67,17 +76,14 @@ pub fn init() noreturn {
     // Test file system
     testFileSystem();
 
-    // Test process creation
-    testProcessSystem();
-
     // Test user mode system calls
     testUserMode();
 
-    // Test user program execution
-    user.runTests();
+    // Create and start initial user process (init)
+    createInitProcess();
 
-    // Hand over control to scheduler
-    uart.puts("Handing control to scheduler\n");
+    // Start the process scheduler - this will handle all process scheduling
+    uart.puts("Starting process scheduler\n");
     proc.Scheduler.run();
 }
 
@@ -287,7 +293,7 @@ fn testUserMode() void {
     frame.a1 = @intFromPtr(test_msg.ptr);
     frame.a2 = test_msg.len;
     frame.a7 = 64; // sys_write
-    frame.cause = 8; // EcallFromUMode
+    frame.scause = 8; // EcallFromUMode
 
     trap.trapHandler(&frame);
 
@@ -302,4 +308,91 @@ fn testUserMode() void {
     }
 
     uart.puts("User mode test completed\n");
+}
+
+fn createInitProcess() void {
+    uart.puts("Creating init process...\n");
+
+    // Allocate kernel stack for the process
+    const kernel_stack = allocStack(4096);
+    if (kernel_stack.len == 0) {
+        uart.puts("Failed to allocate kernel stack for init\n");
+        while (true) {
+            csr.wfi();
+        }
+    }
+
+    // Create the init process
+    if (proc.Scheduler.allocProcess("init", kernel_stack)) |init_proc| {
+        // Set up process to run user mode shell
+        setupUserProcess(init_proc);
+
+        // Make the process runnable
+        proc.Scheduler.makeRunnable(init_proc);
+        uart.puts("Init process created and made runnable\n");
+    } else {
+        uart.puts("Failed to allocate init process\n");
+        while (true) {
+            csr.wfi();
+        }
+    }
+}
+
+fn setupUserProcess(process: *proc.Process) void {
+    // This function will set up the process context to run the user shell
+    // For now, we'll set up a basic context that will be used when the process
+    // is scheduled to run
+
+    // Get the init program code
+    const _user_shell_start = @extern([*]const u8, .{ .name = "_user_shell_start" });
+    const _user_shell_end = @extern([*]const u8, .{ .name = "_user_shell_end" });
+
+    const start_addr = @intFromPtr(_user_shell_start);
+    const end_addr = @intFromPtr(_user_shell_end);
+    const code_size = end_addr - start_addr;
+
+    uart.puts("Setting up user process with binary size: ");
+    uart.putHex(code_size);
+    uart.puts("\n");
+
+    // Store user program entry point in process context
+    // This will be used when the process is scheduled
+    process.context.sepc = 0x1001474; // Entry point from ELF header
+
+    // Set up user stack pointer
+    const mtypes = @import("memory/types.zig");
+    process.context.sp = mtypes.USER_STACK_BASE + mtypes.USER_STACK_SIZE - 16;
+
+    // Set up sstatus for user mode
+    process.context.sstatus = csr.SSTATUS.SPIE; // Enable interrupts when returning to user
+
+    uart.puts("User process context setup complete\n");
+}
+
+// Initialize PLIC for UART interrupts
+fn initPLIC() void {
+    uart.puts("Initializing PLIC for UART interrupts\n");
+
+    // PLIC addresses for RISC-V virt machine
+    const PLIC_BASE: u64 = 0x0c000000;
+    const PLIC_PRIORITY = PLIC_BASE + 0x000000; // Interrupt source priority
+    const PLIC_ENABLE = PLIC_BASE + 0x002000; // Interrupt enable bits
+    const PLIC_THRESHOLD = PLIC_BASE + 0x200000; // Priority threshold
+
+    // UART0 is interrupt source 10 in QEMU virt machine
+    const UART_IRQ: u32 = 10;
+
+    // Set UART interrupt priority to 1 (non-zero enables it)
+    const priority_addr = @as(*volatile u32, @ptrFromInt(PLIC_PRIORITY + UART_IRQ * 4));
+    priority_addr.* = 1;
+
+    // Enable UART interrupt for hart 0, context 1 (supervisor mode)
+    const enable_addr = @as(*volatile u32, @ptrFromInt(PLIC_ENABLE + 0x80)); // Hart 0, context 1
+    enable_addr.* = 1 << UART_IRQ;
+
+    // Set priority threshold to 0 (accept all priorities)
+    const threshold_addr = @as(*volatile u32, @ptrFromInt(PLIC_THRESHOLD));
+    threshold_addr.* = 0;
+
+    uart.puts("PLIC initialized: UART IRQ enabled\n");
 }

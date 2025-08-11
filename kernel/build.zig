@@ -23,7 +23,19 @@ pub fn build(b: *std.Build) void {
     kernel.addAssemblyFile(b.path("arch/riscv/entry.S"));
     kernel.addAssemblyFile(b.path("arch/riscv/trap.S"));
     kernel.addAssemblyFile(b.path("arch/riscv/umode.S"));
-    kernel.addAssemblyFile(b.path("user/test/echo.S"));
+
+    // Create a simple assembly wrapper to embed shell binary
+    const shell_asm = b.addWriteFiles();
+    const shell_asm_file = shell_asm.add("user_shell.S",
+        \\.section .rodata
+        \\.global _user_shell_start
+        \\.global _user_shell_end
+        \\_user_shell_start:
+        \\.incbin "../userland/zig-out/bin/init"
+        \\_user_shell_end:
+    );
+
+    kernel.addAssemblyFile(shell_asm_file);
 
     kernel.setLinkerScript(b.path("arch/riscv/linker.ld"));
     kernel.linkage = .static;
@@ -31,6 +43,9 @@ pub fn build(b: *std.Build) void {
     // Add ABI directory to module path
     kernel.root_module.addAnonymousImport("abi", .{
         .root_source_file = b.path("../abi/defs.zig"),
+    });
+    kernel.root_module.addAnonymousImport("sysno", .{
+        .root_source_file = b.path("../abi/sysno.zig"),
     });
 
     // RISC-V specific: use medany code model for position-independent addressing

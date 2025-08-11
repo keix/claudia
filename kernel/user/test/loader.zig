@@ -25,7 +25,7 @@ pub fn testUserEcho() void {
     const test_msg = "Hello from user!\n";
     write_frame.a1 = @intFromPtr(test_msg.ptr);
     write_frame.a2 = test_msg.len;
-    write_frame.cause = 8; // EcallFromUMode
+    write_frame.scause = 8; // EcallFromUMode
 
     trap.trapHandler(&write_frame);
 
@@ -39,7 +39,7 @@ pub fn testUserEcho() void {
     var exit_frame = std.mem.zeroes(trap.TrapFrame);
     exit_frame.a7 = 93; // sys_exit
     exit_frame.a0 = 0; // exit status
-    exit_frame.cause = 8; // EcallFromUMode
+    exit_frame.scause = 8; // EcallFromUMode
 
     uart.puts("[test] Simulating exit syscall\n");
     // Note: We don't actually call this because it would terminate the kernel

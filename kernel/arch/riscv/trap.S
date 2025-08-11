@@ -18,8 +18,9 @@ user_trap:
     j trap_common
 
 kernel_trap:
-    # Came from kernel mode - don't swap stack, just save sscratch
-    csrrw t0, sscratch, t0  # Save sscratch, restore original value
+    # Came from kernel mode - don't swap stack, keep sscratch unchanged
+    # We need to preserve sscratch for user mode return
+    nop  # sscratch keeps its value (kernel stack pointer)
 
 trap_common:
     # Save all registers on kernel stack
@@ -57,9 +58,23 @@ trap_common:
     sd t5, 232(sp)
     sd t6, 240(sp)
 
-    # Save user sp from sscratch
+    # Save user sp: depends on where we came from
+    csrr t0, sstatus
+    andi t0, t0, (1 << 8)  # Check SPP bit
+    bnez t0, save_kernel_sp   # If SPP=1, came from kernel
+
+    # Came from user mode - sscratch has user SP
     csrr t0, sscratch
     sd t0, 248(sp)
+    j sp_saved
+
+save_kernel_sp:
+    # Came from kernel mode - need to save the original SP before we modified it
+    # We need to add back the stack frame size to get original SP
+    addi t0, sp, 264
+    sd t0, 248(sp)
+
+sp_saved:
 
     # Save trap info
     csrr t0, sepc

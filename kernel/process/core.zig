@@ -18,6 +18,15 @@ pub const ProcessState = enum {
     ZOMBIE, // Terminated but not yet cleaned up
 };
 
+// Wait queue for blocking I/O
+pub const WaitQ = struct {
+    head: ?*Process = null,
+
+    pub fn init() WaitQ {
+        return WaitQ{ .head = null };
+    }
+};
+
 // RISC-V CPU context for process switching
 pub const Context = struct {
     // General purpose registers
@@ -113,12 +122,17 @@ var current_process: ?*Process = null;
 var ready_queue_head: ?*Process = null;
 var ready_queue_tail: ?*Process = null;
 
+// Debug counters for infinite loop detection
+var idle_count: u32 = 0;
+var loop_count: u32 = 0;
+
+// Global state for cooperative scheduling
+var in_idle_mode: bool = false;
+
 // Process scheduler
 pub const Scheduler = struct {
     // Initialize the process system
     pub fn init() void {
-        uart.debug("Initializing process scheduler\n");
-
         // Initialize process table
         for (&process_table) |*proc| {
             proc.state = .UNUSED;
@@ -131,8 +145,6 @@ pub const Scheduler = struct {
         ready_queue_head = null;
         ready_queue_tail = null;
         next_pid = 1;
-
-        uart.debug("Process scheduler initialized\n");
     }
 
     // Allocate a new process
@@ -143,12 +155,6 @@ pub const Scheduler = struct {
                 proc.* = Process.init(next_pid, name, stack);
                 next_pid += 1;
 
-                uart.debug("Allocated process ");
-                uart.puts(proc.getName());
-                uart.puts(" with PID ");
-                uart.putHex(proc.pid);
-                uart.puts("\n");
-
                 return proc;
             }
         }
@@ -157,6 +163,7 @@ pub const Scheduler = struct {
 
     // Add process to ready queue
     pub fn makeRunnable(proc: *Process) void {
+        // Only transition EMBRYO and SLEEPING processes to RUNNABLE
         if (proc.state != .EMBRYO and proc.state != .SLEEPING) {
             return; // Process already runnable or running
         }
@@ -171,10 +178,6 @@ pub const Scheduler = struct {
             ready_queue_head = proc;
             ready_queue_tail = proc;
         }
-
-        uart.debug("Made process ");
-        uart.puts(proc.getName());
-        uart.puts(" runnable\n");
     }
 
     // Remove and return next runnable process
@@ -190,14 +193,22 @@ pub const Scheduler = struct {
         return null;
     }
 
+    // Clear current process (used when current process is sleeping/exiting)
+    pub fn clearCurrentProcess() void {
+        current_process = null;
+    }
+
     // Simple round-robin scheduler
     // Returns the process to switch to, or null if none available
     pub fn schedule() ?*Process {
         // Save current process context if running
-        if (current_process) |current| {
-            if (current.state == .RUNNING) {
-                current.state = .RUNNABLE;
-                makeRunnable(current);
+        if (current_process) |curr_proc| {
+            if (curr_proc.state == .RUNNING) {
+                curr_proc.state = .RUNNABLE;
+                makeRunnable(curr_proc);
+            } else if (curr_proc.state == .SLEEPING) {
+                // Process is sleeping, clear current_process
+                current_process = null;
             }
         }
 
@@ -206,17 +217,12 @@ pub const Scheduler = struct {
             next_proc.state = .RUNNING;
             current_process = next_proc;
 
-            uart.debug("Switching to process ");
-            uart.puts(next_proc.getName());
-            uart.puts("\n");
-
             // TODO: Actual context switch
             switchToProcess(next_proc);
             return next_proc;
         } else {
             // No runnable processes, idle
             current_process = null;
-            uart.debug("No runnable processes, idling\n");
             return null;
         }
     }
@@ -232,36 +238,60 @@ pub const Scheduler = struct {
             proc.state = .ZOMBIE;
             proc.exit_code = exit_code;
 
-            uart.debug("Process ");
-            uart.puts(proc.getName());
-            uart.puts(" exited with code ");
-            uart.putHex(@as(u64, @bitCast(@as(i64, exit_code))));
-            uart.puts("\n");
-
             current_process = null;
             _ = schedule(); // Find next process to run
         }
     }
 
+    // Sleep current process on wait queue
+    pub fn sleepOn(wq: *WaitQ, proc: *Process) void {
+        proc.state = .SLEEPING;
+
+        // Add to wait queue
+        proc.next = wq.head;
+        wq.head = proc;
+
+        // Clear current process
+        current_process = null;
+
+        // Yield to scheduler
+        _ = schedule();
+    }
+
+    // Wake all processes on wait queue
+    pub fn wakeAll(wq: *WaitQ) void {
+        csr.disableInterrupts();
+
+        while (wq.head) |proc| {
+            wq.head = proc.next;
+            proc.next = null;
+            // makeRunnable will set state to RUNNABLE
+            makeRunnable(proc);
+        }
+
+        csr.enableInterrupts();
+    }
+
+    // Get current process
+    pub fn current() ?*Process {
+        return current_process;
+    }
+
     // Main scheduler loop - handles all scheduling and idle
     pub fn run() noreturn {
-        uart.debug("Starting scheduler main loop\n");
-
         while (true) {
             // Try to schedule a process
-            _ = schedule();
-
-            // If no process is running, enter idle state
-            if (current_process == null) {
+            if (schedule()) |_| {
+                // Process is now running, yield control
+                // In a real kernel, this would return to user mode
+                // For now, we'll simulate by yielding back
+                yield();
+            } else {
                 // No runnable processes, wait for interrupt
+                // Ensure IRQ is enabled before wfi
+                csr.enableInterrupts();
                 csr.wfi();
             }
-
-            // In a real implementation, this would be driven by:
-            // - Timer interrupts (for preemptive scheduling)
-            // - I/O completion interrupts
-            // - System calls that block/unblock processes
-            // - Inter-process communication
         }
     }
 
@@ -271,20 +301,29 @@ pub const Scheduler = struct {
         // - Timer interrupt handler
         // - System call that should yield CPU
         // - Voluntary yield from current process
-        schedule();
+        _ = schedule();
     }
 };
 
-// Context switching (placeholder)
+// Context switching (simplified implementation)
 fn switchToProcess(proc: *Process) void {
-    // TODO: Implement actual RISC-V context switching
-    // This would involve:
-    // 1. Save current CPU state to current_process.context
-    // 2. Load proc.context to CPU registers
-    // 3. Update satp for virtual memory if needed
-    // 4. Return to user mode if user process
 
-    uart.debug("Context switch to ");
-    uart.puts(proc.getName());
-    uart.puts(" (placeholder)\n");
+    // For sleeping processes, don't actually run them - just yield
+    if (proc.state == .SLEEPING) {
+        return;
+    }
+
+    // For init process, switch to user mode
+    if (std.mem.eql(u8, proc.getName(), "init")) {
+
+        // Import user module to access switch_to_user_mode
+        const user = @import("../user/core.zig");
+
+        // Call user mode setup (this will run the shell)
+        user.runTests();
+
+        // If we return here, the user process has exited
+        proc.state = .ZOMBIE;
+        proc.exit_code = 0;
+    }
 }
