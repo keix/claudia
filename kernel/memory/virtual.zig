@@ -56,6 +56,14 @@ pub const PageTable = struct {
         }
     }
 
+    // Deinitialize page table and free all allocated pages
+    pub fn deinit(self: *Self) void {
+        // TODO: Walk the page table tree and free all L2, L1, L0 pages
+        // For now, just free the root page
+        allocator.freeFrame(self.root_ppn << PAGE_SHIFT);
+        self.root_ppn = 0;
+    }
+
     // Map a virtual address to physical address
     pub fn map(self: *Self, vaddr: usize, paddr: usize, flags: u64) !void {
         // Check alignment
@@ -156,24 +164,27 @@ pub fn setupKernelPageTable() !void {
     try kernel_page_table.init();
 
     // Map kernel code/data (identity mapping for now)
-    // 0x80000000 - 0x88000000 (128MB)
-    var addr: usize = 0x80000000;
-    while (addr < 0x88000000) : (addr += PAGE_SIZE) {
+    // Includes kernel heap region
+    var addr: usize = types.KERNEL_BASE;
+    const kernel_end = types.KERNEL_HEAP_BASE + types.KERNEL_HEAP_SIZE;
+    while (addr < kernel_end) : (addr += PAGE_SIZE) {
         try kernel_page_table.map(addr, addr, PTE_R | PTE_W | PTE_X | PTE_G);
     }
 
-    // Map UART (0x10000000)
-    try kernel_page_table.map(0x10000000, 0x10000000, PTE_R | PTE_W | PTE_G);
+    // Map UART
+    try kernel_page_table.map(types.UART_BASE, types.UART_BASE, PTE_R | PTE_W | PTE_G);
 
-    // Map CLINT (0x02000000)
-    var clint_addr: usize = 0x02000000;
-    while (clint_addr < 0x02010000) : (clint_addr += PAGE_SIZE) {
+    // Map CLINT
+    var clint_addr: usize = types.CLINT_BASE;
+    const clint_end = types.CLINT_BASE + types.CLINT_SIZE;
+    while (clint_addr < clint_end) : (clint_addr += PAGE_SIZE) {
         try kernel_page_table.map(clint_addr, clint_addr, PTE_R | PTE_W | PTE_G);
     }
 
-    // Map PLIC (0x0c000000)
-    var plic_addr: usize = 0x0c000000;
-    while (plic_addr < 0x0c600000) : (plic_addr += PAGE_SIZE) {
+    // Map PLIC
+    var plic_addr: usize = types.PLIC_BASE;
+    const plic_end = types.PLIC_BASE + types.PLIC_SIZE;
+    while (plic_addr < plic_end) : (plic_addr += PAGE_SIZE) {
         try kernel_page_table.map(plic_addr, plic_addr, PTE_R | PTE_W | PTE_G);
     }
 
@@ -198,24 +209,27 @@ pub fn getCurrentPageTable() *PageTable {
 pub fn buildKernelGlobalMappings(page_table: *PageTable) !void {
     const user_memory = @import("../user/memory.zig");
 
-    // Map kernel text/data/bss (supervisor only, global)
-    var addr: usize = 0x80000000;
-    while (addr < 0x88000000) : (addr += PAGE_SIZE) {
+    // Map kernel text/data/bss and heap (supervisor only, global)
+    var addr: usize = types.KERNEL_BASE;
+    const kernel_end = types.KERNEL_HEAP_BASE + types.KERNEL_HEAP_SIZE;
+    while (addr < kernel_end) : (addr += PAGE_SIZE) {
         try page_table.map(addr, addr, PTE_R | PTE_W | PTE_X | PTE_G);
     }
 
     // Map UART (supervisor only, global)
-    try page_table.map(0x10000000, 0x10000000, PTE_R | PTE_W | PTE_G);
+    try page_table.map(types.UART_BASE, types.UART_BASE, PTE_R | PTE_W | PTE_G);
 
     // Map CLINT for timer interrupts (supervisor only, global)
-    var clint_addr: usize = 0x02000000;
-    while (clint_addr < 0x02010000) : (clint_addr += PAGE_SIZE) {
+    var clint_addr: usize = types.CLINT_BASE;
+    const clint_end = types.CLINT_BASE + types.CLINT_SIZE;
+    while (clint_addr < clint_end) : (clint_addr += PAGE_SIZE) {
         try page_table.map(clint_addr, clint_addr, PTE_R | PTE_W | PTE_G);
     }
 
     // Map PLIC for external interrupts (supervisor only, global)
-    var plic_addr: usize = 0x0c000000;
-    while (plic_addr < 0x0c600000) : (plic_addr += PAGE_SIZE) {
+    var plic_addr: usize = types.PLIC_BASE;
+    const plic_end = types.PLIC_BASE + types.PLIC_SIZE;
+    while (plic_addr < plic_end) : (plic_addr += PAGE_SIZE) {
         try page_table.map(plic_addr, plic_addr, PTE_R | PTE_W | PTE_G);
     }
 

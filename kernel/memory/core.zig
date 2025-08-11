@@ -2,6 +2,7 @@
 
 const allocator = @import("allocator.zig");
 const uart = @import("../driver/uart/core.zig");
+const kalloc = @import("kalloc.zig");
 
 pub const types = @import("types.zig");
 pub const virtual = @import("virtual.zig");
@@ -16,9 +17,10 @@ pub fn init() void {
     allocator.init();
 }
 
-// Initialize virtual memory
+// Initialize virtual memory and kernel heap
 pub fn initVirtual() !void {
     try virtual.setupKernelPageTable();
+    // Note: kalloc.init() is called from init.zig before MMU is enabled
 }
 
 // Enable MMU
