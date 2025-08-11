@@ -1,1 +1,0 @@
-zig build-exe -target riscv64-linux-none -static echo.zig -O ReleaseSmall

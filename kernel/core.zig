@@ -287,7 +287,7 @@ fn testUserMode() void {
     frame.a1 = @intFromPtr(test_msg.ptr);
     frame.a2 = test_msg.len;
     frame.a7 = 64; // sys_write
-    frame.cause = 8; // EcallFromUMode
+    frame.scause = 8; // EcallFromUMode
 
     trap.trapHandler(&frame);
 

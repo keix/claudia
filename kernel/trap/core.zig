@@ -7,13 +7,16 @@ const uart = @import("../driver/uart/core.zig");
 const proc = @import("../process/core.zig");
 const file = @import("../file/core.zig");
 const defs = @import("abi");
+const sysno = @import("sysno");
+const copy = @import("../user/copy.zig");
+const dispatch = @import("../syscalls/dispatch.zig");
 
 // Import trap vector from assembly
 extern const trap_vector: u8;
 
 // Trap frame structure matching the assembly layout
 pub const TrapFrame = struct {
-    epc: u64, // 0: Exception program counter
+    sepc: u64, // 0: Supervisor Exception Program Counter
     ra: u64, // 8: Return address (x1)
     gp: u64, // 16: Global pointer (x3)
     tp: u64, // 24: Thread pointer (x4)
@@ -45,8 +48,8 @@ pub const TrapFrame = struct {
     t5: u64, // 232: Temporary (x30)
     t6: u64, // 240: Temporary (x31)
     sp: u64, // 248: Stack pointer (x2)
-    cause: u64, // 256: Trap cause
-    tval: u64, // 264: Trap value
+    scause: u64, // 256: Supervisor Trap Cause
+    stval: u64, // 264: Supervisor Trap Value
 };
 
 // Exception causes
@@ -78,11 +81,50 @@ pub fn init() void {
     uart.puts("[trap] Trap vector set to: ");
     uart.putHex(trap_vector_addr);
     uart.puts("\n");
+
+    // Initialize syscall dispatcher with file system function pointers
+    dispatch.init(
+        fileGetFile,
+        fileWrite,
+        fileRead,
+        fileClose,
+        procExit,
+    );
+}
+
+// File system function wrappers for dispatcher
+fn fileGetFile(fd: i32) ?*anyopaque {
+    return @as(?*anyopaque, @ptrCast(file.FileTable.getFile(fd)));
+}
+
+fn fileWrite(f: *anyopaque, data: []const u8) isize {
+    const file_ptr = @as(*file.File, @ptrCast(@alignCast(f)));
+    return file_ptr.write(data);
+}
+
+fn fileRead(f: *anyopaque, buffer: []u8) isize {
+    const file_ptr = @as(*file.File, @ptrCast(@alignCast(f)));
+    return file_ptr.read(buffer);
+}
+
+fn fileClose(fd: i32) isize {
+    return file.FileTable.sysClose(fd);
+}
+
+fn procExit(code: i32) noreturn {
+    uart.puts("[syscall] Process exiting with code: ");
+    uart.putHex(@bitCast(@as(u64, @intCast(code))));
+    uart.puts("\n");
+    proc.Scheduler.exit(code);
+    // Should not reach here
+    while (true) {
+        csr.wfi();
+    }
 }
 
 // Main trap handler called from assembly
 pub export fn trapHandler(frame: *TrapFrame) void {
-    const cause = frame.cause;
+    const cause = frame.scause;
     const is_interrupt = (cause & (1 << 63)) != 0;
     const exception_code = cause & 0x7FFFFFFFFFFFFFFF;
 
@@ -90,7 +132,7 @@ pub export fn trapHandler(frame: *TrapFrame) void {
     uart.puts("[trap] Handler entered - cause: ");
     uart.putHex(cause);
     uart.puts(" PC: ");
-    uart.putHex(frame.epc);
+    uart.putHex(frame.sepc);
     uart.puts(" SP: ");
     uart.putHex(frame.sp);
     uart.puts("\n");
@@ -116,15 +158,15 @@ fn exceptionHandler(frame: *TrapFrame, code: u64) void {
         @intFromEnum(ExceptionCause.EcallFromUMode) => {
             syscallHandler(frame);
             // Skip ecall instruction
-            frame.epc += 4;
+            frame.sepc += 4;
         },
         else => {
             uart.puts("[trap] Unhandled exception: ");
             uart.putHex(code);
             uart.puts(" at PC: ");
-            uart.putHex(frame.epc);
+            uart.putHex(frame.sepc);
             uart.puts(" stval: ");
-            uart.putHex(frame.tval);
+            uart.putHex(frame.stval);
             uart.puts("\n");
 
             // Stop infinite loop - halt system
@@ -136,85 +178,21 @@ fn exceptionHandler(frame: *TrapFrame, code: u64) void {
     }
 }
 
-// System call handler
+// System call handler using full dispatcher
 fn syscallHandler(frame: *TrapFrame) void {
     const syscall_num = frame.a7;
 
-    switch (syscall_num) {
-        64 => { // sys_write
-            const fd = frame.a0;
-            const buf = @as([*]const u8, @ptrFromInt(frame.a1));
-            const len = frame.a2;
-            frame.a0 = @bitCast(sysWrite(fd, buf, len));
-        },
-        93 => { // sys_exit
-            const code = @as(i32, @intCast(frame.a0));
-            sysExit(code);
-            // Never returns
-        },
-        else => {
-            uart.puts("[syscall] Unknown syscall: ");
-            uart.putHex(syscall_num);
-            uart.puts("\n");
-            frame.a0 = @bitCast(defs.ENOSYS);
-        },
-    }
-}
-
-// System call implementations
-fn sysWrite(fd: usize, buf: [*]const u8, len: usize) isize {
-    // Validate buffer address (basic check)
-    const buf_addr = @intFromPtr(buf);
-    if (buf_addr < 0x10000) {
-        return defs.EFAULT;
-    }
-
-    uart.puts("[syscall] sysWrite: fd=");
-    uart.putHex(fd);
-    uart.puts(" buf=");
-    uart.putHex(buf_addr);
-    uart.puts(" len=");
-    uart.putHex(len);
+    uart.puts("[syscall] Handler called: ");
+    uart.putHex(syscall_num);
+    uart.puts(" args: ");
+    uart.putHex(frame.a0);
+    uart.puts(" ");
+    uart.putHex(frame.a1);
+    uart.puts(" ");
+    uart.putHex(frame.a2);
     uart.puts("\n");
 
-    // Check if buffer is in user code region (where string likely is)
-    if (buf_addr >= 0x40000000 and buf_addr < 0x40000000 + (16 * 0x1000)) {
-        uart.puts("[syscall] Buffer in user code region - should be accessible\n");
-    } else {
-        uart.puts("[syscall] WARNING: Buffer outside expected user region!\n");
-    }
-
-    // For now, only support stdout/stderr
-    if (fd == 1 or fd == 2) {
-        // Try to safely access user buffer
-        // For now, just output the address since we know it's a test
-        uart.puts("[syscall] Attempting to read from user buffer...\n");
-
-        // Simple approach: since we're using identity mapping in kernel,
-        // the physical address should be accessible if we translate it properly
-        // For now, just indicate success without reading user data
-        uart.puts("[syscall] User write syscall succeeded (placeholder)\n");
-        return @intCast(len);
-    }
-
-    // Try file system
-    const result = file.FileTable.sysWrite(@intCast(fd), buf[0..len]);
-    if (result >= 0) {
-        return result;
-    }
-
-    return defs.EBADF;
-}
-
-fn sysExit(code: i32) noreturn {
-    uart.puts("[syscall] Process exiting with code: ");
-    uart.putHex(@bitCast(@as(u64, @intCast(code))));
-    uart.puts("\n");
-
-    proc.Scheduler.exit(code);
-
-    // Should not reach here
-    while (true) {
-        csr.wfi();
-    }
+    // Use full dispatcher
+    const result = dispatch.call(syscall_num, frame.a0, frame.a1, frame.a2);
+    frame.a0 = @bitCast(result);
 }
