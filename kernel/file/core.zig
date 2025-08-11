@@ -149,14 +149,8 @@ var loop_counter: u32 = 0;
 
 // UART interrupt handler to feed TTY - drain FIFO completely
 pub fn uart_isr() void {
-    uart.debug("UART ISR triggered\n");
-
     // Drain RX FIFO completely - critical for preventing lost chars
     while (uart.getc()) |ch| {
-        uart.debug("UART ISR received char: ");
-        uart.putHex(ch);
-        uart.debug("\n");
-
         // Feed directly to TTY ring buffer
         if (console_tty.input_buffer.put(ch)) {
             isr_rx_count += 1;
@@ -165,8 +159,6 @@ pub fn uart_isr() void {
     }
 
     // Always wake all processes waiting on console input
-    // Even if no characters were successfully put (ring might be full)
-    // uart.debug("UART ISR waking processes\n");
     proc.Scheduler.wakeAll(&console_tty.read_wait);
 }
 

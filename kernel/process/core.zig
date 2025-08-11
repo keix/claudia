@@ -133,8 +133,6 @@ var in_idle_mode: bool = false;
 pub const Scheduler = struct {
     // Initialize the process system
     pub fn init() void {
-        uart.debug("Initializing process scheduler\n");
-
         // Initialize process table
         for (&process_table) |*proc| {
             proc.state = .UNUSED;
@@ -147,8 +145,6 @@ pub const Scheduler = struct {
         ready_queue_head = null;
         ready_queue_tail = null;
         next_pid = 1;
-
-        uart.debug("Process scheduler initialized\n");
     }
 
     // Allocate a new process
@@ -158,12 +154,6 @@ pub const Scheduler = struct {
             if (proc.state == .UNUSED) {
                 proc.* = Process.init(next_pid, name, stack);
                 next_pid += 1;
-
-                uart.debug("Allocated process ");
-                uart.puts(proc.getName());
-                uart.puts(" with PID ");
-                uart.putHex(proc.pid);
-                uart.puts("\n");
 
                 return proc;
             }
@@ -188,10 +178,6 @@ pub const Scheduler = struct {
             ready_queue_head = proc;
             ready_queue_tail = proc;
         }
-
-        uart.debug("Made process ");
-        uart.puts(proc.getName());
-        uart.puts(" runnable\n");
     }
 
     // Remove and return next runnable process
@@ -231,17 +217,12 @@ pub const Scheduler = struct {
             next_proc.state = .RUNNING;
             current_process = next_proc;
 
-            uart.debug("Switching to process ");
-            uart.puts(next_proc.getName());
-            uart.puts("\n");
-
             // TODO: Actual context switch
             switchToProcess(next_proc);
             return next_proc;
         } else {
             // No runnable processes, idle
             current_process = null;
-            uart.debug("No runnable processes, idling\n");
             return null;
         }
     }
@@ -256,12 +237,6 @@ pub const Scheduler = struct {
         if (current_process) |proc| {
             proc.state = .ZOMBIE;
             proc.exit_code = exit_code;
-
-            uart.debug("Process ");
-            uart.puts(proc.getName());
-            uart.puts(" exited with code ");
-            uart.putHex(@as(u64, @bitCast(@as(i64, exit_code))));
-            uart.puts("\n");
 
             current_process = null;
             _ = schedule(); // Find next process to run
@@ -304,14 +279,9 @@ pub const Scheduler = struct {
 
     // Main scheduler loop - handles all scheduling and idle
     pub fn run() noreturn {
-        uart.debug("Starting scheduler main loop\n");
-
         while (true) {
             // Try to schedule a process
-            if (schedule()) |proc| {
-                uart.debug("Scheduler running process: ");
-                uart.puts(proc.getName());
-                uart.puts("\n");
+            if (schedule()) |_| {
                 // Process is now running, yield control
                 // In a real kernel, this would return to user mode
                 // For now, we'll simulate by yielding back
@@ -322,12 +292,6 @@ pub const Scheduler = struct {
                 csr.enableInterrupts();
                 csr.wfi();
             }
-
-            // In a real implementation, this would be driven by:
-            // - Timer interrupts (for preemptive scheduling)
-            // - I/O completion interrupts
-            // - System calls that block/unblock processes
-            // - Inter-process communication
         }
     }
 
@@ -343,19 +307,14 @@ pub const Scheduler = struct {
 
 // Context switching (simplified implementation)
 fn switchToProcess(proc: *Process) void {
-    uart.debug("Context switch to ");
-    uart.puts(proc.getName());
-    uart.puts("\n");
 
     // For sleeping processes, don't actually run them - just yield
     if (proc.state == .SLEEPING) {
-        uart.debug("Process is sleeping, yielding CPU\n");
         return;
     }
 
     // For init process, switch to user mode
     if (std.mem.eql(u8, proc.getName(), "init")) {
-        uart.debug("Switching to user mode for init process\n");
 
         // Import user module to access switch_to_user_mode
         const user = @import("../user/core.zig");
