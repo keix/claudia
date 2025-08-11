@@ -128,14 +128,17 @@ pub export fn trapHandler(frame: *TrapFrame) void {
     const is_interrupt = (cause & (1 << 63)) != 0;
     const exception_code = cause & 0x7FFFFFFFFFFFFFFF;
 
-    // Debug: Show we reached trap handler successfully
-    uart.puts("[trap] Handler entered - cause: ");
-    uart.putHex(cause);
-    uart.puts(" PC: ");
-    uart.putHex(frame.sepc);
-    uart.puts(" SP: ");
-    uart.putHex(frame.sp);
-    uart.puts("\n");
+    // Debug: Show we reached trap handler successfully (only for non-syscall traps)
+    const is_syscall = (!is_interrupt) and (exception_code == @intFromEnum(ExceptionCause.EcallFromUMode));
+    if (!is_syscall) {
+        uart.puts("[trap] Handler entered - cause: ");
+        uart.putHex(cause);
+        uart.puts(" PC: ");
+        uart.putHex(frame.sepc);
+        uart.puts(" SP: ");
+        uart.putHex(frame.sp);
+        uart.puts("\n");
+    }
 
     if (is_interrupt) {
         // Handle interrupts
@@ -182,15 +185,19 @@ fn exceptionHandler(frame: *TrapFrame, code: u64) void {
 fn syscallHandler(frame: *TrapFrame) void {
     const syscall_num = frame.a7;
 
-    uart.puts("[syscall] Handler called: ");
-    uart.putHex(syscall_num);
-    uart.puts(" args: ");
-    uart.putHex(frame.a0);
-    uart.puts(" ");
-    uart.putHex(frame.a1);
-    uart.puts(" ");
-    uart.putHex(frame.a2);
-    uart.puts("\n");
+    // Only show syscall debug for non-repetitive calls (not read/write in shell loop)
+    const is_shell_io = (syscall_num == 1) or (syscall_num == 0x3f) or (syscall_num == 0x40); // write or read
+    if (!is_shell_io) {
+        uart.puts("[syscall] Handler called: ");
+        uart.putHex(syscall_num);
+        uart.puts(" args: ");
+        uart.putHex(frame.a0);
+        uart.puts(" ");
+        uart.putHex(frame.a1);
+        uart.puts(" ");
+        uart.putHex(frame.a2);
+        uart.puts("\n");
+    }
 
     // Use full dispatcher
     const result = dispatch.call(syscall_num, frame.a0, frame.a1, frame.a2);

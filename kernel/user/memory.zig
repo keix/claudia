@@ -24,10 +24,14 @@ pub const UserRegion = struct {
     permissions: u8,
     allocated: bool,
 };
+const MAX_ELF_SEGMENTS: usize = 8;
+
 pub const UserMemoryContext = struct {
     code_region: UserRegion,
     stack_region: UserRegion,
     heap_region: UserRegion,
+    elf_segments: [MAX_ELF_SEGMENTS]UserRegion,
+    elf_segment_count: usize,
     page_table: ?*virtual.PageTable,
 
     pub fn init() UserMemoryContext {
@@ -53,6 +57,14 @@ pub const UserMemoryContext = struct {
                 .permissions = virtual.PTE_R | virtual.PTE_W | virtual.PTE_U, // Read + Write + User
                 .allocated = false,
             },
+            .elf_segments = [_]UserRegion{UserRegion{
+                .virtual_base = 0,
+                .size = 0,
+                .physical_frames = [_]?u64{null} ** MAX_REGION_PAGES,
+                .permissions = 0,
+                .allocated = false,
+            }} ** MAX_ELF_SEGMENTS,
+            .elf_segment_count = 0,
             .page_table = null,
         };
     }
@@ -296,6 +308,53 @@ pub fn mapKernelStackToPageTable(page_table: *virtual.PageTable) !void {
         if (kernel_stack_frames[i]) |frame| {
             const vaddr = KERNEL_STACK_BASE + @as(u64, @intCast(i * types.PAGE_SIZE));
             try page_table.map(vaddr, frame, virtual.PTE_R | virtual.PTE_W | virtual.PTE_G); // U=0: kernel only
+        }
+    }
+}
+
+// Add ELF segment mapping functionality
+pub fn addElfSegment(context: *UserMemoryContext, virtual_addr: u64, size: usize, permissions: u8) !*UserRegion {
+    if (context.elf_segment_count >= MAX_ELF_SEGMENTS) {
+        return error.TooManySegments;
+    }
+
+    const segment = &context.elf_segments[context.elf_segment_count];
+    segment.virtual_base = virtual_addr;
+    segment.size = size;
+    segment.permissions = permissions;
+    segment.allocated = false;
+
+    // Clear physical frames
+    for (0..MAX_REGION_PAGES) |i| {
+        segment.physical_frames[i] = null;
+    }
+
+    context.elf_segment_count += 1;
+    return segment;
+}
+
+// Map all ELF segments to user page table
+pub fn mapElfSegments(context: *UserMemoryContext) !void {
+    const page_table = context.page_table orelse return error.NoPageTable;
+
+    for (0..context.elf_segment_count) |i| {
+        const segment = &context.elf_segments[i];
+        if (!segment.allocated) continue;
+
+        const uart = @import("../driver/uart/core.zig");
+        uart.puts("[memory] Mapping ELF segment at ");
+        uart.putHex(segment.virtual_base);
+        uart.puts(" size ");
+        uart.putHex(segment.size);
+        uart.puts("\n");
+
+        // Map each page of the segment
+        const page_count = (segment.size + types.PAGE_SIZE - 1) / types.PAGE_SIZE;
+        for (0..page_count) |page_idx| {
+            if (segment.physical_frames[page_idx]) |frame| {
+                const vaddr = segment.virtual_base + @as(u64, @intCast(page_idx * types.PAGE_SIZE));
+                try page_table.map(vaddr, frame, segment.permissions);
+            }
         }
     }
 }

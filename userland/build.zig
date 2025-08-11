@@ -10,9 +10,9 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Optimization options - use Debug to make troubleshooting easier
+    // Optimization options - use ReleaseSmall for minimal binary size
     const optimize = b.standardOptimizeOption(.{
-        .preferred_optimize_mode = .Debug,
+        .preferred_optimize_mode = .ReleaseSmall,
     });
 
     // Create shared modules
@@ -52,10 +52,29 @@ pub fn build(b: *std.Build) void {
 
     const install_echo = b.addInstallArtifact(echo, .{});
 
-    // Default step builds echo
-    b.default_step.dependOn(&install_echo.step);
+    // Build /init program
+    const init = b.addExecutable(.{
+        .name = "init",
+        .root_source_file = b.path("init.zig"),
+        .target = target,
+        .optimize = .ReleaseSmall,
+    });
 
-    // Individual build step for echo
+    // Add modules to init
+    init.root_module.addImport("syscall", syscall_mod);
+    init.root_module.addImport("sysno", sysno_mod);
+    init.linkage = .static;
+
+    const install_init = b.addInstallArtifact(init, .{});
+
+    // Default step builds all
+    b.default_step.dependOn(&install_echo.step);
+    b.default_step.dependOn(&install_init.step);
+
+    // Individual build steps
     const echo_step = b.step("echo", "Build echo command");
     echo_step.dependOn(&install_echo.step);
+
+    const init_step = b.step("init", "Build init program");
+    init_step.dependOn(&install_init.step);
 }

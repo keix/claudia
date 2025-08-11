@@ -32,6 +32,23 @@ const Uart = struct {
             if (i == 0) break;
         }
     }
+
+    // Read a single character (non-blocking)
+    pub fn getc(self: *const Uart) ?u8 {
+        // For QEMU's 16550 UART, properly check LSR first
+        const lsr_addr = @as(*volatile u8, @ptrFromInt(@intFromPtr(self.addr) + 5));
+        const lsr = lsr_addr.*;
+
+        // Check if data is ready (bit 0 of LSR)
+        if ((lsr & 0x01) != 0) {
+            const ch = self.addr.*;
+            // Make sure we got a valid character
+            if (ch != 0) {
+                return ch;
+            }
+        }
+        return null;
+    }
 };
 
 // Global UART instance
@@ -62,6 +79,12 @@ pub fn puts(s: []const u8) void {
 pub fn putHex(value: u64) void {
     if (!initialized) return;
     uart.putHex(value);
+}
+
+// Read a character (non-blocking)
+pub fn getc() ?u8 {
+    if (!initialized) return null;
+    return uart.getc();
 }
 
 // Debug print - add prefix for easy identification

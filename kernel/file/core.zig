@@ -88,9 +88,23 @@ const ConsoleOperations = FileOperations{
 
 fn consoleRead(file: *File, buffer: []u8) isize {
     _ = file;
-    _ = buffer;
-    // Console read not implemented (would need keyboard input)
-    return defs.ENOSYS;
+    if (buffer.len == 0) return 0;
+
+    // Block until input is available
+    while (true) {
+        if (uart.getc()) |ch| {
+            // Use copyout to safely copy to user space
+            const copy = @import("../user/copy.zig");
+            const user_addr = @intFromPtr(buffer.ptr);
+            const char_buf = [1]u8{ch};
+
+            _ = copy.copyout(user_addr, &char_buf) catch {
+                return -1; // Return error if copy fails
+            };
+
+            return 1;
+        }
+    }
 }
 
 fn consoleWrite(file: *File, data: []const u8) isize {
@@ -120,15 +134,17 @@ pub const FileTable = struct {
         uart.debug("Initializing file system\n");
 
         // Initialize standard file descriptors
-        // fd 0: stdin (not implemented yet)
-        file_table[0] = null;
+        // fd 0: stdin -> console (UART input)
+        file_table[0] = &console_file;
+        console_file.addRef(); // Add reference for stdin
 
         // fd 1: stdout -> console (UART)
         file_table[1] = &console_file;
 
         // fd 2: stderr -> console (UART)
         file_table[2] = &console_file;
-        console_file.addRef(); // Two references (stdout + stderr)
+        console_file.addRef(); // Add reference for stdout
+        console_file.addRef(); // Add reference for stderr
 
         uart.debug("Standard file descriptors initialized\n");
     }

@@ -70,8 +70,11 @@ pub fn copyin(dst: []u8, user_src: usize) !usize {
         return error.InvalidAddress;
     }
 
-    // Check if this is a user space address
-    if (user_src >= 0x40000000 and user_src < 0x50000000) {
+    // Check if this is a user space address (support legacy, ELF, and stack ranges)
+    if ((user_src >= 0x40000000 and user_src < 0x50000000) or
+        (user_src >= 0x01000000 and user_src < 0x02000000) or
+        (user_src >= 0x50000000 and user_src < 0x60000000))
+    { // User stack region
         // Use proper MMU translation for user addresses
         return copyinProper(dst, user_src);
     }
@@ -129,8 +132,11 @@ pub fn copyout(user_dst: usize, src: []const u8) !usize {
         return error.InvalidAddress;
     }
 
-    // Check if this is a user space address
-    if (user_dst >= 0x40000000 and user_dst < 0x50000000) {
+    // Check if this is a user space address (support legacy, ELF, and stack ranges)
+    if ((user_dst >= 0x40000000 and user_dst < 0x50000000) or
+        (user_dst >= 0x01000000 and user_dst < 0x02000000) or
+        (user_dst >= 0x50000000 and user_dst < 0x60000000))
+    { // User stack region
         // Use proper MMU translation for user addresses
         return copyoutProper(user_dst, src);
     }
