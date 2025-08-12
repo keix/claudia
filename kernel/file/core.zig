@@ -155,9 +155,7 @@ pub fn uartIsr() void {
     // Drain RX FIFO completely - critical for preventing lost chars
     while (uart.getc()) |ch| {
         // Feed directly to TTY ring buffer
-        if (console_tty.input_buffer.put(ch)) {
-            isr_rx_count += 1;
-        }
+        _ = console_tty.input_buffer.put(ch);
         // If ring buffer full, drop character (could log this)
     }
 

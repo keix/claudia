@@ -248,7 +248,6 @@ pub const Scheduler = struct {
 
         // Switch to another process - sleepOn() does not return until woken up
         _ = schedule();
-        
         // When we reach here, this process has been woken up and is RUNNING again
         // The wakeAll() call will have made us RUNNABLE and scheduler picked us up
     }
