@@ -128,9 +128,10 @@ pub export fn trapHandler(frame: *TrapFrame) void {
     const is_interrupt = (cause & (1 << 63)) != 0;
     const exception_code = cause & 0x7FFFFFFFFFFFFFFF;
 
-    // Debug: Show we reached trap handler successfully (only for non-syscall traps)
+    // Debug: Show we reached trap handler successfully (only for non-syscall and non-external-interrupt traps)
     const is_syscall = (!is_interrupt) and (exception_code == @intFromEnum(ExceptionCause.EcallFromUMode));
-    if (!is_syscall) {
+    const is_external_int = is_interrupt and (exception_code == 9); // Supervisor external interrupt
+    if (!is_syscall and !is_external_int) {
         uart.puts("[trap] Handler entered - cause: ");
         uart.putHex(cause);
         uart.puts(" PC: ");
@@ -167,15 +168,15 @@ fn interruptHandler(frame: *TrapFrame, code: u64) void {
 fn handlePLICInterrupt() void {
     // PLIC addresses
     const PLIC_BASE: u64 = 0x0c000000;
-    const PLIC_CLAIM = PLIC_BASE + 0x200004; // Hart 0, context 1 claim/complete
+    // Context 1 (S-mode) requires offset of 0x1000
+    const PLIC_CLAIM = PLIC_BASE + 0x200004 + 0x1000; // Hart 0, context 1 claim/complete
 
     // Claim the interrupt
     const claim_addr = @as(*volatile u32, @ptrFromInt(PLIC_CLAIM));
     const irq = claim_addr.*;
 
     if (irq == 10) { // UART IRQ
-        // uart.debug("[PLIC] UART interrupt claimed\n");
-        file.uart_isr();
+        file.uartIsr();
 
         // Complete the interrupt
         claim_addr.* = irq;
@@ -217,6 +218,16 @@ fn exceptionHandler(frame: *TrapFrame, code: u64) void {
 // System call handler using full dispatcher
 fn syscallHandler(frame: *TrapFrame) void {
     const syscall_num = frame.a7;
+
+    // Get and validate current process
+    const current = proc.Scheduler.getCurrentProcess() orelse {
+        // No current process - return error without debug output
+        frame.a0 = @bitCast(@as(isize, defs.ESRCH));
+        return;
+    };
+
+    // Associate trap frame with current process
+    current.user_frame = frame;
 
     // Only show syscall debug for non-repetitive calls (not read/write in shell loop)
     const is_shell_io = (syscall_num == 1) or (syscall_num == 0x3f) or (syscall_num == 0x40); // write or read

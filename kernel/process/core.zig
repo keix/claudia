@@ -109,7 +109,7 @@ var process_table: [MAX_PROCESSES]Process = undefined;
 var next_pid: PID = 1;
 
 // Current running process
-var current_process: ?*Process = null;
+pub var current_process: ?*Process = null;
 
 // Ready queue (simple linked list)
 var ready_queue_head: ?*Process = null;
@@ -188,8 +188,12 @@ pub const Scheduler = struct {
     pub fn schedule() ?*Process {
         // If we have a current, try to rotate it out and switch from it
         if (current_process) |proc| {
-            if (proc.state == .RUNNING) makeRunnable(proc);
+            // Only make runnable if still RUNNING (not SLEEPING or ZOMBIE)
+            if (proc.state == .RUNNING) {
+                makeRunnable(proc);
+            }
 
+            // Find next runnable process
             if (dequeueRunnable()) |next| {
                 next.state = .RUNNING;
                 current_process = next;
@@ -200,11 +204,12 @@ pub const Scheduler = struct {
                 return next;
             }
 
-            current_process = null;
+            // No runnable processes - keep current regardless of state
+            // SLEEPING processes should remain as current_process
             return null;
         }
 
-        // No current: first dispatch
+        // No current: first dispatch or resuming from idle
         if (dequeueRunnable()) |next| {
             next.state = .RUNNING;
             current_process = next;
@@ -229,17 +234,23 @@ pub const Scheduler = struct {
 
     // Sleep current process on wait queue
     pub fn sleepOn(wq: *WaitQ, proc: *Process) void {
+        // Assert that we're sleeping the current process
+        if (current_process != proc) {
+            // This should not happen - only current process can sleep itself
+            return;
+        }
+
         proc.state = .SLEEPING;
 
         // Add to wait queue
         proc.next = wq.head;
         wq.head = proc;
 
-        // Clear current process
-        current_process = null;
-
-        // Yield to scheduler
+        // Switch to another process - sleepOn() does not return until woken up
         _ = schedule();
+        
+        // When we reach here, this process has been woken up and is RUNNING again
+        // The wakeAll() call will have made us RUNNABLE and scheduler picked us up
     }
 
     // Wake all processes on wait queue
@@ -273,11 +284,15 @@ pub const Scheduler = struct {
         }
     }
 
+    // Get current running process
+    pub fn getCurrentProcess() ?*Process {
+        return current_process;
+    }
+
     // Request scheduler to run (e.g., from timer interrupt)
     pub fn yield() void {
         if (current_process) |proc| {
-            // Put current process back to runnable state
-            proc.state = .RUNNABLE;
+            // makeRunnable will set state to RUNNABLE and add to queue
             makeRunnable(proc);
 
             // Schedule next process
