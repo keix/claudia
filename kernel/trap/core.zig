@@ -176,7 +176,6 @@ fn handlePLICInterrupt() void {
     const irq = claim_addr.*;
 
     if (irq == 10) { // UART IRQ
-        // uart.debug("[PLIC] UART interrupt claimed\n");
         file.uartIsr();
 
         // Complete the interrupt
@@ -219,6 +218,16 @@ fn exceptionHandler(frame: *TrapFrame, code: u64) void {
 // System call handler using full dispatcher
 fn syscallHandler(frame: *TrapFrame) void {
     const syscall_num = frame.a7;
+
+    // Get and validate current process
+    const current = proc.Scheduler.getCurrentProcess() orelse {
+        // No current process - return error without debug output
+        frame.a0 = @bitCast(@as(isize, defs.ESRCH));
+        return;
+    };
+
+    // Associate trap frame with current process
+    current.user_frame = frame;
 
     // Only show syscall debug for non-repetitive calls (not read/write in shell loop)
     const is_shell_io = (syscall_num == 1) or (syscall_num == 0x3f) or (syscall_num == 0x40); // write or read

@@ -109,7 +109,7 @@ var process_table: [MAX_PROCESSES]Process = undefined;
 var next_pid: PID = 1;
 
 // Current running process
-var current_process: ?*Process = null;
+pub var current_process: ?*Process = null;
 
 // Ready queue (simple linked list)
 var ready_queue_head: ?*Process = null;
@@ -188,8 +188,12 @@ pub const Scheduler = struct {
     pub fn schedule() ?*Process {
         // If we have a current, try to rotate it out and switch from it
         if (current_process) |proc| {
-            if (proc.state == .RUNNING) makeRunnable(proc);
+            // Only make runnable if still RUNNING (not SLEEPING or ZOMBIE)
+            if (proc.state == .RUNNING) {
+                makeRunnable(proc);
+            }
 
+            // Find next runnable process
             if (dequeueRunnable()) |next| {
                 next.state = .RUNNING;
                 current_process = next;
@@ -200,30 +204,12 @@ pub const Scheduler = struct {
                 return next;
             }
 
-            // No runnable processes - if current is sleeping, idle until wakeup
-            if (proc.state == .SLEEPING) {
-                current_process = null;
-                // Idle loop until a process becomes runnable
-                while (true) {
-                    csr.enableInterrupts();
-                    csr.wfi();
-                    
-                    // Check if any process became runnable
-                    if (dequeueRunnable()) |next| {
-                        next.state = .RUNNING;
-                        current_process = next;
-                        // Switch from sleeping process context to runnable process
-                        context_switch(&proc.context, &next.context);
-                        return next;
-                    }
-                }
-            }
-
-            current_process = null;
+            // No runnable processes - keep current regardless of state
+            // SLEEPING processes should remain as current_process
             return null;
         }
 
-        // No current: first dispatch
+        // No current: first dispatch or resuming from idle
         if (dequeueRunnable()) |next| {
             next.state = .RUNNING;
             current_process = next;
@@ -262,7 +248,7 @@ pub const Scheduler = struct {
 
         // Switch to another process - sleepOn() does not return until woken up
         _ = schedule();
-        
+
         // When we reach here, this process has been woken up and is RUNNING again
         // The wakeAll() call will have made us RUNNABLE and scheduler picked us up
     }

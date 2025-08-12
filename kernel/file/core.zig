@@ -142,8 +142,16 @@ const TTY = struct {
 
 var console_tty = TTY.init();
 
+// Global counters for lost-wakeup debugging
+var isr_rx_count: u32 = 0;
+var read_consumed_count: u32 = 0;
+var loop_counter: u32 = 0;
+var isr_hits: u32 = 0; // Track ISR invocations
+
 // UART interrupt handler to feed TTY - drain FIFO completely
 pub fn uartIsr() void {
+    isr_hits += 1; // Count ISR invocations
+
     // Drain RX FIFO completely - critical for preventing lost chars
     while (uart.getc()) |ch| {
         // Feed directly to TTY ring buffer
@@ -169,24 +177,20 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 
     const copy = @import("../user/copy.zig");
     const user_addr = @intFromPtr(buffer.ptr);
+    const csr = @import("../arch/riscv/csr.zig");
 
-    // Proper blocking I/O with sleep/wake
+    // Kernel-side WFI blocking approach
     while (true) {
         // Check TTY ring buffer first
         if (console_tty.getChar()) |ch| {
             const char_buf = [1]u8{ch};
             _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
-            return 1;
         }
-
-        // No data available - block this process until input arrives
-        const current = proc.Scheduler.getCurrentProcess() orelse return defs.EINVAL;
-        
-        // This will block the current process until UART ISR calls wakeAll()
-        proc.Scheduler.sleepOn(&console_tty.read_wait, current);
-        
-        // When we reach here, we've been woken up - loop to check buffer again
+        return 1;
     }
+
+    csr.enableInterrupts();
+    csr.wfi(); // UART RX interrupt will wake us up
 }
 
 fn consoleWrite(file: *File, data: []const u8) isize {

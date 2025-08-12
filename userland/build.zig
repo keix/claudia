@@ -106,12 +106,21 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    // Create shell utils module
+    const shell_utils_mod = b.createModule(.{
+        .root_source_file = b.path("shell/utils.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+        },
+    });
+
     // Create shell module
     const shell_main_mod = b.createModule(.{
         .root_source_file = b.path("shell/main.zig"),
         .imports = &.{
             .{ .name = "sys", .module = sys_mod },
             .{ .name = "shell/commands/index", .module = commands_index_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });
 
