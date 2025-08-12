@@ -5,6 +5,7 @@ const std = @import("std");
 const csr = @import("../arch/riscv/csr.zig");
 const uart = @import("../driver/uart/core.zig");
 const trap = @import("../trap/core.zig");
+const user = @import("../user/core.zig");
 
 // Process ID type
 pub const PID = u32;
@@ -34,18 +35,18 @@ pub const WaitQ = struct {
 // RISC-V CPU context for process switching (callee-saved registers only)
 // Matches the layout expected by context.S
 pub const Context = struct {
-    ra: u64,  // x1 - return address
-    sp: u64,  // x2 - stack pointer  
-    s0: u64,  // x8 - saved register / frame pointer
-    s1: u64,  // x9 - saved register
-    s2: u64,  // x18 - saved register
-    s3: u64,  // x19 - saved register
-    s4: u64,  // x20 - saved register
-    s5: u64,  // x21 - saved register
-    s6: u64,  // x22 - saved register
-    s7: u64,  // x23 - saved register
-    s8: u64,  // x24 - saved register
-    s9: u64,  // x25 - saved register
+    ra: u64, // x1 - return address
+    sp: u64, // x2 - stack pointer
+    s0: u64, // x8 - saved register / frame pointer
+    s1: u64, // x9 - saved register
+    s2: u64, // x18 - saved register
+    s3: u64, // x19 - saved register
+    s4: u64, // x20 - saved register
+    s5: u64, // x21 - saved register
+    s6: u64, // x22 - saved register
+    s7: u64, // x23 - saved register
+    s8: u64, // x24 - saved register
+    s9: u64, // x25 - saved register
     s10: u64, // x26 - saved register
     s11: u64, // x27 - saved register
 
@@ -86,22 +87,12 @@ pub const Process = struct {
         @memcpy(proc.name[0..copy_len], name[0..copy_len]);
         proc.name[copy_len] = 0;
 
-        // Debug: verify name was copied
-        uart.puts("Process.init: copying name '");
-        uart.puts(name);
-        uart.puts("' (len=");
-        uart.putHex(name.len);
-        uart.puts(") to process ");
-        uart.putHex(pid);
-        uart.puts("\n");
+        // Process name copied
 
         // Initialize context for new process
         initProcessContext(&proc);
 
-        // Debug: verify name after context init
-        uart.puts("Process.init: final name '");
-        uart.puts(proc.getName());
-        uart.puts("'\n");
+        // Context initialized
 
         return proc;
     }
@@ -163,16 +154,15 @@ pub const Scheduler = struct {
         return null; // No free slots
     }
 
-    // Add process to ready queue
     pub fn makeRunnable(proc: *Process) void {
-        // Only transition EMBRYO and SLEEPING processes to RUNNABLE
-        if (proc.state != .EMBRYO and proc.state != .SLEEPING) {
-            return; // Process already runnable or running
-        }
+        // Already runnable, avoid duplicate queue entry
+        if (proc.state == .RUNNABLE) return;
+
+        // Not eligible for scheduling (terminated or unused)
+        if (proc.state == .ZOMBIE or proc.state == .UNUSED) return;
 
         proc.state = .RUNNABLE;
         proc.next = null;
-
         if (ready_queue_tail) |tail| {
             tail.next = proc;
             ready_queue_tail = proc;
@@ -195,51 +185,35 @@ pub const Scheduler = struct {
         return null;
     }
 
-    // Clear current process (used when current process is sleeping/exiting)
-    pub fn clearCurrentProcess() void {
-        current_process = null;
-    }
-
-    // Simple round-robin scheduler
-    // Returns the process to switch to, or null if none available
     pub fn schedule() ?*Process {
-        // Save current process context if running
-        if (current_process) |curr_proc| {
-            if (curr_proc.state == .RUNNING) {
-                curr_proc.state = .RUNNABLE;
-                makeRunnable(curr_proc);
-            } else if (curr_proc.state == .SLEEPING) {
-                // Process is sleeping, clear current_process
-                current_process = null;
-            }
-        }
+        // If we have a current, try to rotate it out and switch from it
+        if (current_process) |proc| {
+            if (proc.state == .RUNNING) makeRunnable(proc);
 
-        // Get next runnable process
-        if (dequeueRunnable()) |next_proc| {
-            const old_proc = current_process;
-            next_proc.state = .RUNNING;
-            current_process = next_proc;
+            if (dequeueRunnable()) |next| {
+                next.state = .RUNNING;
+                current_process = next;
 
-            // Perform actual context switch
-            if (old_proc) |old| {
-                old.state = .RUNNABLE; // Put old process back to runnable if it wasn't sleeping
-                context_switch(&old.context, &next_proc.context);
-            } else {
-                // No previous process - this is the first process
-                // Call the process entry point directly
-                jumpToProcess(next_proc);
+                // Switch from the previous kernel context to the next one
+                // Note: use `proc` captured above; don't null/overwrite before switching
+                context_switch(&proc.context, &next.context);
+                return next;
             }
-            return next_proc;
-        } else {
-            // No runnable processes, idle
+
             current_process = null;
             return null;
         }
-    }
 
-    // Get current running process
-    pub fn getCurrentProcess() ?*Process {
-        return current_process;
+        // No current: first dispatch
+        if (dequeueRunnable()) |next| {
+            next.state = .RUNNING;
+            current_process = next;
+
+            // First run → no previous context to switch from
+            processEntryPointWithProc(next); // noreturn
+        }
+
+        return null;
     }
 
     // Exit current process
@@ -282,11 +256,6 @@ pub const Scheduler = struct {
         csr.enableInterrupts();
     }
 
-    // Get current process
-    pub fn current() ?*Process {
-        return current_process;
-    }
-
     // Main scheduler loop - handles all scheduling and idle
     pub fn run() noreturn {
         while (true) {
@@ -295,7 +264,6 @@ pub const Scheduler = struct {
                 // Process is now running, yield control
                 // In a real kernel, this would return to user mode
                 // For now, we'll simulate by yielding back
-                yield();
             } else {
                 // No runnable processes, wait for interrupt
                 // Ensure IRQ is enabled before wfi
@@ -311,50 +279,30 @@ pub const Scheduler = struct {
             // Put current process back to runnable state
             proc.state = .RUNNABLE;
             makeRunnable(proc);
-            
+
             // Schedule next process
             _ = schedule();
         }
     }
 };
 
-// Jump to a process directly (for first process startup)
-fn jumpToProcess(proc: *Process) noreturn {
-    uart.puts("Starting first process: ");
-    uart.puts(proc.getName());
-    uart.puts("\n");
-    
-    // Call processEntryPoint directly with the process pointer
-    // This avoids the complexity of register passing
-    processEntryPointWithProc(proc);
-}
-
 // Entry point for process with direct pointer passing
 fn processEntryPointWithProc(proc: *Process) noreturn {
-    uart.puts("Process entry point reached\n");
-    uart.puts("Process name: '");
-    uart.puts(proc.getName());
-    uart.puts("'\n");
-    
     // Run process-specific code based on process name
     const name = proc.getName();
     if (std.mem.eql(u8, name, "init")) {
-        uart.puts("Running init process\n");
-        const user = @import("../user/core.zig");
-        user.runTests();
+        user.initActualUserMode();
     } else {
-        // Generic process - just print and exit
-        uart.puts("Running generic process\n");
+        // Generic process - just exit
     }
-    
+
     // Process finished - mark as zombie and yield
-    uart.puts("Process finished\n");
     proc.state = .ZOMBIE;
     proc.exit_code = 0;
-    
+
     // Yield to scheduler
     Scheduler.yield();
-    
+
     // Should never reach here
     while (true) {
         csr.wfi();
@@ -365,14 +313,14 @@ fn processEntryPointWithProc(proc: *Process) noreturn {
 fn initProcessContext(proc: *Process) void {
     // Set up stack pointer to top of allocated stack (grows downward)
     proc.context.sp = @intFromPtr(proc.stack.ptr) + proc.stack.len - 16;
-    
+
     // Set return address to process entry point
     proc.context.ra = @intFromPtr(&processEntryPoint);
-    
+
     // Initialize all callee-saved registers to zero
     proc.context.s0 = 0;
     proc.context.s1 = 0;
-    proc.context.s2 = 0; 
+    proc.context.s2 = 0;
     proc.context.s3 = 0;
     proc.context.s4 = 0;
     proc.context.s5 = 0;
@@ -382,7 +330,7 @@ fn initProcessContext(proc: *Process) void {
     proc.context.s9 = 0;
     proc.context.s10 = 0;
     proc.context.s11 = 0;
-    
+
     // Store process pointer in s0 so entry point can access it
     proc.context.s0 = @intFromPtr(proc);
 }
@@ -390,9 +338,10 @@ fn initProcessContext(proc: *Process) void {
 // Entry point for newly created processes (called via context switch)
 fn processEntryPoint() noreturn {
     // Get process pointer from s0 register (passed from context init)
-    const proc: *Process = asm volatile ("mv %[proc], s0" : [proc] "=r" (-> *Process));
-    
+    const proc: *Process = asm volatile ("mv %[proc], s0"
+        : [proc] "=r" (-> *Process),
+    );
+
     // Delegate to common entry point
     processEntryPointWithProc(proc);
 }
-
