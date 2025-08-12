@@ -155,7 +155,8 @@ fn initPLIC() void {
     enable_addr.* = 1 << UART_IRQ;
 
     // Set priority threshold to 0 (accept all priorities)
-    const threshold_addr = @as(*volatile u32, @ptrFromInt(PLIC_THRESHOLD));
+    // Context 1 (S-mode) requires offset of 0x1000
+    const threshold_addr = @as(*volatile u32, @ptrFromInt(PLIC_THRESHOLD + 0x1000));
     threshold_addr.* = 0;
 
     uart.puts("PLIC initialized: UART IRQ enabled\n");

@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) void {
         \\.incbin "../userland/zig-out/bin/init"
         \\_user_init_end:
     );
-    
+
     const shell_asm = b.addWriteFiles();
     const shell_asm_file = shell_asm.add("user_shell.S",
         \\.section .rodata

@@ -1,5 +1,5 @@
 const syscall = @import("syscall");
-const sysno = @import("sysno");
+const abi = @import("abi");
 
 /// Writes the contents of a buffer to a file descriptor using the raw `write` syscall.
 ///
@@ -9,5 +9,5 @@ const sysno = @import("sysno");
 ///
 /// Returns: the number of bytes written on success, or a negative error code on failure.
 pub fn write(fd: usize, buf: *const u8, len: usize) isize {
-    return syscall.syscall3(sysno.sys_write, fd, @intFromPtr(buf), len);
+    return syscall.syscall3(abi.sysno.sys_write, fd, @intFromPtr(buf), len);
 }

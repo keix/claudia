@@ -1,5 +1,5 @@
 const syscall = @import("syscall");
-const sysno = @import("sysno");
+const abi = @import("abi");
 
 /// Terminates the calling process with the given exit code using the raw `exit` syscall.
 ///
@@ -7,6 +7,6 @@ const sysno = @import("sysno");
 ///
 /// This function does not return.
 pub fn exit(code: u8) noreturn {
-    _ = syscall.syscall1(sysno.sys_exit, code);
+    _ = syscall.syscall1(abi.sysno.sys_exit, code);
     unreachable;
 }

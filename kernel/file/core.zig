@@ -146,9 +146,12 @@ var console_tty = TTY.init();
 var isr_rx_count: u32 = 0;
 var read_consumed_count: u32 = 0;
 var loop_counter: u32 = 0;
+var isr_hits: u32 = 0; // Track ISR invocations
 
 // UART interrupt handler to feed TTY - drain FIFO completely
-pub fn uart_isr() void {
+pub fn uartIsr() void {
+    isr_hits += 1; // Count ISR invocations
+
     // Drain RX FIFO completely - critical for preventing lost chars
     while (uart.getc()) |ch| {
         // Feed directly to TTY ring buffer
@@ -176,26 +179,20 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 
     const copy = @import("../user/copy.zig");
     const user_addr = @intFromPtr(buffer.ptr);
+    const csr = @import("../arch/riscv/csr.zig");
 
-    // Input mode: Check TTY buffer and UART directly
+    // Kernel-side WFI blocking approach
     while (true) {
-        // Check TTY buffer first
+        // Check TTY ring buffer first
         if (console_tty.getChar()) |ch| {
             const char_buf = [1]u8{ch};
-            _ = copy.copyout(user_addr, &char_buf) catch return -defs.EFAULT;
-            return 1;
+            _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
         }
-
-        // Check UART directly
-        if (uart.getc()) |ch| {
-            const char_buf = [1]u8{ch};
-            _ = copy.copyout(user_addr, &char_buf) catch return -defs.EFAULT;
-            return 1;
-        }
-
-        // No input available, yield to prevent 100% CPU
-        proc.Scheduler.yield();
+        return 1;
     }
+
+    csr.enableInterrupts();
+    csr.wfi(); // UART RX interrupt will wake us up
 }
 
 fn consoleWrite(file: *File, data: []const u8) isize {
