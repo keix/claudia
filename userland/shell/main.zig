@@ -14,8 +14,11 @@ fn read_char(buf: *u8) isize {
 }
 
 // Assembly function to execute WFI (Wait For Interrupt)
+// Note: WFI is a privileged instruction, so we can't use it in user mode
+// Instead, we'll just continue the loop and let the syscall block properly
 fn wait_for_interrupt() void {
-    asm volatile ("wfi");
+    // In user mode, we can't execute wfi, so just return
+    // The blocking read syscall should handle waiting properly
 }
 
 pub fn main() noreturn {
@@ -31,8 +34,8 @@ pub fn main() noreturn {
         while (pos < buffer.len - 1) {
             const result = read_char(&buffer[pos]);
             if (result <= 0) {
-                // No input available, wait for interrupt to wake us up
-                wait_for_interrupt();
+                // Read error or no data - the syscall should block properly
+                // If it returns immediately, there might be an error
                 continue;
             }
 

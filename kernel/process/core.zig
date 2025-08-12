@@ -200,6 +200,25 @@ pub const Scheduler = struct {
                 return next;
             }
 
+            // No runnable processes - if current is sleeping, idle until wakeup
+            if (proc.state == .SLEEPING) {
+                current_process = null;
+                // Idle loop until a process becomes runnable
+                while (true) {
+                    csr.enableInterrupts();
+                    csr.wfi();
+                    
+                    // Check if any process became runnable
+                    if (dequeueRunnable()) |next| {
+                        next.state = .RUNNING;
+                        current_process = next;
+                        // Switch from sleeping process context to runnable process
+                        context_switch(&proc.context, &next.context);
+                        return next;
+                    }
+                }
+            }
+
             current_process = null;
             return null;
         }
@@ -229,17 +248,23 @@ pub const Scheduler = struct {
 
     // Sleep current process on wait queue
     pub fn sleepOn(wq: *WaitQ, proc: *Process) void {
+        // Assert that we're sleeping the current process
+        if (current_process != proc) {
+            // This should not happen - only current process can sleep itself
+            return;
+        }
+
         proc.state = .SLEEPING;
 
         // Add to wait queue
         proc.next = wq.head;
         wq.head = proc;
 
-        // Clear current process
-        current_process = null;
-
-        // Yield to scheduler
+        // Switch to another process - sleepOn() does not return until woken up
         _ = schedule();
+        
+        // When we reach here, this process has been woken up and is RUNNING again
+        // The wakeAll() call will have made us RUNNABLE and scheduler picked us up
     }
 
     // Wake all processes on wait queue
@@ -273,11 +298,15 @@ pub const Scheduler = struct {
         }
     }
 
+    // Get current running process
+    pub fn getCurrentProcess() ?*Process {
+        return current_process;
+    }
+
     // Request scheduler to run (e.g., from timer interrupt)
     pub fn yield() void {
         if (current_process) |proc| {
-            // Put current process back to runnable state
-            proc.state = .RUNNABLE;
+            // makeRunnable will set state to RUNNABLE and add to queue
             makeRunnable(proc);
 
             // Schedule next process

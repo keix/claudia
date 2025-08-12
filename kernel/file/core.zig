@@ -142,19 +142,12 @@ const TTY = struct {
 
 var console_tty = TTY.init();
 
-// Global counters for lost-wakeup debugging
-var isr_rx_count: u32 = 0;
-var read_consumed_count: u32 = 0;
-var loop_counter: u32 = 0;
-
 // UART interrupt handler to feed TTY - drain FIFO completely
-pub fn uart_isr() void {
+pub fn uartIsr() void {
     // Drain RX FIFO completely - critical for preventing lost chars
     while (uart.getc()) |ch| {
         // Feed directly to TTY ring buffer
-        if (console_tty.input_buffer.put(ch)) {
-            isr_rx_count += 1;
-        }
+        _ = console_tty.input_buffer.put(ch);
         // If ring buffer full, drop character (could log this)
     }
 
@@ -177,24 +170,22 @@ fn consoleRead(file: *File, buffer: []u8) isize {
     const copy = @import("../user/copy.zig");
     const user_addr = @intFromPtr(buffer.ptr);
 
-    // Input mode: Check TTY buffer and UART directly
+    // Proper blocking I/O with sleep/wake
     while (true) {
-        // Check TTY buffer first
+        // Check TTY ring buffer first
         if (console_tty.getChar()) |ch| {
             const char_buf = [1]u8{ch};
-            _ = copy.copyout(user_addr, &char_buf) catch return -defs.EFAULT;
+            _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
             return 1;
         }
 
-        // Check UART directly
-        if (uart.getc()) |ch| {
-            const char_buf = [1]u8{ch};
-            _ = copy.copyout(user_addr, &char_buf) catch return -defs.EFAULT;
-            return 1;
-        }
-
-        // No input available, yield to prevent 100% CPU
-        proc.Scheduler.yield();
+        // No data available - block this process until input arrives
+        const current = proc.Scheduler.getCurrentProcess() orelse return defs.EINVAL;
+        
+        // This will block the current process until UART ISR calls wakeAll()
+        proc.Scheduler.sleepOn(&console_tty.read_wait, current);
+        
+        // When we reach here, we've been woken up - loop to check buffer again
     }
 }
 
