@@ -1,17 +1,16 @@
 // Main shell implementation
-const syscall = @import("syscall");
-const sysno = @import("sysno");
+const sys = @import("sys");
 const commands = @import("shell/commands/index");
 
 const STDIN: usize = 0;
 const STDOUT: usize = 1;
 
 pub fn write_str(str: []const u8) void {
-    _ = syscall.syscall3(sysno.sys_write, STDOUT, @intFromPtr(str.ptr), str.len);
+    _ = sys.write(STDOUT, @ptrCast(str.ptr), str.len);
 }
 
 fn read_char(buf: *u8) isize {
-    return syscall.syscall3(sysno.sys_read, STDIN, @intFromPtr(buf), 1);
+    return sys.read(STDIN, @ptrCast(buf), 1);
 }
 
 // Assembly function to execute WFI (Wait For Interrupt)
@@ -22,9 +21,8 @@ fn wait_for_interrupt() void {
 pub fn main() noreturn {
     // Simple shell loop
     var buffer: [64]u8 = undefined;
-    var running = true;
 
-    while (running) {
+    while (true) {
         // Print prompt
         write_str("claudia:/ # ");
 
@@ -73,15 +71,12 @@ pub fn main() noreturn {
             if (str_eq(trimmed_cmd, cmd.name)) {
                 cmd.func(trimmed_cmd); // TODO: Pass actual arguments in the future
                 found = true;
-                
-                // Special handling for exit
-                if (str_eq(cmd.name, "exit")) {
-                    running = false;
-                }
+
+                // No special handling needed - exit command calls sys.exit() directly
                 break;
             }
         }
-        
+
         if (!found and trimmed_cmd.len > 0) {
             write_str("Unknown command: ");
             write_str(trimmed_cmd);
@@ -89,7 +84,7 @@ pub fn main() noreturn {
         }
     }
 
-    _ = syscall.syscall3(sysno.sys_exit, 0, 0, 0);
+    sys.exit(0);
 
     // Never reached
     while (true) {}

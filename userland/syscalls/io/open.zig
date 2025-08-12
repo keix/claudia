@@ -1,6 +1,6 @@
 const syscall = @import("syscall");
-const sysno = @import("sysno");
-const defs = @import("defs");
+const abi = @import("abi");
+const defs = abi.types;
 
 // Re-export flags from abi/defs.zig
 pub const O_RDONLY = defs.O_RDONLY;
@@ -41,5 +41,5 @@ pub const AT_FDCWD: isize = -100;
 /// Returns: a new file descriptor on success, or a negative error code on failure.
 pub fn open(path: *const u8, flags: usize, mode: usize) isize {
     // Use openat with AT_FDCWD to emulate open behavior
-    return syscall.syscall4(sysno.sys_openat, @bitCast(@as(isize, AT_FDCWD)), @intFromPtr(path), flags, mode);
+    return syscall.syscall4(abi.sysno.sys_openat, @bitCast(@as(isize, AT_FDCWD)), @intFromPtr(path), flags, mode);
 }

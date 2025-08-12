@@ -1,6 +1,7 @@
 // /init - Minimal system initialization
 const syscall = @import("syscall");
-const sysno = @import("sysno");
+const abi = @import("abi");
+const sysno = abi.sysno;
 
 const STDOUT: usize = 1;
 
@@ -12,13 +13,13 @@ export fn _start() noreturn {
     // System initialization
     write_str("Welcome to Claudia!\n");
     write_str("Kernel boot complete.\n");
-    
+
     // TODO: Eventually use fork/exec to start shell
     // For now, just print a message and exit
     write_str("Init process complete. Shell would start here.\n");
-    
+
     _ = syscall.syscall3(sysno.sys_exit, 0, 0, 0);
-    
+
     // Never reached
     while (true) {}
 }
