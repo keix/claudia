@@ -25,17 +25,28 @@ pub fn build(b: *std.Build) void {
     kernel.addAssemblyFile(b.path("arch/riscv/umode.S"));
     kernel.addAssemblyFile(b.path("arch/riscv/context.S"));
 
-    // Create a simple assembly wrapper to embed shell binary
+    // Create assembly wrappers to embed userland binaries
+    const init_asm = b.addWriteFiles();
+    const init_asm_file = init_asm.add("user_init.S",
+        \\.section .rodata
+        \\.global _user_init_start
+        \\.global _user_init_end
+        \\_user_init_start:
+        \\.incbin "../userland/zig-out/bin/init"
+        \\_user_init_end:
+    );
+    
     const shell_asm = b.addWriteFiles();
     const shell_asm_file = shell_asm.add("user_shell.S",
         \\.section .rodata
         \\.global _user_shell_start
         \\.global _user_shell_end
         \\_user_shell_start:
-        \\.incbin "../userland/zig-out/bin/init"
+        \\.incbin "../userland/zig-out/bin/shell"
         \\_user_shell_end:
     );
 
+    kernel.addAssemblyFile(init_asm_file);
     kernel.addAssemblyFile(shell_asm_file);
 
     kernel.setLinkerScript(b.path("arch/riscv/linker.ld"));
