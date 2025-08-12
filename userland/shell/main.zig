@@ -1,17 +1,7 @@
 // Main shell implementation
 const sys = @import("sys");
 const commands = @import("shell/commands/index");
-
-const STDIN: usize = 0;
-const STDOUT: usize = 1;
-
-pub fn write_str(str: []const u8) void {
-    _ = sys.write(STDOUT, @ptrCast(str.ptr), str.len);
-}
-
-fn read_char(buf: *u8) isize {
-    return sys.read(STDIN, @ptrCast(buf), 1);
-}
+const utils = @import("shell/utils");
 
 // Assembly function to execute WFI (Wait For Interrupt)
 fn wait_for_interrupt() void {
@@ -24,12 +14,12 @@ pub fn main() noreturn {
 
     while (true) {
         // Print prompt
-        write_str("claudia:/ # ");
+        utils.writeStr("claudia:/ # ");
 
         // Read command line
         var pos: usize = 0;
         while (pos < buffer.len - 1) {
-            const result = read_char(&buffer[pos]);
+            const result = utils.readChar(&buffer[pos]);
             if (result <= 0) {
                 // No input available, wait for interrupt to wake us up
                 wait_for_interrupt();
@@ -41,13 +31,13 @@ pub fn main() noreturn {
             // Handle different characters
             if (ch == '\n' or ch == '\r') {
                 // End of line - finish input
-                write_str("\n"); // Echo newline
+                utils.writeStr("\n"); // Echo newline
                 buffer[pos] = 0; // null terminate
                 break;
             } else if (ch >= 32 and ch <= 126) {
                 // Printable character - echo it
                 const echo_buf = [1]u8{ch};
-                write_str(&echo_buf);
+                utils.writeStr(&echo_buf);
                 pos += 1;
             } else {
                 // Skip unprintable characters (like stray control chars)
@@ -57,18 +47,25 @@ pub fn main() noreturn {
 
         if (pos == 0) continue;
 
-        // Process command - skip leading whitespace
-        var start: usize = 0;
-        while (start < pos and buffer[start] == ' ') start += 1;
+        const trimmed_cmd = utils.parseCommandLine(buffer[0..], pos);
 
-        if (start >= pos) continue; // Empty command
-
-        const trimmed_cmd = buffer[start..pos];
+        // Debug output
+        utils.writeStr("Command: '");
+        utils.writeStr(trimmed_cmd);
+        utils.writeStr("' (len=");
+        // Simple length display for debugging
+        if (trimmed_cmd.len < 10) {
+            const len_char = [1]u8{'0' + @as(u8, @intCast(trimmed_cmd.len))};
+            utils.writeStr(&len_char);
+        } else {
+            utils.writeStr("10+");
+        }
+        utils.writeStr(")\n");
 
         // Dispatch commands using index
         var found = false;
         for (commands.commands) |cmd| {
-            if (str_eq(trimmed_cmd, cmd.name)) {
+            if (utils.strEq(trimmed_cmd, cmd.name)) {
                 cmd.func(trimmed_cmd); // TODO: Pass actual arguments in the future
                 found = true;
 
@@ -78,9 +75,9 @@ pub fn main() noreturn {
         }
 
         if (!found and trimmed_cmd.len > 0) {
-            write_str("Unknown command: ");
-            write_str(trimmed_cmd);
-            write_str("\n");
+            utils.writeStr("Unknown command: ");
+            utils.writeStr(trimmed_cmd);
+            utils.writeStr("\n");
         }
     }
 
@@ -88,12 +85,4 @@ pub fn main() noreturn {
 
     // Never reached
     while (true) {}
-}
-
-pub fn str_eq(a: []const u8, b: []const u8) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |ca, cb| {
-        if (ca != cb) return false;
-    }
-    return true;
 }
