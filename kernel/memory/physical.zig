@@ -72,8 +72,6 @@ pub const FrameAllocator = struct {
         }
     }
 
-    // === Helper functions ===
-
     fn frameToAddr(self: *Self, frame: usize) usize {
         return self.base_addr + (frame << PAGE_SHIFT);
     }
