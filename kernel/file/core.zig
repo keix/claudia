@@ -146,12 +146,12 @@ var console_tty = TTY.init();
 var isr_rx_count: u32 = 0;
 var read_consumed_count: u32 = 0;
 var loop_counter: u32 = 0;
-var isr_hits: u32 = 0;  // Track ISR invocations
+var isr_hits: u32 = 0; // Track ISR invocations
 
 // UART interrupt handler to feed TTY - drain FIFO completely
 pub fn uartIsr() void {
-    isr_hits += 1;  // Count ISR invocations
-    
+    isr_hits += 1; // Count ISR invocations
+
     // Drain RX FIFO completely - critical for preventing lost chars
     while (uart.getc()) |ch| {
         // Feed directly to TTY ring buffer
@@ -187,39 +187,12 @@ fn consoleRead(file: *File, buffer: []u8) isize {
         if (console_tty.getChar()) |ch| {
             const char_buf = [1]u8{ch};
             _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
-            
-            // Debug: Output ISR counter after successful read
-            if (isr_hits > 0) {
-                uart.debug("[consoleRead] ISR hits: ");
-                uart.putHex(isr_hits);
-                uart.debug(" RX count: ");
-                uart.putHex(isr_rx_count);
-                uart.debug("\n");
-            }
-            
-            return 1;
         }
-
-        // No data available - block with WFI until UART interrupt
-        csr.enableInterrupts();
-        
-        // Debug: show we're about to WFI
-        loop_counter += 1;
-        if (loop_counter < 5) {
-            uart.debug("[consoleRead] Entering WFI, loop count: ");
-            uart.putHex(loop_counter);
-            uart.debug("\n");
-        }
-        
-        csr.wfi(); // UART RX interrupt will wake us up
-        
-        // Debug: show we woke up
-        if (loop_counter < 5) {
-            uart.debug("[consoleRead] Woke from WFI\n");
-        }
-        
-        // When woken, loop back to check ring buffer again
+        return 1;
     }
+
+    csr.enableInterrupts();
+    csr.wfi(); // UART RX interrupt will wake us up
 }
 
 fn consoleWrite(file: *File, data: []const u8) isize {
