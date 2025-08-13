@@ -24,9 +24,8 @@ pub fn main() noreturn {
         while (pos < buffer.len - 1) {
             const result = utils.readChar(&buffer[pos]);
             if (result <= 0) {
-                // Read error or no data - the syscall should block properly
-                // If it returns immediately, there might be an error
-                continue;
+                // Read error - this shouldn't happen with blocking I/O
+                break;
             }
 
             const ch = buffer[pos];

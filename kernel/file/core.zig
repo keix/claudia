@@ -138,6 +138,32 @@ const TTY = struct {
     fn getChar(self: *TTY) ?u8 {
         return self.input_buffer.get();
     }
+    
+    fn getCharAtomic(self: *TTY) ?u8 {
+        const csr = @import("../arch/riscv/csr.zig");
+        // Save current interrupt state and disable interrupts
+        const saved_sstatus = csr.csrrc(csr.CSR.sstatus, csr.SSTATUS.SIE);
+        defer {
+            // Restore interrupts if they were previously enabled
+            if ((saved_sstatus & csr.SSTATUS.SIE) != 0) {
+                csr.enableInterrupts();
+            }
+        }
+        return self.input_buffer.get();
+    }
+    
+    fn putCharAtomic(self: *TTY, ch: u8) bool {
+        const csr = @import("../arch/riscv/csr.zig");
+        // Save current interrupt state and disable interrupts
+        const saved_sstatus = csr.csrrc(csr.CSR.sstatus, csr.SSTATUS.SIE);
+        defer {
+            // Restore interrupts if they were previously enabled
+            if ((saved_sstatus & csr.SSTATUS.SIE) != 0) {
+                csr.enableInterrupts();
+            }
+        }
+        return self.input_buffer.put(ch);
+    }
 };
 
 var console_tty = TTY.init();
@@ -152,15 +178,19 @@ var isr_hits: u32 = 0; // Track ISR invocations
 pub fn uartIsr() void {
     isr_hits += 1; // Count ISR invocations
 
+    var chars_received = false;
     // Drain RX FIFO completely - critical for preventing lost chars
     while (uart.getc()) |ch| {
-        // Feed directly to TTY ring buffer
-        _ = console_tty.input_buffer.put(ch);
+        // Feed directly to TTY ring buffer with atomic access
+        _ = console_tty.putCharAtomic(ch);
+        chars_received = true;
         // If ring buffer full, drop character (could log this)
     }
 
-    // Always wake all processes waiting on console input
-    proc.Scheduler.wakeAll(&console_tty.read_wait);
+    // Only wake processes if we actually received characters
+    if (chars_received) {
+        proc.Scheduler.wakeAll(&console_tty.read_wait);
+    }
 }
 
 // Console device operations (stdout/stderr)
@@ -181,16 +211,25 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 
     // Kernel-side WFI blocking approach
     while (true) {
-        // Check TTY ring buffer first
-        if (console_tty.getChar()) |ch| {
+        // Check TTY ring buffer first with atomic access
+        if (console_tty.getCharAtomic()) |ch| {
             const char_buf = [1]u8{ch};
             _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
+            return 1; // ← 文字を返せた時だけ return
         }
-        return 1;
-    }
 
-    csr.enableInterrupts();
-    csr.wfi(); // UART RX interrupt will wake us up
+        // Fallback: poll UART directly if TTY buffer is empty
+        if (uart.getc()) |ch| {
+            const char_buf = [1]u8{ch};
+            _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
+            return 1;
+        }
+
+        // データ無し → カーネル側で待機
+        csr.enableInterrupts();
+        csr.wfi(); // UART RX で起床
+        // 起きたら while 先頭で再チェック
+    }
 }
 
 fn consoleWrite(file: *File, data: []const u8) isize {
