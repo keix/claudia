@@ -22,34 +22,71 @@ pub fn init() void {
     // User subsystem initialized
 }
 
-// Execute user ELF program with proper memory management
-pub fn executeUserProgram(code: []const u8, args: []const u8) !void {
+// Execute user ELF program with proper memory management - noreturn on success
+pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
+    return executeUserProgramWithSeq(code, args, 0);
+}
+
+// Execute user ELF program with sequence number for debugging
+pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !noreturn {
     _ = args;
-    // Setting up user address space
+    uart.puts("[exec#");
+    uart.putHex(seq);
+    uart.puts("] Setting up NEW user address space\n");
 
     // Parse ELF header
-    const header = elf.parseElfHeader(code) catch return;
+    const header = elf.parseElfHeader(code) catch return error.InvalidELF;
 
-    // Setup user address space
-    test_user_context.setupAddressSpace() catch return;
+    // For exec: Create a completely new memory context to replace the old one
+    var new_user_context = memory.UserMemoryContext.init();
+    
+    // Setup new address space
+    new_user_context.setupAddressSpace() catch return error.MemorySetupFailed;
 
     // User address space created successfully
 
     // Get loadable segments
     const segments = elf.getLoadableSegments(code, header) orelse {
         // No loadable segments found
-        return;
+        return error.NoLoadableSegments;
     };
 
     // Create ELF segments in user memory context with page alignment
+    var segment_idx: u32 = 0;
     for (segments) |segment| {
         if (segment.p_type != elf.PT_LOAD) continue;
+        
+        uart.puts("[exec#");
+        uart.putHex(seq);
+        uart.puts(" ph#");
+        uart.putHex(segment_idx);
+        uart.puts("] Processing PT_LOAD vaddr=0x");
+        uart.putHex(segment.p_vaddr);
+        uart.puts(" filesz=0x");
+        uart.putHex(segment.p_filesz);
+        uart.puts(" memsz=0x");
+        uart.putHex(segment.p_memsz);
+        uart.puts(" flags=0x");
+        uart.putHex(segment.p_flags);
+        uart.puts("\n");
 
         // Determine permissions based on segment flags
-        var permissions: u8 = @as(u8, virtual.PTE_U); // Always user-accessible
-        if (segment.p_flags & 0x4 != 0) permissions |= @as(u8, virtual.PTE_R); // Readable
+        var permissions: u8 = @as(u8, virtual.PTE_U | virtual.PTE_R); // Always user-accessible and readable
         if (segment.p_flags & 0x2 != 0) permissions |= @as(u8, virtual.PTE_W); // Writable
         if (segment.p_flags & 0x1 != 0) permissions |= @as(u8, virtual.PTE_X); // Executable
+        
+        uart.puts("[exec#");
+        uart.putHex(seq);
+        uart.puts(" ph#");
+        uart.putHex(segment_idx);
+        uart.puts("] Permissions: 0x");
+        uart.putHex(permissions);
+        uart.puts(" (");
+        if (permissions & virtual.PTE_R != 0) uart.puts("R");
+        if (permissions & virtual.PTE_W != 0) uart.puts("W");
+        if (permissions & virtual.PTE_X != 0) uart.puts("X");
+        if (permissions & virtual.PTE_U != 0) uart.puts("U");
+        uart.puts(")\n");
 
         // Align segment to page boundaries
         const page_size: u64 = types.PAGE_SIZE;
@@ -58,9 +95,17 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !void {
         const aligned_end = (segment_end + page_size - 1) & ~(page_size - 1); // Round up to page boundary
         const aligned_size = aligned_end - aligned_vaddr;
 
-        // Adding ELF segment
+        uart.puts("[exec#");
+        uart.putHex(seq);
+        uart.puts(" ph#");
+        uart.putHex(segment_idx);
+        uart.puts("] Aligned vaddr=0x");
+        uart.putHex(aligned_vaddr);
+        uart.puts(" size=0x");
+        uart.putHex(aligned_size);
+        uart.puts("\n");
 
-        const region = memory.addElfSegment(&test_user_context, aligned_vaddr, aligned_size, permissions) catch return;
+        const region = memory.addElfSegment(&new_user_context, aligned_vaddr, aligned_size, permissions) catch return error.SegmentSetupFailed;
 
         // Store original segment info for data copying
         region.virtual_base = aligned_vaddr;
@@ -68,42 +113,73 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !void {
         // Allocate physical memory for the segment
         if (!memory.allocateRegion(region)) {
             // Failed to allocate memory for ELF segment
-            return;
+            return error.RegionAllocationFailed;
         }
 
         // Copy segment data from ELF file with proper offset
         if (segment.p_filesz > 0) {
+            uart.puts("[exec#");
+            uart.putHex(seq);
+            uart.puts(" ph#");
+            uart.putHex(segment_idx);
+            uart.puts("] Copy filesz=0x");
+            uart.putHex(segment.p_filesz);
+            uart.puts("\n");
+            
             const segment_data = code[segment.p_offset .. segment.p_offset + segment.p_filesz];
             const offset_in_region = segment.p_vaddr - aligned_vaddr;
             if (!memory.copyToRegion(region, offset_in_region, segment_data)) {
                 // Failed to copy segment data
-                return;
+                return error.DataCopyFailed;
             }
-
-            // Copied segment data
         }
+        
+        // Zero .bss area if memsz > filesz
+        const bss_size = segment.p_memsz - segment.p_filesz;
+        if (bss_size > 0) {
+            uart.puts("[exec#");
+            uart.putHex(seq);
+            uart.puts(" ph#");
+            uart.putHex(segment_idx);
+            uart.puts("] .bss zero=0x");
+            uart.putHex(bss_size);
+            uart.puts("\n");
+            
+            // Zero .bss area - offset starts after copied file data
+            const offset_in_region = (segment.p_vaddr - aligned_vaddr) + segment.p_filesz;
+            if (!memory.zeroRegion(region, offset_in_region, bss_size)) {
+                uart.puts("[exec#");
+                uart.putHex(seq);
+                uart.puts(" ph#");
+                uart.putHex(segment_idx);
+                uart.puts("] ERROR: Failed to zero .bss area\n");
+                return error.BssZeroFailed;
+            }
+        }
+        
+        segment_idx += 1;
     }
 
     // ELF segments prepared successfully
 
     // Get user page table PPN for SATP
-    const user_ppn = test_user_context.getPageTablePPN() orelse {
+    const user_ppn = new_user_context.getPageTablePPN() orelse {
         // Failed to get user page table PPN
-        return;
+        return error.PageTableSetupFailed;
     };
 
     // Switching to user address space
 
     // Map ELF segments to user page table
-    memory.mapElfSegments(&test_user_context) catch return;
+    memory.mapElfSegments(&new_user_context) catch return error.MappingFailed;
 
     // Allocate and map user stack
-    if (!memory.allocateRegion(&test_user_context.stack_region)) {
+    if (!memory.allocateRegion(&new_user_context.stack_region)) {
         // Failed to allocate user stack
-        return;
+        return error.StackAllocationFailed;
     }
 
-    test_user_context.mapRegion(&test_user_context.stack_region) catch return;
+    new_user_context.mapRegion(&new_user_context.stack_region) catch return error.StackMappingFailed;
 
     // User page table is now complete with kernel global mappings, ELF segments, and stack
 
@@ -119,18 +195,33 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !void {
     // Switching to user mode
 
     // Verify kernel stack is properly mapped in user PT
-    if (!test_user_context.verifyMapping(kernel_sp)) {
+    if (!new_user_context.verifyMapping(kernel_sp)) {
         // ERROR: Kernel stack not mapped in user PT!
-        return;
+        return error.KernelStackMappingFailed;
     }
     // Kernel stack mapping verified
+    
+    // Replace the global user context with the new one for exec
+    // This ensures subsequent operations use the new address space
+    test_user_context = new_user_context;
 
     // CRITICAL: After this call, we switch page tables inside the trampoline
     // No more UART access until we return via trap or the program exits
+    uart.puts("[exec#");
+    uart.putHex(seq);
+    uart.puts("] Switching to user mode entry=0x");
+    uart.putHex(header.e_entry);
+    uart.puts(" satp=0x");
+    uart.putHex(satp_value);
+    uart.puts("\n");
+    
+    // Ensure TLB is flushed after switching to user address space
+    csr.sfence_vma();
+    
     switch_to_user_mode(header.e_entry, user_stack, kernel_sp, satp_value);
 
     // Should never reach here normally (user program exits via system call)
-    // ERROR: Unexpectedly returned from user mode
+    unreachable;
 }
 
 // Compose SATP value with proper SV39 mode and ASID
@@ -154,8 +245,17 @@ pub fn initActualUserMode() void {
 
     if (code_size > 0 and code_size < 2097152) { // Allow up to 2MB for init
         const code = @as([*]const u8, @ptrFromInt(start_addr))[0..code_size];
-        executeUserProgram(code, "") catch {};
+        executeUserProgram(code, "") catch {
+            // Failed to execute /sbin/init - this should not happen
+            while (true) {
+                csr.wfi();
+            }
+        };
+        unreachable; // Should never reach here if executeUserProgram succeeds
     } else {
         // Invalid /sbin/init program size
+        while (true) {
+            csr.wfi();
+        }
     }
 }

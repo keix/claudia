@@ -64,10 +64,26 @@ pub fn main() noreturn {
         }
         utils.writeStr(")\n");
 
+        // Debug: Show command table contents
+        utils.writeStr("Debug: Available commands: ");
+        for (commands.commands) |cmd| {
+            utils.writeStr("'");
+            utils.writeStr(cmd.name);
+            utils.writeStr("' ");
+        }
+        utils.writeStr("\n");
+
         // Dispatch commands using index
         var found = false;
         for (commands.commands) |cmd| {
+            utils.writeStr("Debug: Comparing '");
+            utils.writeStr(trimmed_cmd);
+            utils.writeStr("' with '");
+            utils.writeStr(cmd.name);
+            utils.writeStr("'\n");
+            
             if (utils.strEq(trimmed_cmd, cmd.name)) {
+                utils.writeStr("Debug: Command matched, executing...\n");
                 cmd.func(trimmed_cmd); // TODO: Pass actual arguments in the future
                 found = true;
 

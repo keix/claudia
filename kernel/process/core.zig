@@ -123,6 +123,9 @@ var loop_count: u32 = 0;
 // Global state for cooperative scheduling
 var in_idle_mode: bool = false;
 
+// Debug: exec sequence counter for tracking double exec calls
+var exec_sequence: u32 = 0;
+
 // Simple stack allocator for child processes
 var child_stack_pool: [8][4096]u8 = undefined;
 var child_stack_used: [8]bool = [_]bool{false} ** 8;
@@ -350,7 +353,7 @@ pub const Scheduler = struct {
         return child_pid;
     }
 
-    // Execute program (replace current process image)
+    // Execute program (replace current process image) - noreturn on success
     pub fn exec(filename: []const u8, args: []const u8) isize {
         _ = args;
         const current = current_process orelse return -1;
@@ -361,8 +364,9 @@ pub const Scheduler = struct {
 
         // For simplicity, only support "shell" for now
         if (std.mem.eql(u8, filename, "shell") or std.mem.eql(u8, filename, "/bin/shell")) {
-            // Replace current process with shell
-            return execShell(current);
+            // Replace current process with shell - this does not return on success
+            execShell(current);
+            unreachable; // Should never reach here
         } else {
             uart.puts("[proc] exec: Unsupported program: ");
             uart.puts(filename);
@@ -577,9 +581,12 @@ fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
     unreachable;
 }
 
-// Execute shell program (replace process image with shell)
-fn execShell(proc: *Process) isize {
-    uart.puts("[proc] execShell: Loading shell for PID ");
+// Execute shell program (replace process image with shell) - noreturn on success
+fn execShell(proc: *Process) noreturn {
+    exec_sequence += 1;
+    uart.puts("[exec#");
+    uart.putHex(exec_sequence);
+    uart.puts("] execShell: Loading shell for PID ");
     uart.putHex(proc.pid);
     uart.puts("\n");
 
@@ -599,12 +606,22 @@ fn execShell(proc: *Process) isize {
         const code = @as([*]const u8, @ptrFromInt(start_addr))[0..code_size];
 
         // Execute the shell using the existing user program execution
-        user.executeUserProgram(code, "") catch return -1;
+        // This should never return on success
+        user.executeUserProgramWithSeq(code, "", exec_sequence) catch {
+            uart.puts("[exec#");
+            uart.putHex(exec_sequence);
+            uart.puts("] Failed to execute shell\n");
+            Scheduler.exit(-1);
+            unreachable;
+        };
 
-        // Should not return - the process image has been replaced
-        return 0;
+        // If we somehow get here, the exec failed
+        uart.puts("[proc] ERROR: executeUserProgram returned unexpectedly\n");
+        Scheduler.exit(-1);
+        unreachable;
     } else {
         uart.puts("[proc] Invalid shell program size\n");
-        return -1;
+        Scheduler.exit(-1);
+        unreachable;
     }
 }
