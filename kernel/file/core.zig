@@ -138,7 +138,7 @@ const TTY = struct {
     fn getChar(self: *TTY) ?u8 {
         return self.input_buffer.get();
     }
-    
+
     fn getCharAtomic(self: *TTY) ?u8 {
         const csr = @import("../arch/riscv/csr.zig");
         // Save current interrupt state and disable interrupts
@@ -151,7 +151,7 @@ const TTY = struct {
         }
         return self.input_buffer.get();
     }
-    
+
     fn putCharAtomic(self: *TTY, ch: u8) bool {
         const csr = @import("../arch/riscv/csr.zig");
         // Save current interrupt state and disable interrupts

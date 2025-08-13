@@ -34,16 +34,16 @@ pub fn parseCommandLine(buffer: []const u8, pos: usize) []const u8 {
     // Skip leading whitespace
     var start: usize = 0;
     while (start < pos and buffer[start] == ' ') start += 1;
-    
+
     if (start >= pos) return ""; // Empty command
-    
+
     // Find the end, excluding trailing whitespace and control characters
     var end: usize = pos;
     while (end > start and (buffer[end - 1] == ' ' or buffer[end - 1] == '\n' or buffer[end - 1] == '\r' or buffer[end - 1] == 0)) {
         end -= 1;
     }
-    
+
     if (end <= start) return ""; // Empty after trimming
-    
+
     return buffer[start..end];
 }

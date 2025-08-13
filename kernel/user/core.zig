@@ -140,22 +140,22 @@ fn composeSatp(ppn: u64, asid: u16) u64 {
 }
 
 pub fn initActualUserMode() void {
-    // Executing /init
+    // Executing /sbin/init
 
     // Get the init program code
-    const _user_shell_start = @extern([*]const u8, .{ .name = "_user_shell_start" });
-    const _user_shell_end = @extern([*]const u8, .{ .name = "_user_shell_end" });
+    const _user_init_start = @extern([*]const u8, .{ .name = "_user_init_start" });
+    const _user_init_end = @extern([*]const u8, .{ .name = "_user_init_end" });
 
-    const start_addr = @intFromPtr(_user_shell_start);
-    const end_addr = @intFromPtr(_user_shell_end);
+    const start_addr = @intFromPtr(_user_init_start);
+    const end_addr = @intFromPtr(_user_init_end);
     const code_size = end_addr - start_addr;
 
     // Check init binary size
 
-    if (code_size > 0 and code_size < 2097152) { // Allow up to 2MB for shell
+    if (code_size > 0 and code_size < 2097152) { // Allow up to 2MB for init
         const code = @as([*]const u8, @ptrFromInt(start_addr))[0..code_size];
         executeUserProgram(code, "") catch {};
     } else {
-        // Invalid /init program size
+        // Invalid /sbin/init program size
     }
 }
