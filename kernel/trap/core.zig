@@ -89,6 +89,8 @@ pub fn init() void {
         fileRead,
         fileClose,
         procExit,
+        procFork,
+        procExec,
     );
 }
 
@@ -120,6 +122,14 @@ fn procExit(code: i32) noreturn {
     while (true) {
         csr.wfi();
     }
+}
+
+fn procFork() isize {
+    return proc.Scheduler.fork();
+}
+
+fn procExec(filename: []const u8, args: []const u8) isize {
+    return proc.Scheduler.exec(filename, args);
 }
 
 // Main trap handler called from assembly
@@ -244,6 +254,6 @@ fn syscallHandler(frame: *TrapFrame) void {
     }
 
     // Use full dispatcher
-    const result = dispatch.call(syscall_num, frame.a0, frame.a1, frame.a2);
+    const result = dispatch.call(syscall_num, frame.a0, frame.a1, frame.a2, frame.a3, frame.a4);
     frame.a0 = @bitCast(result);
 }

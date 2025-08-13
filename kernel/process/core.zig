@@ -6,6 +6,7 @@ const csr = @import("../arch/riscv/csr.zig");
 const uart = @import("../driver/uart/core.zig");
 const trap = @import("../trap/core.zig");
 const user = @import("../user/core.zig");
+const defs = @import("abi");
 
 // Process ID type
 pub const PID = u32;
@@ -122,6 +123,17 @@ var loop_count: u32 = 0;
 // Global state for cooperative scheduling
 var in_idle_mode: bool = false;
 
+// Debug: exec sequence counter for tracking double exec calls
+var exec_sequence: u32 = 0;
+
+// Simple stack allocator for child processes
+var child_stack_pool: [8][4096]u8 = undefined;
+var child_stack_used: [8]bool = [_]bool{false} ** 8;
+
+// Trap frame pool for child processes
+var child_frame_pool: [8]trap.TrapFrame = undefined;
+var child_frame_used: [8]bool = [_]bool{false} ** 8;
+
 // Process scheduler
 pub const Scheduler = struct {
     // Initialize the process system
@@ -161,6 +173,10 @@ pub const Scheduler = struct {
         // Not eligible for scheduling (terminated or unused)
         if (proc.state == .ZOMBIE or proc.state == .UNUSED) return;
 
+        // Critical section - protect ready queue manipulation
+        csr.disableInterrupts();
+        defer csr.enableInterrupts();
+
         proc.state = .RUNNABLE;
         proc.next = null;
         if (ready_queue_tail) |tail| {
@@ -174,6 +190,10 @@ pub const Scheduler = struct {
 
     // Remove and return next runnable process
     pub fn dequeueRunnable() ?*Process {
+        // Critical section - protect ready queue manipulation
+        csr.disableInterrupts();
+        defer csr.enableInterrupts();
+
         if (ready_queue_head) |head| {
             ready_queue_head = head.next;
             if (ready_queue_head == null) {
@@ -199,13 +219,10 @@ pub const Scheduler = struct {
                 current_process = next;
 
                 // Switch from the previous kernel context to the next one
-                // Note: use `proc` captured above; don't null/overwrite before switching
                 context_switch(&proc.context, &next.context);
                 return next;
             }
 
-            // No runnable processes - keep current regardless of state
-            // SLEEPING processes should remain as current_process
             return null;
         }
 
@@ -226,9 +243,9 @@ pub const Scheduler = struct {
         if (current_process) |proc| {
             proc.state = .ZOMBIE;
             proc.exit_code = exit_code;
-
             current_process = null;
             _ = schedule(); // Find next process to run
+            unreachable; // Normally never returns here
         }
     }
 
@@ -271,12 +288,9 @@ pub const Scheduler = struct {
         while (true) {
             // Try to schedule a process
             if (schedule()) |_| {
-                // Process is now running, yield control
-                // In a real kernel, this would return to user mode
-                // For now, we'll simulate by yielding back
+                // Process is now running, continue scheduling
             } else {
                 // No runnable processes, wait for interrupt
-                // Ensure IRQ is enabled before wfi
                 csr.enableInterrupts();
                 csr.wfi();
             }
@@ -298,6 +312,68 @@ pub const Scheduler = struct {
             _ = schedule();
         }
     }
+
+    // Fork current process (simplified implementation)
+    pub fn fork() isize {
+        const parent = current_process orelse return defs.ESRCH;
+
+        // Allocate static kernel stack for child (simple allocator)
+        const child_stack = allocateChildStack() orelse return defs.ENOMEM;
+
+        // Create child process
+        const child = allocProcess("child", child_stack) orelse return defs.EAGAIN;
+
+        // Copy parent process context - but child should not go to processEntryPoint
+        // Instead, child should resume from the syscall return point
+        child.parent = parent;
+
+        // Copy user mode trap frame if it exists
+        if (parent.user_frame) |parent_frame| {
+            // Allocate independent trap frame for child
+            const child_frame = allocateChildTrapFrame() orelse return -1;
+            child_frame.* = parent_frame.*;
+            child_frame.a0 = 0; // Child returns 0 from fork
+            child.user_frame = child_frame;
+
+            // Set up child context - fix critical s0/sp for child
+            child.context = parent.context; // Base copy is OK
+            child.context.ra = @intFromPtr(&forkedChildReturn);
+            child.context.s0 = @intFromPtr(child); // ★ Child's Process*
+            child.context.sp = @intFromPtr(child.stack.ptr) + child.stack.len - 16; // ★ Child's kernel stack
+        } else {
+            // No user frame - this shouldn't happen for forked processes
+            return -1;
+        }
+
+        // Make child runnable
+        makeRunnable(child);
+
+        // Parent returns child PID
+        const child_pid = @as(isize, @intCast(child.pid));
+        return child_pid;
+    }
+
+    // Execute program (replace current process image) - noreturn on success
+    pub fn exec(filename: []const u8, args: []const u8) isize {
+        _ = args;
+        const current = current_process orelse return -1;
+
+        uart.puts("[proc] exec: ");
+        uart.puts(filename);
+        uart.puts("\n");
+
+        // For simplicity, only support "shell" for now
+        if (std.mem.eql(u8, filename, "shell") or std.mem.eql(u8, filename, "/bin/shell")) {
+            // Replace current process with shell - this does not return on success
+            execShell(current);
+            unreachable; // Should never reach here
+        } else {
+            uart.puts("[proc] exec: Unsupported program: ");
+            uart.puts(filename);
+            uart.puts("\n");
+            return -1;
+        }
+    }
 };
 
 // Entry point for process with direct pointer passing
@@ -306,20 +382,33 @@ fn processEntryPointWithProc(proc: *Process) noreturn {
     const name = proc.getName();
     if (std.mem.eql(u8, name, "init")) {
         user.initActualUserMode();
+        unreachable; // Should not return
+    } else if (std.mem.eql(u8, name, "child")) {
+        // Child process - return to user mode with saved trap frame
+        // This should never actually execute because fork returns directly to syscall handler
+        uart.puts("[proc] Child process entry point reached\n");
+
+        // If we somehow get here, just continue execution in user mode
+        // The trap frame should already be set up to return to the correct location
+        if (proc.user_frame) |frame| {
+            // Return to user mode by pretending we came from a trap
+            // This is a bit of a hack, but it should work for basic fork
+            uart.puts("[proc] Returning child to user mode\n");
+            returnToUserMode(frame);
+            unreachable; // Should not return
+        } else {
+            // No trap frame - exit
+            uart.puts("[proc] No trap frame for child process\n");
+            Scheduler.exit(-1);
+            unreachable;
+        }
     } else {
         // Generic process - just exit
-    }
-
-    // Process finished - mark as zombie and yield
-    proc.state = .ZOMBIE;
-    proc.exit_code = 0;
-
-    // Yield to scheduler
-    Scheduler.yield();
-
-    // Should never reach here
-    while (true) {
-        csr.wfi();
+        uart.puts("[proc] Unknown process type: ");
+        uart.puts(name);
+        uart.puts("\n");
+        Scheduler.exit(0);
+        unreachable;
     }
 }
 
@@ -358,4 +447,181 @@ fn processEntryPoint() noreturn {
 
     // Delegate to common entry point
     processEntryPointWithProc(proc);
+}
+
+// Entry point for forked child processes - return directly to user mode
+fn forkedChildReturn() noreturn {
+    const child_proc = current_process orelse {
+        uart.puts("[proc] ERROR: No current process in forked child return\n");
+        while (true) {
+            csr.wfi();
+        }
+    };
+
+    uart.puts("[proc] Forked child returning to user mode: PID ");
+    uart.putHex(child_proc.pid);
+    uart.puts("\n");
+
+    // Get the child's trap frame and return to user mode
+    const frame = child_proc.user_frame orelse {
+        uart.puts("[proc] ERROR: No trap frame in forked child\n");
+        while (true) {
+            csr.wfi();
+        }
+    };
+
+    returnToUserMode(frame);
+}
+
+// Allocate stack for child process
+fn allocateChildStack() ?[]u8 {
+    for (&child_stack_used, 0..) |*used, i| {
+        if (!used.*) {
+            used.* = true;
+            return child_stack_pool[i][0..];
+        }
+    }
+    return null; // No free stacks
+}
+
+// Free child stack (called when process exits)
+fn freeChildStack(stack: []u8) void {
+    for (&child_stack_pool, &child_stack_used) |*pool_stack, *used| {
+        if (stack.ptr == pool_stack.ptr) {
+            used.* = false;
+            break;
+        }
+    }
+}
+
+// Allocate trap frame for child process
+fn allocateChildTrapFrame() ?*trap.TrapFrame {
+    for (&child_frame_used, 0..) |*used, i| {
+        if (!used.*) {
+            used.* = true;
+            return &child_frame_pool[i];
+        }
+    }
+    return null; // No free frames
+}
+
+// Free child trap frame (called when process exits)
+fn freeChildTrapFrame(frame: *trap.TrapFrame) void {
+    for (&child_frame_pool, &child_frame_used) |*pool_frame, *used| {
+        if (frame == pool_frame) {
+            used.* = false;
+            break;
+        }
+    }
+}
+
+// Return to user mode with given trap frame
+fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
+    uart.puts("[proc] Returning to user mode at PC: ");
+    uart.putHex(frame.sepc);
+    uart.puts(" with return value: ");
+    uart.putHex(frame.a0);
+    uart.puts("\n");
+
+    // Set up RISC-V CSRs for return to user mode
+    // SSTATUS: Use RMW to only modify SPP=0, SPIE=1, preserve other flags
+    const cur_sstatus = csr.readSstatus();
+    const cleared_spp = cur_sstatus & ~(@as(u64, 1) << 8); // SPP=0
+    const sstatus_val = cleared_spp | (@as(u64, 1) << 5); // SPIE=1
+
+    asm volatile (
+    // Set up CSRs
+        \\csrw sepc, %[pc]
+        \\csrw sscratch, %[user_sp]
+        \\csrw sstatus, %[sstatus]
+
+        // Restore user registers from trap frame
+        \\ld ra, 8(%[frame])
+        \\ld gp, 16(%[frame])
+        \\ld tp, 24(%[frame])
+        \\ld t0, 32(%[frame])
+        \\ld t1, 40(%[frame])
+        \\ld t2, 48(%[frame])
+        \\ld s0, 56(%[frame])
+        \\ld s1, 64(%[frame])
+        \\ld a0, 72(%[frame])
+        \\ld a1, 80(%[frame])
+        \\ld a2, 88(%[frame])
+        \\ld a3, 96(%[frame])
+        \\ld a4, 104(%[frame])
+        \\ld a5, 112(%[frame])
+        \\ld a6, 120(%[frame])
+        \\ld a7, 128(%[frame])
+        \\ld s2, 136(%[frame])
+        \\ld s3, 144(%[frame])
+        \\ld s4, 152(%[frame])
+        \\ld s5, 160(%[frame])
+        \\ld s6, 168(%[frame])
+        \\ld s7, 176(%[frame])
+        \\ld s8, 184(%[frame])
+        \\ld s9, 192(%[frame])
+        \\ld s10, 200(%[frame])
+        \\ld s11, 208(%[frame])
+        \\ld t3, 216(%[frame])
+        \\ld t4, 224(%[frame])
+        \\ld t5, 232(%[frame])
+        \\ld t6, 240(%[frame])
+
+        // Switch to user stack and return
+        \\csrrw sp, sscratch, sp
+        \\sret
+        :
+        : [frame] "r" (frame),
+          [pc] "r" (frame.sepc),
+          [user_sp] "r" (frame.sp),
+          [sstatus] "r" (sstatus_val),
+        : "memory"
+    );
+
+    unreachable;
+}
+
+// Execute shell program (replace process image with shell) - noreturn on success
+fn execShell(proc: *Process) noreturn {
+    exec_sequence += 1;
+    uart.puts("[exec#");
+    uart.putHex(exec_sequence);
+    uart.puts("] execShell: Loading shell for PID ");
+    uart.putHex(proc.pid);
+    uart.puts("\n");
+
+    // Get the shell program code
+    const _user_shell_start = @extern([*]const u8, .{ .name = "_user_shell_start" });
+    const _user_shell_end = @extern([*]const u8, .{ .name = "_user_shell_end" });
+
+    const start_addr = @intFromPtr(_user_shell_start);
+    const end_addr = @intFromPtr(_user_shell_end);
+    const code_size = end_addr - start_addr;
+
+    uart.puts("[proc] Shell binary size: ");
+    uart.putHex(code_size);
+    uart.puts("\n");
+
+    if (code_size > 0 and code_size < 2097152) { // Allow up to 2MB for shell
+        const code = @as([*]const u8, @ptrFromInt(start_addr))[0..code_size];
+
+        // Execute the shell using the existing user program execution
+        // This should never return on success
+        user.executeUserProgramWithSeq(code, "", exec_sequence) catch {
+            uart.puts("[exec#");
+            uart.putHex(exec_sequence);
+            uart.puts("] Failed to execute shell\n");
+            Scheduler.exit(-1);
+            unreachable;
+        };
+
+        // If we somehow get here, the exec failed
+        uart.puts("[proc] ERROR: executeUserProgram returned unexpectedly\n");
+        Scheduler.exit(-1);
+        unreachable;
+    } else {
+        uart.puts("[proc] Invalid shell program size\n");
+        Scheduler.exit(-1);
+        unreachable;
+    }
 }

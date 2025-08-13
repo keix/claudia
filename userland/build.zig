@@ -19,10 +19,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("../abi/root.zig"),
     });
 
-    // Build /init program
+    // Build /sbin/init program
     const init = b.addExecutable(.{
         .name = "init",
-        .root_source_file = b.path("init.zig"),
+        .root_source_file = b.path("sbin/init.zig"),
         .target = target,
         .optimize = .ReleaseSmall,
     });

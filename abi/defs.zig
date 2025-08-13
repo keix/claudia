@@ -34,10 +34,12 @@ pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
 
-// Error codes (errno values)
+// Error codes (errno values) - negative values
 pub const ENOSYS: isize = -38; // Function not implemented
 pub const EBADF: isize = -9; // Bad file descriptor
 pub const EFAULT: isize = -14; // Bad address
 pub const EBUSY: isize = -16; // Device or resource busy
 pub const EINVAL: isize = -22; // Invalid argument
 pub const ESRCH: isize = -3; // No such process
+pub const ENOMEM: isize = -12; // Out of memory
+pub const EAGAIN: isize = -11; // Try again
