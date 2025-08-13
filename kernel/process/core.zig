@@ -6,6 +6,7 @@ const csr = @import("../arch/riscv/csr.zig");
 const uart = @import("../driver/uart/core.zig");
 const trap = @import("../trap/core.zig");
 const user = @import("../user/core.zig");
+const defs = @import("abi");
 
 // Process ID type
 pub const PID = u32;
@@ -169,6 +170,10 @@ pub const Scheduler = struct {
         // Not eligible for scheduling (terminated or unused)
         if (proc.state == .ZOMBIE or proc.state == .UNUSED) return;
 
+        // Critical section - protect ready queue manipulation
+        csr.disableInterrupts();
+        defer csr.enableInterrupts();
+
         proc.state = .RUNNABLE;
         proc.next = null;
         if (ready_queue_tail) |tail| {
@@ -182,6 +187,10 @@ pub const Scheduler = struct {
 
     // Remove and return next runnable process
     pub fn dequeueRunnable() ?*Process {
+        // Critical section - protect ready queue manipulation
+        csr.disableInterrupts();
+        defer csr.enableInterrupts();
+
         if (ready_queue_head) |head| {
             ready_queue_head = head.next;
             if (ready_queue_head == null) {
@@ -231,9 +240,9 @@ pub const Scheduler = struct {
         if (current_process) |proc| {
             proc.state = .ZOMBIE;
             proc.exit_code = exit_code;
-
             current_process = null;
             _ = schedule(); // Find next process to run
+            unreachable; // Normally never returns here
         }
     }
 
@@ -303,13 +312,13 @@ pub const Scheduler = struct {
 
     // Fork current process (simplified implementation)
     pub fn fork() isize {
-        const parent = current_process orelse return -1;
+        const parent = current_process orelse return defs.ESRCH;
 
         // Allocate static kernel stack for child (simple allocator)
-        const child_stack = allocateChildStack() orelse return -1;
+        const child_stack = allocateChildStack() orelse return defs.ENOMEM;
 
         // Create child process
-        const child = allocProcess("child", child_stack) orelse return -1;
+        const child = allocProcess("child", child_stack) orelse return defs.EAGAIN;
 
         // Copy parent process context - but child should not go to processEntryPoint
         // Instead, child should resume from the syscall return point
@@ -323,10 +332,11 @@ pub const Scheduler = struct {
             child_frame.a0 = 0; // Child returns 0 from fork
             child.user_frame = child_frame;
 
-            // Set up child context to return directly to user mode
-            // by bypassing the normal process entry point
-            child.context = parent.context;
+            // Set up child context - fix critical s0/sp for child
+            child.context = parent.context; // Base copy is OK
             child.context.ra = @intFromPtr(&forkedChildReturn);
+            child.context.s0 = @intFromPtr(child); // ★ Child's Process*
+            child.context.sp = @intFromPtr(child.stack.ptr) + child.stack.len - 16; // ★ Child's kernel stack
         } else {
             // No user frame - this shouldn't happen for forked processes
             return -1;
@@ -368,6 +378,7 @@ fn processEntryPointWithProc(proc: *Process) noreturn {
     const name = proc.getName();
     if (std.mem.eql(u8, name, "init")) {
         user.initActualUserMode();
+        unreachable; // Should not return
     } else if (std.mem.eql(u8, name, "child")) {
         // Child process - return to user mode with saved trap frame
         // This should never actually execute because fork returns directly to syscall handler
@@ -375,28 +386,25 @@ fn processEntryPointWithProc(proc: *Process) noreturn {
 
         // If we somehow get here, just continue execution in user mode
         // The trap frame should already be set up to return to the correct location
-        if (proc.user_frame) |_| {
+        if (proc.user_frame) |frame| {
             // Return to user mode by pretending we came from a trap
             // This is a bit of a hack, but it should work for basic fork
             uart.puts("[proc] Returning child to user mode\n");
+            returnToUserMode(frame);
+            unreachable; // Should not return
+        } else {
+            // No trap frame - exit
+            uart.puts("[proc] No trap frame for child process\n");
+            Scheduler.exit(-1);
+            unreachable;
         }
     } else {
         // Generic process - just exit
         uart.puts("[proc] Unknown process type: ");
         uart.puts(name);
         uart.puts("\n");
-    }
-
-    // Process finished - mark as zombie and yield
-    proc.state = .ZOMBIE;
-    proc.exit_code = 0;
-
-    // Yield to scheduler
-    Scheduler.yield();
-
-    // Should never reach here
-    while (true) {
-        csr.wfi();
+        Scheduler.exit(0);
+        unreachable;
     }
 }
 
@@ -512,8 +520,10 @@ fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
     uart.puts("\n");
 
     // Set up RISC-V CSRs for return to user mode
-    // SSTATUS: SPP=0 (user mode), SPIE=1 (enable interrupts on return)
-    const sstatus_val: u64 = (1 << 5); // SPIE = 1, SPP = 0
+    // SSTATUS: Use RMW to only modify SPP=0, SPIE=1, preserve other flags
+    const cur_sstatus = csr.readSstatus();
+    const cleared_spp = cur_sstatus & ~(@as(u64, 1) << 8); // SPP=0
+    const sstatus_val = cleared_spp | (@as(u64, 1) << 5); // SPIE=1
 
     asm volatile (
     // Set up CSRs
