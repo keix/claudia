@@ -30,6 +30,26 @@ pub fn main() noreturn {
 
             const ch = buffer[pos];
 
+            // Debug: show what character we got
+            utils.writeStr("[GOT:");
+            if (ch < 10) {
+                const digit = [1]u8{'0' + ch};
+                utils.writeStr(&digit);
+            } else if (ch < 100) {
+                const tens = [1]u8{'0' + (ch / 10)};
+                const ones = [1]u8{'0' + (ch % 10)};
+                utils.writeStr(&tens);
+                utils.writeStr(&ones);
+            } else {
+                const hundreds = [1]u8{'0' + (ch / 100)};
+                const tens = [1]u8{'0' + ((ch / 10) % 10)};
+                const ones = [1]u8{'0' + (ch % 10)};
+                utils.writeStr(&hundreds);
+                utils.writeStr(&tens);
+                utils.writeStr(&ones);
+            }
+            utils.writeStr("]");
+
             // Handle different characters
             if (ch == '\n' or ch == '\r') {
                 // End of line - finish input
@@ -43,6 +63,7 @@ pub fn main() noreturn {
                 pos += 1;
             } else {
                 // Skip unprintable characters (like stray control chars)
+                utils.writeStr("[SKIP]");
                 continue;
             }
         }
