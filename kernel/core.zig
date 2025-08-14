@@ -65,8 +65,8 @@ pub fn init() noreturn {
     initPLIC();
 
     // Debug UART status
-    const debug_uart = @import("debug_uart.zig");
-    debug_uart.debugUartStatus();
+    //    const debug_uart = @import("debug_uart.zig");
+    //    debug_uart.debugUartStatus();
 
     // Enable MMU
     uart.puts("Enabling MMU...\n");
