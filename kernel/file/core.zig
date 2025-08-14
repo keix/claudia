@@ -169,14 +169,9 @@ const TTY = struct {
 var console_tty = TTY.init();
 
 // Global counters for lost-wakeup debugging
-var isr_rx_count: u32 = 0;
-var read_consumed_count: u32 = 0;
-var loop_counter: u32 = 0;
-pub var isr_hits: u32 = 0; // Track ISR invocations - made public for debugging
 
 // UART interrupt handler to feed TTY - drain FIFO completely
 pub fn uartIsr() void {
-    isr_hits += 1; // Count ISR invocations
 
     var chars_received = false;
     var char_count: u32 = 0;
@@ -186,21 +181,12 @@ pub fn uartIsr() void {
         if (console_tty.putCharAtomic(ch)) {
             chars_received = true;
             char_count += 1;
-            isr_rx_count += 1;
         }
         // If ring buffer full, drop character (could log this)
     }
 
     // Debug output for non-newline chars
     if (chars_received and char_count > 0) {
-        // Don't spam for every char, but show we're getting input
-        if ((isr_hits % 10) == 0) {
-            uart.puts("[ISR] Got ");
-            uart.putHex(char_count);
-            uart.puts(" chars, total hits: ");
-            uart.putHex(isr_hits);
-            uart.puts("\n");
-        }
         proc.Scheduler.wakeAll(&console_tty.read_wait);
     }
 }
@@ -225,19 +211,6 @@ fn consoleRead(file: *File, buffer: []u8) isize {
     while (true) {
         // Check TTY ring buffer first with atomic access
         if (console_tty.getCharAtomic()) |ch| {
-            read_consumed_count += 1;
-            // Debug: log what we're reading (only for non-newline)
-            if (ch != '\n' and ch != '\r' and (read_consumed_count % 10) == 1) {
-                uart.puts("[READ] Got char ");
-                uart.putHex(ch);
-                uart.puts(" '");
-                if (ch >= 32 and ch <= 126) {
-                    uart.putc(ch);
-                } else {
-                    uart.putc('?');
-                }
-                uart.puts("' from TTY\n");
-            }
             const char_buf = [1]u8{ch};
             _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
             return 1; // ← 文字を返せた時だけ return
@@ -245,10 +218,6 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 
         // Fallback: poll UART directly if TTY buffer is empty
         if (uart.getc()) |ch| {
-            // Debug output
-            uart.puts("[READ] Got char ");
-            uart.putHex(ch);
-            uart.puts(" directly from UART (bypassed TTY)\n");
             const char_buf = [1]u8{ch};
             _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
             return 1;
