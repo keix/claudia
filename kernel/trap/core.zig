@@ -181,16 +181,6 @@ fn handlePLICInterrupt() void {
     // Hart 0, Context 1 (S-mode) claim/complete register
     const PLIC_CLAIM = PLIC_BASE + 0x201004; // This is the correct address for hart 0, context 1
 
-    // Debug: show we're handling PLIC interrupt
-    const plic_count_ptr = struct {
-        var count: u32 = 0;
-    };
-    plic_count_ptr.count += 1;
-    if ((plic_count_ptr.count % 10) == 1) {
-        uart.puts("[PLIC] Handling interrupt #");
-        uart.putHex(plic_count_ptr.count);
-        uart.puts("\n");
-    }
 
     // Claim the interrupt
     const claim_addr = @as(*volatile u32, @ptrFromInt(PLIC_CLAIM));
