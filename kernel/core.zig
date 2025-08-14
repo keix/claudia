@@ -64,6 +64,10 @@ pub fn init() noreturn {
     // Initialize PLIC for UART interrupts
     initPLIC();
 
+    // Debug UART status
+    const debug_uart = @import("debug_uart.zig");
+    debug_uart.debugUartStatus();
+
     // Enable MMU
     uart.puts("Enabling MMU...\n");
     memory.enableMMU();
@@ -151,11 +155,12 @@ fn initPLIC() void {
     priority_addr.* = 1;
 
     // Enable UART interrupt for hart 0, context 1 (supervisor mode)
+    // For hart 0, context 1: enable register is at offset 0x2080
     const enable_addr = @as(*volatile u32, @ptrFromInt(PLIC_ENABLE + 0x80)); // Hart 0, context 1
     enable_addr.* = 1 << UART_IRQ;
 
     // Set priority threshold to 0 (accept all priorities)
-    // Context 1 (S-mode) requires offset of 0x1000
+    // For hart 0, context 1: threshold is at 0x201000
     const threshold_addr = @as(*volatile u32, @ptrFromInt(PLIC_THRESHOLD + 0x1000));
     threshold_addr.* = 0;
 
