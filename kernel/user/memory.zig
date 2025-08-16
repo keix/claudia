@@ -298,18 +298,20 @@ pub fn zeroRegion(region: *UserRegion, offset: usize, len: usize) bool {
 
     for (start_page..end_page) |page_idx| {
         if (page_idx >= MAX_REGION_PAGES) break;
-        
+
         const physical_frame = region.physical_frames[page_idx] orelse continue;
         const physical_addr = physical_frame + types.PAGE_SIZE * page_idx;
-        
+
         // Calculate offset within this page
         const page_start = page_idx * types.PAGE_SIZE;
         const zero_start = if (offset > page_start) offset - page_start else 0;
-        const zero_end = if (offset + len < page_start + types.PAGE_SIZE) 
-            offset + len - page_start else types.PAGE_SIZE;
-        
+        const zero_end = if (offset + len < page_start + types.PAGE_SIZE)
+            offset + len - page_start
+        else
+            types.PAGE_SIZE;
+
         if (zero_start >= zero_end) continue;
-        
+
         // Zero the memory range in this page
         const zero_len = zero_end - zero_start;
         const target_addr = physical_addr + zero_start;
@@ -357,7 +359,7 @@ pub fn addElfSegment(context: *UserMemoryContext, virtual_addr: u64, size: usize
 
     // Check for overlap with existing segments and fixed regions
     const end_addr = virtual_addr + @as(u64, size);
-    
+
     // Check overlap with fixed regions
     if (checkOverlapWithFixedRegion(virtual_addr, end_addr)) |region_name| {
         const uart = @import("../driver/uart/core.zig");
@@ -370,12 +372,12 @@ pub fn addElfSegment(context: *UserMemoryContext, virtual_addr: u64, size: usize
         uart.puts("\n");
         return error.SegmentOverlap;
     }
-    
+
     // Check overlap with existing ELF segments
     for (0..context.elf_segment_count) |i| {
         const existing = &context.elf_segments[i];
         const existing_end = existing.virtual_base + @as(u64, existing.size);
-        
+
         if (!(end_addr <= existing.virtual_base or virtual_addr >= existing_end)) {
             const uart = @import("../driver/uart/core.zig");
             uart.puts("[memory] ERROR: ELF segment 0x");
@@ -438,23 +440,23 @@ fn checkOverlapWithFixedRegion(start: u64, end: u64) ?[]const u8 {
     if (!(end <= USER_CODE_BASE or start >= USER_CODE_BASE + USER_CODE_SIZE)) {
         return "USER_CODE";
     }
-    
+
     // Check USER_STACK_BASE region
     if (!(end <= USER_STACK_BASE or start >= USER_STACK_BASE + USER_STACK_SIZE)) {
         return "USER_STACK";
     }
-    
+
     // Check USER_HEAP_BASE region
     if (!(end <= USER_HEAP_BASE or start >= USER_HEAP_BASE + USER_HEAP_SIZE)) {
         return "USER_HEAP";
     }
-    
+
     // Check KERNEL regions (should not overlap with user segments)
     const KERNEL_BASE = 0x80000000;
     const KERNEL_END = 0x90000000; // Approximate kernel region end
     if (!(end <= KERNEL_BASE or start >= KERNEL_END)) {
         return "KERNEL";
     }
-    
+
     return null; // No overlap
 }

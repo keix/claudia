@@ -181,7 +181,6 @@ fn handlePLICInterrupt() void {
     // Hart 0, Context 1 (S-mode) claim/complete register
     const PLIC_CLAIM = PLIC_BASE + 0x201004; // This is the correct address for hart 0, context 1
 
-
     // Claim the interrupt
     const claim_addr = @as(*volatile u32, @ptrFromInt(PLIC_CLAIM));
     const irq = claim_addr.*;

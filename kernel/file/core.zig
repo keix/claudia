@@ -80,6 +80,42 @@ pub const File = struct {
     }
 };
 
+// Line buffer for canonical mode
+const LineBuffer = struct {
+    buffer: [256]u8,
+    len: usize,
+
+    fn init() LineBuffer {
+        return LineBuffer{
+            .buffer = std.mem.zeroes([256]u8),
+            .len = 0,
+        };
+    }
+
+    fn reset(self: *LineBuffer) void {
+        self.len = 0;
+    }
+
+    fn append(self: *LineBuffer, ch: u8) bool {
+        if (self.len >= self.buffer.len - 1) return false; // Leave room for null terminator
+        self.buffer[self.len] = ch;
+        self.len += 1;
+        return true;
+    }
+
+    fn backspace(self: *LineBuffer) bool {
+        if (self.len > 0) {
+            self.len -= 1;
+            return true;
+        }
+        return false;
+    }
+
+    fn getLine(self: *const LineBuffer) []const u8 {
+        return self.buffer[0..self.len];
+    }
+};
+
 // TTY structure with input buffer and wait queue
 const RingBuffer = struct {
     buffer: [256]u8,
@@ -119,11 +155,17 @@ const RingBuffer = struct {
 
 const TTY = struct {
     input_buffer: RingBuffer,
+    line_buffer: LineBuffer,
+    canonical_mode: bool,
+    echo_enabled: bool,
     read_wait: proc.WaitQ,
 
     fn init() TTY {
         return TTY{
             .input_buffer = RingBuffer.init(),
+            .line_buffer = LineBuffer.init(),
+            .canonical_mode = true, // Default to canonical mode
+            .echo_enabled = true, // Default to echo enabled
             .read_wait = proc.WaitQ.init(),
         };
     }
@@ -172,20 +214,26 @@ var console_tty = TTY.init();
 
 // UART interrupt handler to feed TTY - drain FIFO completely
 pub fn uartIsr() void {
-
     var chars_received = false;
     var char_count: u32 = 0;
+    var has_newline = false;
+
     // Drain RX FIFO completely - critical for preventing lost chars
     while (uart.getc()) |ch| {
         // Feed directly to TTY ring buffer with atomic access
         if (console_tty.putCharAtomic(ch)) {
             chars_received = true;
             char_count += 1;
+            if (ch == '\n' or ch == '\r') {
+                has_newline = true;
+            }
         }
         // If ring buffer full, drop character (could log this)
     }
 
-    // Debug output for non-newline chars
+    // Wake up readers if we got characters
+    // In canonical mode, we might want to wake only on newline,
+    // but for simplicity and to avoid lost wakeups, wake on any char
     if (chars_received and char_count > 0) {
         proc.Scheduler.wakeAll(&console_tty.read_wait);
     }
@@ -207,26 +255,104 @@ fn consoleRead(file: *File, buffer: []u8) isize {
     const user_addr = @intFromPtr(buffer.ptr);
     const csr = @import("../arch/riscv/csr.zig");
 
-    // Kernel-side WFI blocking approach
+    // Handle canonical vs raw mode
+    if (console_tty.canonical_mode) {
+        // Canonical mode: read a complete line
+        return consoleReadCanonical(buffer, user_addr);
+    } else {
+        // Raw mode: read single characters (existing behavior)
+        while (true) {
+            // Check TTY ring buffer first with atomic access
+            if (console_tty.getCharAtomic()) |ch| {
+                const char_buf = [1]u8{ch};
+                _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
+                return 1;
+            }
+
+            // Fallback: poll UART directly if TTY buffer is empty
+            if (uart.getc()) |ch| {
+                const char_buf = [1]u8{ch};
+                _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
+                return 1;
+            }
+
+            // No data available - wait in kernel
+            csr.enableInterrupts();
+            csr.wfi(); // Wake on UART RX interrupt
+        }
+    }
+}
+
+// Canonical mode read - process line buffering
+fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
+    const copy = @import("../user/copy.zig");
+    const csr = @import("../arch/riscv/csr.zig");
+
+    // Build a line in the kernel's line buffer
     while (true) {
-        // Check TTY ring buffer first with atomic access
-        if (console_tty.getCharAtomic()) |ch| {
-            const char_buf = [1]u8{ch};
-            _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
-            return 1; // ← 文字を返せた時だけ return
+        // Try to get a character
+        var ch: ?u8 = null;
+
+        // Critical section: get character atomically
+        ch = console_tty.getCharAtomic();
+
+        if (ch == null) {
+            // Fallback: poll UART directly
+            ch = uart.getc();
         }
 
-        // Fallback: poll UART directly if TTY buffer is empty
-        if (uart.getc()) |ch| {
-            const char_buf = [1]u8{ch};
-            _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
-            return 1;
-        }
+        if (ch) |c| {
+            // Process the character
+            if (c == '\n' or c == '\r') {
+                // End of line - echo newline if echo is enabled
+                if (console_tty.echo_enabled) {
+                    uart.putc('\n');
+                }
 
-        // データ無し → カーネル側で待機
-        csr.enableInterrupts();
-        csr.wfi(); // UART RX で起床
-        // 起きたら while 先頭で再チェック
+                // Copy the line to user buffer
+                const line = console_tty.line_buffer.getLine();
+                const copy_len = @min(line.len, buffer.len - 1); // Leave room for newline
+
+                if (copy_len > 0) {
+                    _ = copy.copyout(user_addr, line[0..copy_len]) catch return defs.EFAULT;
+                }
+
+                // Add newline to the output
+                const nl_buf = [1]u8{'\n'};
+                _ = copy.copyout(user_addr + copy_len, &nl_buf) catch return defs.EFAULT;
+
+                // Reset line buffer for next line
+                console_tty.line_buffer.reset();
+
+                return @intCast(copy_len + 1); // Include the newline
+            } else if (c == 0x08 or c == 0x7F) { // Backspace or DEL
+                if (console_tty.line_buffer.backspace()) {
+                    // Echo backspace sequence if echo is enabled
+                    if (console_tty.echo_enabled) {
+                        uart.putc(0x08); // Move cursor back
+                        uart.putc(' '); // Overwrite with space
+                        uart.putc(0x08); // Move cursor back again
+                    }
+                }
+            } else if (c >= 32 and c <= 126) { // Printable character
+                if (console_tty.line_buffer.append(c)) {
+                    // Echo the character if echo is enabled
+                    if (console_tty.echo_enabled) {
+                        uart.putc(c);
+                    }
+                } else {
+                    // Line buffer full - beep or ignore
+                    if (console_tty.echo_enabled) {
+                        uart.putc(0x07); // BEL character
+                    }
+                }
+            }
+            // Ignore other control characters for now
+        } else {
+            // No data available - wait in kernel
+            csr.enableInterrupts();
+            csr.wfi(); // Wake on UART RX interrupt
+        }
     }
 }
 

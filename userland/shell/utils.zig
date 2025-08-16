@@ -13,6 +13,10 @@ pub fn readChar(buf: *u8) isize {
     return sys.read(STDIN, @ptrCast(buf), 1);
 }
 
+pub fn readLine(buf: []u8) isize {
+    return sys.read(STDIN, @ptrCast(buf.ptr), buf.len);
+}
+
 // String utility functions
 pub fn strEq(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
