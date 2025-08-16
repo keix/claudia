@@ -39,7 +39,7 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
 
     // For exec: Create a completely new memory context to replace the old one
     var new_user_context = memory.UserMemoryContext.init();
-    
+
     // Setup new address space
     new_user_context.setupAddressSpace() catch return error.MemorySetupFailed;
 
@@ -55,7 +55,7 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
     var segment_idx: u32 = 0;
     for (segments) |segment| {
         if (segment.p_type != elf.PT_LOAD) continue;
-        
+
         uart.puts("[exec#");
         uart.putHex(seq);
         uart.puts(" ph#");
@@ -74,7 +74,7 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
         var permissions: u8 = @as(u8, virtual.PTE_U | virtual.PTE_R); // Always user-accessible and readable
         if (segment.p_flags & 0x2 != 0) permissions |= @as(u8, virtual.PTE_W); // Writable
         if (segment.p_flags & 0x1 != 0) permissions |= @as(u8, virtual.PTE_X); // Executable
-        
+
         uart.puts("[exec#");
         uart.putHex(seq);
         uart.puts(" ph#");
@@ -125,7 +125,7 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
             uart.puts("] Copy filesz=0x");
             uart.putHex(segment.p_filesz);
             uart.puts("\n");
-            
+
             const segment_data = code[segment.p_offset .. segment.p_offset + segment.p_filesz];
             const offset_in_region = segment.p_vaddr - aligned_vaddr;
             if (!memory.copyToRegion(region, offset_in_region, segment_data)) {
@@ -133,7 +133,7 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
                 return error.DataCopyFailed;
             }
         }
-        
+
         // Zero .bss area if memsz > filesz
         const bss_size = segment.p_memsz - segment.p_filesz;
         if (bss_size > 0) {
@@ -144,7 +144,7 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
             uart.puts("] .bss zero=0x");
             uart.putHex(bss_size);
             uart.puts("\n");
-            
+
             // Zero .bss area - offset starts after copied file data
             const offset_in_region = (segment.p_vaddr - aligned_vaddr) + segment.p_filesz;
             if (!memory.zeroRegion(region, offset_in_region, bss_size)) {
@@ -156,7 +156,7 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
                 return error.BssZeroFailed;
             }
         }
-        
+
         segment_idx += 1;
     }
 
@@ -200,7 +200,7 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
         return error.KernelStackMappingFailed;
     }
     // Kernel stack mapping verified
-    
+
     // Replace the global user context with the new one for exec
     // This ensures subsequent operations use the new address space
     test_user_context = new_user_context;
@@ -214,10 +214,10 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
     uart.puts(" satp=0x");
     uart.putHex(satp_value);
     uart.puts("\n");
-    
+
     // Ensure TLB is flushed after switching to user address space
     csr.sfence_vma();
-    
+
     switch_to_user_mode(header.e_entry, user_stack, kernel_sp, satp_value);
 
     // Should never reach here normally (user program exits via system call)

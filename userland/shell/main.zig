@@ -19,44 +19,33 @@ pub fn main() noreturn {
         // Print prompt
         utils.writeStr("claudia:/ # ");
 
-        // Read command line
-        var pos: usize = 0;
-        while (pos < buffer.len - 1) {
-            const result = utils.readChar(&buffer[pos]);
-            if (result <= 0) {
-                // Read error - this shouldn't happen with blocking I/O
-                break;
-            }
+        // Read command line (canonical mode - reads complete line)
+        const result = utils.readLine(buffer[0..]);
+        if (result <= 0) {
+            // Read error or EOF
+            break;
+        }
 
-            const ch = buffer[pos];
+        const bytes_read = @as(usize, @intCast(result));
 
-
-            // Handle different characters
-            if (ch == '\n' or ch == '\r') {
-                // End of line - finish input
-                utils.writeStr("\n"); // Echo newline
-                buffer[pos] = 0; // null terminate
-                break;
-            } else if (ch >= 32 and ch <= 126) {
-                // Printable character - echo it
-                const echo_buf = [1]u8{ch};
-                utils.writeStr(&echo_buf);
-                pos += 1;
-            } else {
-                // Skip unprintable characters (like stray control chars)
-                continue;
-            }
+        // Remove trailing newline if present
+        var pos = bytes_read;
+        if (pos > 0 and (buffer[pos - 1] == '\n' or buffer[pos - 1] == '\r')) {
+            pos -= 1;
         }
 
         if (pos == 0) continue;
 
-        const trimmed_cmd = utils.parseCommandLine(buffer[0..], pos);
+        // Null terminate for string operations
+        if (pos < buffer.len) {
+            buffer[pos] = 0;
+        }
 
+        const trimmed_cmd = utils.parseCommandLine(buffer[0..], pos);
 
         // Dispatch commands using index
         var found = false;
         for (commands.commands) |cmd| {
-
             if (utils.strEq(trimmed_cmd, cmd.name)) {
                 cmd.func(trimmed_cmd); // TODO: Pass actual arguments in the future
                 found = true;
