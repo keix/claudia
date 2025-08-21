@@ -159,6 +159,7 @@ const TTY = struct {
     canonical_mode: bool,
     echo_enabled: bool,
     read_wait: proc.WaitQ,
+    magic: u32, // Magic number for corruption detection
 
     fn init() TTY {
         return TTY{
@@ -167,6 +168,7 @@ const TTY = struct {
             .canonical_mode = true, // Default to canonical mode
             .echo_enabled = true, // Default to echo enabled
             .read_wait = proc.WaitQ.init(),
+            .magic = 0xDEADBEEF,
         };
     }
 
@@ -183,6 +185,13 @@ const TTY = struct {
 
     fn getCharAtomic(self: *TTY) ?u8 {
         const csr = @import("../arch/riscv/csr.zig");
+        
+        // Validate TTY structure to detect corruption
+        if (self.magic != 0xDEADBEEF) {
+            uart.puts("[PANIC] TTY structure corrupted in getCharAtomic!\n");
+            @panic("TTY structure corrupted!");
+        }
+        
         // Save current interrupt state and disable interrupts
         const saved_sstatus = csr.csrrc(csr.CSR.sstatus, csr.SSTATUS.SIE);
         defer {
@@ -209,6 +218,11 @@ const TTY = struct {
 };
 
 var console_tty = TTY.init();
+
+// Ensure console_tty is in data section and properly aligned
+comptime {
+    _ = &console_tty;
+}
 
 // Global counters for lost-wakeup debugging
 
@@ -253,9 +267,14 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 
     const copy = @import("../user/copy.zig");
     const user_addr = @intFromPtr(buffer.ptr);
-    const csr = @import("../arch/riscv/csr.zig");
 
     // Handle canonical vs raw mode
+    // Validate TTY before accessing it
+    if (console_tty.magic != 0xDEADBEEF) {
+        uart.puts("[PANIC] TTY not initialized or corrupted in consoleRead\n");
+        return 5; // EIO
+    }
+    
     if (console_tty.canonical_mode) {
         // Canonical mode: read a complete line
         return consoleReadCanonical(buffer, user_addr);
@@ -276,9 +295,16 @@ fn consoleRead(file: *File, buffer: []u8) isize {
                 return 1;
             }
 
-            // No data available - wait in kernel
-            csr.enableInterrupts();
-            csr.wfi(); // Wake on UART RX interrupt
+            // No data available - wait for input
+            // Get current process and sleep on wait queue
+            if (proc.Scheduler.getCurrentProcess()) |current| {
+                proc.Scheduler.sleepOn(&console_tty.read_wait, current);
+            } else {
+                // No current process, fall back to polling
+                const csr = @import("../arch/riscv/csr.zig");
+                csr.enableInterrupts();
+                csr.wfi();
+            }
         }
     }
 }
@@ -286,7 +312,9 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 // Canonical mode read - process line buffering
 fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
     const copy = @import("../user/copy.zig");
-    const csr = @import("../arch/riscv/csr.zig");
+    
+    // Note: We're already in kernel mode if this function is executing.
+    // SPP bit tells us where we came FROM on the last trap, not where we ARE now.
 
     // Build a line in the kernel's line buffer
     while (true) {
@@ -294,7 +322,13 @@ fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
         var ch: ?u8 = null;
 
         // Critical section: get character atomically
-        ch = console_tty.getCharAtomic();
+        // Validate pointer before calling method
+        const tty_ptr = &console_tty;
+        if (@intFromPtr(tty_ptr) == 0 or @intFromPtr(tty_ptr) > 0xFFFFFFFFFFFFFFFF) {
+            uart.puts("[PANIC] Invalid TTY pointer in consoleReadCanonical\n");
+            @panic("Invalid TTY pointer");
+        }
+        ch = tty_ptr.getCharAtomic();
 
         if (ch == null) {
             // Fallback: poll UART directly
@@ -349,9 +383,16 @@ fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
             }
             // Ignore other control characters for now
         } else {
-            // No data available - wait in kernel
-            csr.enableInterrupts();
-            csr.wfi(); // Wake on UART RX interrupt
+            // No data available - wait for input
+            // Get current process and sleep on wait queue
+            if (proc.Scheduler.getCurrentProcess()) |current| {
+                proc.Scheduler.sleepOn(&console_tty.read_wait, current);
+            } else {
+                // No current process, fall back to polling
+                const csr = @import("../arch/riscv/csr.zig");
+                csr.enableInterrupts();
+                csr.wfi();
+            }
         }
     }
 }
