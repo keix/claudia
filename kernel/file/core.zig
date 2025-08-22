@@ -245,11 +245,16 @@ pub fn uartIsr() void {
         // If ring buffer full, drop character (could log this)
     }
 
-    // Wake up readers if we got characters
-    // In canonical mode, we might want to wake only on newline,
-    // but for simplicity and to avoid lost wakeups, wake on any char
-    if (chars_received and char_count > 0) {
-        proc.Scheduler.wakeAll(&console_tty.read_wait);
+
+    // Wake readers based on mode
+    if (chars_received) {
+        if (!console_tty.canonical_mode) {
+            // Raw mode: wake on any character
+            proc.Scheduler.wakeAll(&console_tty.read_wait);
+        } else if (has_newline) {
+            // Canonical mode: wake only on newline
+            proc.Scheduler.wakeAll(&console_tty.read_wait);
+        }
     }
 }
 
@@ -288,19 +293,15 @@ fn consoleRead(file: *File, buffer: []u8) isize {
                 return 1;
             }
 
-            // Fallback: poll UART directly if TTY buffer is empty
-            if (uart.getc()) |ch| {
-                const char_buf = [1]u8{ch};
-                _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
-                return 1;
-            }
 
             // No data available - wait for input
-            // Get current process and sleep on wait queue
             if (proc.Scheduler.getCurrentProcess()) |current| {
-                proc.Scheduler.sleepOn(&console_tty.read_wait, current);
+                // Conditional sleep: only sleep if buffer is empty (spurious wakeup protection)
+                if (console_tty.input_buffer.isEmpty()) {
+                    proc.Scheduler.sleepOn(&console_tty.read_wait, current);
+                }
             } else {
-                // No current process, fall back to polling
+                // Boot context without process - use WFI
                 const csr = @import("../arch/riscv/csr.zig");
                 csr.enableInterrupts();
                 csr.wfi();
@@ -329,11 +330,6 @@ fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
             @panic("Invalid TTY pointer");
         }
         ch = tty_ptr.getCharAtomic();
-
-        if (ch == null) {
-            // Fallback: poll UART directly
-            ch = uart.getc();
-        }
 
         if (ch) |c| {
             // Process the character
@@ -421,7 +417,6 @@ var console_file = File.init(.DEVICE, &ConsoleOperations);
 // File descriptor management
 pub const FileTable = struct {
     pub fn init() void {
-        uart.debug("Initializing file system\n");
 
         // Initialize standard file descriptors
         // fd 0: stdin -> console (UART input)
@@ -436,7 +431,6 @@ pub const FileTable = struct {
         console_file.addRef(); // Add reference for stdout
         console_file.addRef(); // Add reference for stderr
 
-        uart.debug("Standard file descriptors initialized\n");
     }
 
     pub fn getFile(fd: FD) ?*File {

@@ -105,8 +105,3 @@ pub fn getc() ?u8 {
     return uart.getc();
 }
 
-// Debug print - now a no-op to avoid debug output
-pub fn debug(s: []const u8) void {
-    puts("[DEBUG] ");
-    puts(s);
-}

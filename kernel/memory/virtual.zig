@@ -159,8 +159,6 @@ var kernel_page_table: PageTable = undefined;
 
 // Setup kernel page table with initial mappings
 pub fn setupKernelPageTable() !void {
-    uart.puts("[memory] Setting up kernel page table\n");
-
     try kernel_page_table.init();
 
     // Map kernel code/data (identity mapping for now)
@@ -187,8 +185,6 @@ pub fn setupKernelPageTable() !void {
     while (plic_addr < plic_end) : (plic_addr += PAGE_SIZE) {
         try kernel_page_table.map(plic_addr, plic_addr, PTE_R | PTE_W | PTE_G);
     }
-
-    uart.puts("[memory] Kernel page table initialized\n");
 }
 
 // Enable MMU with kernel page table
@@ -196,8 +192,6 @@ pub fn enableMMU() void {
     const satp_value = csr.SATP_SV39 | kernel_page_table.root_ppn;
     csr.writeSatp(satp_value);
     csr.sfence_vma();
-
-    uart.puts("[memory] MMU enabled with Sv39\n");
 }
 
 // Get current page table root

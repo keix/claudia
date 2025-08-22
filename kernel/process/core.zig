@@ -358,9 +358,6 @@ pub const Scheduler = struct {
         _ = args;
         const current = current_process orelse return -1;
 
-        uart.puts("[proc] exec: ");
-        uart.puts(filename);
-        uart.puts("\n");
 
         // For simplicity, only support "shell" for now
         if (std.mem.eql(u8, filename, "shell") or std.mem.eql(u8, filename, "/bin/shell")) {
@@ -368,9 +365,6 @@ pub const Scheduler = struct {
             execShell(current);
             unreachable; // Should never reach here
         } else {
-            uart.puts("[proc] exec: Unsupported program: ");
-            uart.puts(filename);
-            uart.puts("\n");
             return -1;
         }
     }
@@ -386,27 +380,21 @@ fn processEntryPointWithProc(proc: *Process) noreturn {
     } else if (std.mem.eql(u8, name, "child")) {
         // Child process - return to user mode with saved trap frame
         // This should never actually execute because fork returns directly to syscall handler
-        uart.puts("[proc] Child process entry point reached\n");
 
         // If we somehow get here, just continue execution in user mode
         // The trap frame should already be set up to return to the correct location
         if (proc.user_frame) |frame| {
             // Return to user mode by pretending we came from a trap
             // This is a bit of a hack, but it should work for basic fork
-            uart.puts("[proc] Returning child to user mode\n");
             returnToUserMode(frame);
             unreachable; // Should not return
         } else {
             // No trap frame - exit
-            uart.puts("[proc] No trap frame for child process\n");
             Scheduler.exit(-1);
             unreachable;
         }
     } else {
         // Generic process - just exit
-        uart.puts("[proc] Unknown process type: ");
-        uart.puts(name);
-        uart.puts("\n");
         Scheduler.exit(0);
         unreachable;
     }
@@ -452,19 +440,14 @@ fn processEntryPoint() noreturn {
 // Entry point for forked child processes - return directly to user mode
 fn forkedChildReturn() noreturn {
     const child_proc = current_process orelse {
-        uart.puts("[proc] ERROR: No current process in forked child return\n");
         while (true) {
             csr.wfi();
         }
     };
 
-    uart.puts("[proc] Forked child returning to user mode: PID ");
-    uart.putHex(child_proc.pid);
-    uart.puts("\n");
 
     // Get the child's trap frame and return to user mode
     const frame = child_proc.user_frame orelse {
-        uart.puts("[proc] ERROR: No trap frame in forked child\n");
         while (true) {
             csr.wfi();
         }
@@ -517,11 +500,6 @@ fn freeChildTrapFrame(frame: *trap.TrapFrame) void {
 
 // Return to user mode with given trap frame
 fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
-    uart.puts("[proc] Returning to user mode at PC: ");
-    uart.putHex(frame.sepc);
-    uart.puts(" with return value: ");
-    uart.putHex(frame.a0);
-    uart.puts("\n");
 
     // Set up RISC-V CSRs for return to user mode
     // SSTATUS: Use RMW to only modify SPP=0, SPIE=1, preserve other flags
@@ -582,13 +560,8 @@ fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
 }
 
 // Execute shell program (replace process image with shell) - noreturn on success
-fn execShell(proc: *Process) noreturn {
+fn execShell(_: *Process) noreturn {
     exec_sequence += 1;
-    uart.puts("[exec#");
-    uart.putHex(exec_sequence);
-    uart.puts("] execShell: Loading shell for PID ");
-    uart.putHex(proc.pid);
-    uart.puts("\n");
 
     // Get the shell program code
     const _user_shell_start = @extern([*]const u8, .{ .name = "_user_shell_start" });
@@ -598,29 +571,21 @@ fn execShell(proc: *Process) noreturn {
     const end_addr = @intFromPtr(_user_shell_end);
     const code_size = end_addr - start_addr;
 
-    uart.puts("[proc] Shell binary size: ");
-    uart.putHex(code_size);
-    uart.puts("\n");
 
     if (code_size > 0 and code_size < 2097152) { // Allow up to 2MB for shell
         const code = @as([*]const u8, @ptrFromInt(start_addr))[0..code_size];
 
         // Execute the shell using the existing user program execution
         // This should never return on success
-        user.executeUserProgramWithSeq(code, "", exec_sequence) catch {
-            uart.puts("[exec#");
-            uart.putHex(exec_sequence);
-            uart.puts("] Failed to execute shell\n");
+        user.executeUserProgram(code, "") catch {
             Scheduler.exit(-1);
             unreachable;
         };
 
         // If we somehow get here, the exec failed
-        uart.puts("[proc] ERROR: executeUserProgram returned unexpectedly\n");
         Scheduler.exit(-1);
         unreachable;
     } else {
-        uart.puts("[proc] Invalid shell program size\n");
         Scheduler.exit(-1);
         unreachable;
     }

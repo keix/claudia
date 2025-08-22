@@ -361,15 +361,7 @@ pub fn addElfSegment(context: *UserMemoryContext, virtual_addr: u64, size: usize
     const end_addr = virtual_addr + @as(u64, size);
 
     // Check overlap with fixed regions
-    if (checkOverlapWithFixedRegion(virtual_addr, end_addr)) |region_name| {
-        const uart = @import("../driver/uart/core.zig");
-        uart.puts("[memory] ERROR: ELF segment 0x");
-        uart.putHex(virtual_addr);
-        uart.puts("-0x");
-        uart.putHex(end_addr);
-        uart.puts(" overlaps with ");
-        uart.puts(region_name);
-        uart.puts("\n");
+    if (checkOverlapWithFixedRegion(virtual_addr, end_addr)) |_| {
         return error.SegmentOverlap;
     }
 
@@ -379,16 +371,6 @@ pub fn addElfSegment(context: *UserMemoryContext, virtual_addr: u64, size: usize
         const existing_end = existing.virtual_base + @as(u64, existing.size);
 
         if (!(end_addr <= existing.virtual_base or virtual_addr >= existing_end)) {
-            const uart = @import("../driver/uart/core.zig");
-            uart.puts("[memory] ERROR: ELF segment 0x");
-            uart.putHex(virtual_addr);
-            uart.puts("-0x");
-            uart.putHex(end_addr);
-            uart.puts(" overlaps with existing segment 0x");
-            uart.putHex(existing.virtual_base);
-            uart.puts("-0x");
-            uart.putHex(existing_end);
-            uart.puts("\n");
             return error.SegmentOverlap;
         }
     }
@@ -415,13 +397,6 @@ pub fn mapElfSegments(context: *UserMemoryContext) !void {
     for (0..context.elf_segment_count) |i| {
         const segment = &context.elf_segments[i];
         if (!segment.allocated) continue;
-
-        const uart = @import("../driver/uart/core.zig");
-        uart.puts("[memory] Mapping ELF segment at ");
-        uart.putHex(segment.virtual_base);
-        uart.puts(" size ");
-        uart.putHex(segment.size);
-        uart.puts("\n");
 
         // Map each page of the segment
         const page_count = (segment.size + types.PAGE_SIZE - 1) / types.PAGE_SIZE;

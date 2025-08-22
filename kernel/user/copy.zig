@@ -4,7 +4,6 @@
 
 const std = @import("std");
 const csr = @import("../arch/riscv/csr.zig");
-const uart = @import("../driver/uart/core.zig");
 const types = @import("../memory/types.zig");
 const virtual = @import("../memory/virtual.zig");
 
@@ -93,15 +92,6 @@ fn copyinProper(dst: []u8, user_src: usize) !usize {
     while (bytes_copied < dst.len) {
         // Translate virtual address to physical address
         const phys_addr = translateUserAddress(src_addr) catch |err| {
-            uart.puts("[copyin] Translation failed for VA: ");
-            uart.putHex(src_addr);
-            uart.puts(" error: ");
-            switch (err) {
-                error.PageNotPresent => uart.puts("PageNotPresent"),
-                error.InvalidMapping => uart.puts("InvalidMapping"),
-                error.AccessDenied => uart.puts("AccessDenied"),
-            }
-            uart.puts("\n");
             return err;
         };
 
@@ -155,9 +145,6 @@ fn copyoutProper(user_dst: usize, src: []const u8) !usize {
     while (bytes_copied < src.len) {
         // Translate virtual address to physical address
         const phys_addr = translateUserAddress(dst_addr) catch |err| {
-            uart.puts("[copyout] Translation failed for VA: ");
-            uart.putHex(dst_addr);
-            uart.puts("\n");
             return err;
         };
 
