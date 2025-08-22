@@ -72,15 +72,11 @@ const ExceptionCause = enum(u64) {
 
 // Initialize trap handling
 pub fn init() void {
-    uart.puts("[trap] Initializing trap handler\n");
 
     // Set trap vector
     const trap_vector_addr = @intFromPtr(&trap_vector);
     csr.writeStvec(trap_vector_addr);
 
-    uart.puts("[trap] Trap vector set to: ");
-    uart.putHex(trap_vector_addr);
-    uart.puts("\n");
 
     // Initialize syscall dispatcher with file system function pointers
     dispatch.init(
@@ -114,9 +110,6 @@ fn fileClose(fd: i32) isize {
 }
 
 fn procExit(code: i32) noreturn {
-    uart.puts("[syscall] Process exiting with code: ");
-    uart.putHex(@bitCast(@as(u64, @intCast(code))));
-    uart.puts("\n");
     proc.Scheduler.exit(code);
     // Should not reach here
     while (true) {
@@ -142,13 +135,6 @@ pub export fn trapHandler(frame: *TrapFrame) void {
     const is_syscall = (!is_interrupt) and (exception_code == @intFromEnum(ExceptionCause.EcallFromUMode));
     const is_external_int = is_interrupt and (exception_code == 9); // Supervisor external interrupt
     if (!is_syscall and !is_external_int) {
-        uart.puts("[trap] Handler entered - cause: ");
-        uart.putHex(cause);
-        uart.puts(" PC: ");
-        uart.putHex(frame.sepc);
-        uart.puts(" SP: ");
-        uart.putHex(frame.sp);
-        uart.puts("\n");
     }
 
     if (is_interrupt) {
@@ -168,9 +154,6 @@ fn interruptHandler(frame: *TrapFrame, code: u64) void {
             handlePLICInterrupt();
         },
         else => {
-            uart.puts("[trap] Unhandled interrupt: ");
-            uart.putHex(code);
-            uart.puts("\n");
         },
     }
 }
@@ -191,9 +174,6 @@ fn handlePLICInterrupt() void {
         // Complete the interrupt
         claim_addr.* = irq;
     } else if (irq != 0) {
-        uart.puts("[PLIC] Unknown interrupt: ");
-        uart.putHex(irq);
-        uart.puts("\n");
 
         // Complete the interrupt anyway
         claim_addr.* = irq;
@@ -208,16 +188,8 @@ fn exceptionHandler(frame: *TrapFrame, code: u64) void {
             frame.sepc += 4;
         },
         else => {
-            uart.puts("[trap] Unhandled exception: ");
-            uart.putHex(code);
-            uart.puts(" at PC: ");
-            uart.putHex(frame.sepc);
-            uart.puts(" stval: ");
-            uart.putHex(frame.stval);
-            uart.puts("\n");
 
             // Stop infinite loop - halt system
-            uart.puts("[trap] PANIC: Halting system to prevent infinite loop\n");
             while (true) {
                 csr.wfi();
             }
@@ -242,15 +214,6 @@ fn syscallHandler(frame: *TrapFrame) void {
     // Only show syscall debug for non-repetitive calls (not read/write in shell loop)
     const is_shell_io = (syscall_num == 1) or (syscall_num == 0x3f) or (syscall_num == 0x40); // write or read
     if (!is_shell_io) {
-        uart.puts("[syscall] Handler called: ");
-        uart.putHex(syscall_num);
-        uart.puts(" args: ");
-        uart.putHex(frame.a0);
-        uart.puts(" ");
-        uart.putHex(frame.a1);
-        uart.puts(" ");
-        uart.putHex(frame.a2);
-        uart.puts("\n");
     }
 
     // Use full dispatcher

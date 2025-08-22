@@ -13,7 +13,6 @@ pub const PageTable = virtual.PageTable;
 
 // Initialize physical memory allocator
 pub fn init() void {
-    uart.puts("[memory] Initializing memory subsystem\n");
     allocator.init();
 }
 

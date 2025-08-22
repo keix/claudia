@@ -20,12 +20,6 @@ var initialized: bool = false;
 pub fn init() !void {
     if (initialized) return;
 
-    uart.puts("[kalloc] Initializing kernel heap at ");
-    uart.putHex(HEAP_BASE);
-    uart.puts(" size ");
-    uart.putHex(HEAP_SIZE);
-    uart.puts("\n");
-
     const pages_needed = (HEAP_SIZE + types.PAGE_SIZE - 1) / types.PAGE_SIZE;
     heap_start = HEAP_BASE;
     heap_end = HEAP_BASE + (pages_needed * types.PAGE_SIZE);
@@ -36,7 +30,6 @@ pub fn init() !void {
     // within the physical RAM range and will work with VA=PA mapping.
 
     initialized = true;
-    uart.puts("[kalloc] Kernel heap initialized\n");
 }
 
 // Allocate memory from kernel heap (bump allocator)
@@ -51,7 +44,6 @@ pub fn kalloc(size: usize, alignment: usize) ?[*]u8 {
 
     // Check if we have enough space
     if (end_addr > heap_end) {
-        uart.puts("[kalloc] Out of heap memory\n");
         return null;
     }
 

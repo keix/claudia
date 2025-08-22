@@ -32,12 +32,6 @@ const GlobalAllocator = struct {
 
         instance.frame_allocator.init(mem, &instance.bitmap_storage);
         instance.initialized = true;
-
-        uart.puts("[memory] Physical memory initialized: ");
-        uart.putHex(instance.frame_allocator.free_frames);
-        uart.puts(" free frames (");
-        uart.putHex(instance.frame_allocator.free_frames * types.PAGE_SIZE);
-        uart.puts(" bytes)\n");
     }
 
     pub fn allocFrame() ?usize {

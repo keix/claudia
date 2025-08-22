@@ -24,33 +24,23 @@ fn allocStack(size: usize) []u8 {
 
 pub fn init() noreturn {
     uart.init();
-    uart.puts("Hello Claudia!!\n");
 
     // Initialize memory subsystem
     memory.init();
 
     // Initialize virtual memory
-    memory.initVirtual() catch |err| {
-        uart.puts("Failed to initialize virtual memory: ");
-        uart.putHex(@intFromError(err));
-        uart.puts("\n");
+    memory.initVirtual() catch {
         while (true) {}
     };
 
     // Initialize kernel heap before enabling MMU
     const kalloc = @import("memory/kalloc.zig");
-    kalloc.init() catch |err| {
-        uart.puts("Failed to initialize kernel heap: ");
-        uart.putHex(@intFromError(err));
-        uart.puts("\n");
+    kalloc.init() catch {
         while (true) {}
     };
 
     // Initialize file system
     file.FileTable.init();
-
-    // Initialize process scheduler
-    // proc.Scheduler.init();
 
     // Initialize trap handling
     trap.init();
@@ -64,14 +54,8 @@ pub fn init() noreturn {
     // Initialize PLIC for UART interrupts
     initPLIC();
 
-    // Debug UART status
-    //    const debug_uart = @import("debug_uart.zig");
-    //    debug_uart.debugUartStatus();
-
     // Enable MMU
-    uart.puts("Enabling MMU...\n");
     memory.enableMMU();
-    uart.puts("MMU enabled successfully\n");
 
     // Initialize user subsystem
     user.init();
@@ -80,17 +64,14 @@ pub fn init() noreturn {
     createInitProcess();
 
     // Start the process scheduler - this will handle all process scheduling
-    uart.puts("Starting process scheduler\n");
     proc.Scheduler.run();
 }
 
 fn createInitProcess() void {
-    uart.puts("Creating init process...\n");
 
     // Allocate kernel stack for the process
     const kernel_stack = allocStack(4096);
     if (kernel_stack.len == 0) {
-        uart.puts("Failed to allocate kernel stack for init\n");
         while (true) {
             csr.wfi();
         }
@@ -103,9 +84,7 @@ fn createInitProcess() void {
 
         // Make the process runnable
         proc.Scheduler.makeRunnable(init_proc);
-        uart.puts("Init process created and made runnable\n");
     } else {
-        uart.puts("Failed to allocate init process\n");
         while (true) {
             csr.wfi();
         }
@@ -124,22 +103,17 @@ fn setupUserProcess(process: *proc.Process) void {
 
     const start_addr = @intFromPtr(_user_shell_start);
     const end_addr = @intFromPtr(_user_shell_end);
-    const code_size = end_addr - start_addr;
-
-    uart.puts("Setting up user process with binary size: ");
-    uart.putHex(code_size);
-    uart.puts("\n");
+    _ = start_addr;
+    _ = end_addr;
 
     // For init process, we'll setup user mode execution through the trap system
     // The process context is already initialized for kernel-level context switching
     // User mode setup will be handled when the process runs
 
-    uart.puts("User process context setup complete\n");
 }
 
 // Initialize PLIC for UART interrupts
 fn initPLIC() void {
-    uart.puts("Initializing PLIC for UART interrupts\n");
 
     // PLIC addresses for RISC-V virt machine
     const PLIC_BASE: u64 = 0x0c000000;
@@ -163,6 +137,4 @@ fn initPLIC() void {
     // For hart 0, context 1: threshold is at 0x201000
     const threshold_addr = @as(*volatile u32, @ptrFromInt(PLIC_THRESHOLD + 0x1000));
     threshold_addr.* = 0;
-
-    uart.puts("PLIC initialized: UART IRQ enabled\n");
 }

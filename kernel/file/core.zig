@@ -159,6 +159,7 @@ const TTY = struct {
     canonical_mode: bool,
     echo_enabled: bool,
     read_wait: proc.WaitQ,
+    magic: u32, // Magic number for corruption detection
 
     fn init() TTY {
         return TTY{
@@ -167,6 +168,7 @@ const TTY = struct {
             .canonical_mode = true, // Default to canonical mode
             .echo_enabled = true, // Default to echo enabled
             .read_wait = proc.WaitQ.init(),
+            .magic = 0xDEADBEEF,
         };
     }
 
@@ -183,6 +185,13 @@ const TTY = struct {
 
     fn getCharAtomic(self: *TTY) ?u8 {
         const csr = @import("../arch/riscv/csr.zig");
+        
+        // Validate TTY structure to detect corruption
+        if (self.magic != 0xDEADBEEF) {
+            uart.puts("[PANIC] TTY structure corrupted in getCharAtomic!\n");
+            @panic("TTY structure corrupted!");
+        }
+        
         // Save current interrupt state and disable interrupts
         const saved_sstatus = csr.csrrc(csr.CSR.sstatus, csr.SSTATUS.SIE);
         defer {
@@ -210,6 +219,11 @@ const TTY = struct {
 
 var console_tty = TTY.init();
 
+// Ensure console_tty is in data section and properly aligned
+comptime {
+    _ = &console_tty;
+}
+
 // Global counters for lost-wakeup debugging
 
 // UART interrupt handler to feed TTY - drain FIFO completely
@@ -231,11 +245,16 @@ pub fn uartIsr() void {
         // If ring buffer full, drop character (could log this)
     }
 
-    // Wake up readers if we got characters
-    // In canonical mode, we might want to wake only on newline,
-    // but for simplicity and to avoid lost wakeups, wake on any char
-    if (chars_received and char_count > 0) {
-        proc.Scheduler.wakeAll(&console_tty.read_wait);
+
+    // Wake readers based on mode
+    if (chars_received) {
+        if (!console_tty.canonical_mode) {
+            // Raw mode: wake on any character
+            proc.Scheduler.wakeAll(&console_tty.read_wait);
+        } else if (has_newline) {
+            // Canonical mode: wake only on newline
+            proc.Scheduler.wakeAll(&console_tty.read_wait);
+        }
     }
 }
 
@@ -253,9 +272,14 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 
     const copy = @import("../user/copy.zig");
     const user_addr = @intFromPtr(buffer.ptr);
-    const csr = @import("../arch/riscv/csr.zig");
 
     // Handle canonical vs raw mode
+    // Validate TTY before accessing it
+    if (console_tty.magic != 0xDEADBEEF) {
+        uart.puts("[PANIC] TTY not initialized or corrupted in consoleRead\n");
+        return 5; // EIO
+    }
+    
     if (console_tty.canonical_mode) {
         // Canonical mode: read a complete line
         return consoleReadCanonical(buffer, user_addr);
@@ -269,16 +293,19 @@ fn consoleRead(file: *File, buffer: []u8) isize {
                 return 1;
             }
 
-            // Fallback: poll UART directly if TTY buffer is empty
-            if (uart.getc()) |ch| {
-                const char_buf = [1]u8{ch};
-                _ = copy.copyout(user_addr, &char_buf) catch return defs.EFAULT;
-                return 1;
-            }
 
-            // No data available - wait in kernel
-            csr.enableInterrupts();
-            csr.wfi(); // Wake on UART RX interrupt
+            // No data available - wait for input
+            if (proc.Scheduler.getCurrentProcess()) |current| {
+                // Conditional sleep: only sleep if buffer is empty (spurious wakeup protection)
+                if (console_tty.input_buffer.isEmpty()) {
+                    proc.Scheduler.sleepOn(&console_tty.read_wait, current);
+                }
+            } else {
+                // Boot context without process - use WFI
+                const csr = @import("../arch/riscv/csr.zig");
+                csr.enableInterrupts();
+                csr.wfi();
+            }
         }
     }
 }
@@ -286,7 +313,9 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 // Canonical mode read - process line buffering
 fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
     const copy = @import("../user/copy.zig");
-    const csr = @import("../arch/riscv/csr.zig");
+    
+    // Note: We're already in kernel mode if this function is executing.
+    // SPP bit tells us where we came FROM on the last trap, not where we ARE now.
 
     // Build a line in the kernel's line buffer
     while (true) {
@@ -294,12 +323,13 @@ fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
         var ch: ?u8 = null;
 
         // Critical section: get character atomically
-        ch = console_tty.getCharAtomic();
-
-        if (ch == null) {
-            // Fallback: poll UART directly
-            ch = uart.getc();
+        // Validate pointer before calling method
+        const tty_ptr = &console_tty;
+        if (@intFromPtr(tty_ptr) == 0 or @intFromPtr(tty_ptr) > 0xFFFFFFFFFFFFFFFF) {
+            uart.puts("[PANIC] Invalid TTY pointer in consoleReadCanonical\n");
+            @panic("Invalid TTY pointer");
         }
+        ch = tty_ptr.getCharAtomic();
 
         if (ch) |c| {
             // Process the character
@@ -349,9 +379,16 @@ fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
             }
             // Ignore other control characters for now
         } else {
-            // No data available - wait in kernel
-            csr.enableInterrupts();
-            csr.wfi(); // Wake on UART RX interrupt
+            // No data available - wait for input
+            // Get current process and sleep on wait queue
+            if (proc.Scheduler.getCurrentProcess()) |current| {
+                proc.Scheduler.sleepOn(&console_tty.read_wait, current);
+            } else {
+                // No current process, fall back to polling
+                const csr = @import("../arch/riscv/csr.zig");
+                csr.enableInterrupts();
+                csr.wfi();
+            }
         }
     }
 }
@@ -380,7 +417,6 @@ var console_file = File.init(.DEVICE, &ConsoleOperations);
 // File descriptor management
 pub const FileTable = struct {
     pub fn init() void {
-        uart.debug("Initializing file system\n");
 
         // Initialize standard file descriptors
         // fd 0: stdin -> console (UART input)
@@ -395,7 +431,6 @@ pub const FileTable = struct {
         console_file.addRef(); // Add reference for stdout
         console_file.addRef(); // Add reference for stderr
 
-        uart.debug("Standard file descriptors initialized\n");
     }
 
     pub fn getFile(fd: FD) ?*File {

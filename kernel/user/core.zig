@@ -2,7 +2,6 @@
 // This will contain the real implementation for user program loading and execution
 
 const std = @import("std");
-const uart = @import("../driver/uart/core.zig");
 const memory = @import("memory.zig");
 const csr = @import("../arch/riscv/csr.zig");
 const virtual = @import("../memory/virtual.zig");
@@ -24,15 +23,7 @@ pub fn init() void {
 
 // Execute user ELF program with proper memory management - noreturn on success
 pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
-    return executeUserProgramWithSeq(code, args, 0);
-}
-
-// Execute user ELF program with sequence number for debugging
-pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !noreturn {
     _ = args;
-    uart.puts("[exec#");
-    uart.putHex(seq);
-    uart.puts("] Setting up NEW user address space\n");
 
     // Parse ELF header
     const header = elf.parseElfHeader(code) catch return error.InvalidELF;
@@ -56,37 +47,10 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
     for (segments) |segment| {
         if (segment.p_type != elf.PT_LOAD) continue;
 
-        uart.puts("[exec#");
-        uart.putHex(seq);
-        uart.puts(" ph#");
-        uart.putHex(segment_idx);
-        uart.puts("] Processing PT_LOAD vaddr=0x");
-        uart.putHex(segment.p_vaddr);
-        uart.puts(" filesz=0x");
-        uart.putHex(segment.p_filesz);
-        uart.puts(" memsz=0x");
-        uart.putHex(segment.p_memsz);
-        uart.puts(" flags=0x");
-        uart.putHex(segment.p_flags);
-        uart.puts("\n");
-
         // Determine permissions based on segment flags
         var permissions: u8 = @as(u8, virtual.PTE_U | virtual.PTE_R); // Always user-accessible and readable
         if (segment.p_flags & 0x2 != 0) permissions |= @as(u8, virtual.PTE_W); // Writable
         if (segment.p_flags & 0x1 != 0) permissions |= @as(u8, virtual.PTE_X); // Executable
-
-        uart.puts("[exec#");
-        uart.putHex(seq);
-        uart.puts(" ph#");
-        uart.putHex(segment_idx);
-        uart.puts("] Permissions: 0x");
-        uart.putHex(permissions);
-        uart.puts(" (");
-        if (permissions & virtual.PTE_R != 0) uart.puts("R");
-        if (permissions & virtual.PTE_W != 0) uart.puts("W");
-        if (permissions & virtual.PTE_X != 0) uart.puts("X");
-        if (permissions & virtual.PTE_U != 0) uart.puts("U");
-        uart.puts(")\n");
 
         // Align segment to page boundaries
         const page_size: u64 = types.PAGE_SIZE;
@@ -94,16 +58,6 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
         const segment_end = segment.p_vaddr + segment.p_memsz;
         const aligned_end = (segment_end + page_size - 1) & ~(page_size - 1); // Round up to page boundary
         const aligned_size = aligned_end - aligned_vaddr;
-
-        uart.puts("[exec#");
-        uart.putHex(seq);
-        uart.puts(" ph#");
-        uart.putHex(segment_idx);
-        uart.puts("] Aligned vaddr=0x");
-        uart.putHex(aligned_vaddr);
-        uart.puts(" size=0x");
-        uart.putHex(aligned_size);
-        uart.puts("\n");
 
         const region = memory.addElfSegment(&new_user_context, aligned_vaddr, aligned_size, permissions) catch return error.SegmentSetupFailed;
 
@@ -118,14 +72,6 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
 
         // Copy segment data from ELF file with proper offset
         if (segment.p_filesz > 0) {
-            uart.puts("[exec#");
-            uart.putHex(seq);
-            uart.puts(" ph#");
-            uart.putHex(segment_idx);
-            uart.puts("] Copy filesz=0x");
-            uart.putHex(segment.p_filesz);
-            uart.puts("\n");
-
             const segment_data = code[segment.p_offset .. segment.p_offset + segment.p_filesz];
             const offset_in_region = segment.p_vaddr - aligned_vaddr;
             if (!memory.copyToRegion(region, offset_in_region, segment_data)) {
@@ -137,22 +83,9 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
         // Zero .bss area if memsz > filesz
         const bss_size = segment.p_memsz - segment.p_filesz;
         if (bss_size > 0) {
-            uart.puts("[exec#");
-            uart.putHex(seq);
-            uart.puts(" ph#");
-            uart.putHex(segment_idx);
-            uart.puts("] .bss zero=0x");
-            uart.putHex(bss_size);
-            uart.puts("\n");
-
             // Zero .bss area - offset starts after copied file data
             const offset_in_region = (segment.p_vaddr - aligned_vaddr) + segment.p_filesz;
             if (!memory.zeroRegion(region, offset_in_region, bss_size)) {
-                uart.puts("[exec#");
-                uart.putHex(seq);
-                uart.puts(" ph#");
-                uart.putHex(segment_idx);
-                uart.puts("] ERROR: Failed to zero .bss area\n");
                 return error.BssZeroFailed;
             }
         }
@@ -204,16 +137,6 @@ pub fn executeUserProgramWithSeq(code: []const u8, args: []const u8, seq: u32) !
     // Replace the global user context with the new one for exec
     // This ensures subsequent operations use the new address space
     test_user_context = new_user_context;
-
-    // CRITICAL: After this call, we switch page tables inside the trampoline
-    // No more UART access until we return via trap or the program exits
-    uart.puts("[exec#");
-    uart.putHex(seq);
-    uart.puts("] Switching to user mode entry=0x");
-    uart.putHex(header.e_entry);
-    uart.puts(" satp=0x");
-    uart.putHex(satp_value);
-    uart.puts("\n");
 
     // Ensure TLB is flushed after switching to user address space
     csr.sfence_vma();
