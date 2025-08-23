@@ -39,23 +39,40 @@ pub const WaitQ = struct {
     }
 };
 
-// RISC-V CPU context for process switching (callee-saved registers only)
+// RISC-V CPU context for process switching (all general purpose registers)
 // Matches the layout expected by context.S
 pub const Context = struct {
-    ra: u64, // x1 - return address
-    sp: u64, // x2 - stack pointer
-    s0: u64, // x8 - saved register / frame pointer
-    s1: u64, // x9 - saved register
-    s2: u64, // x18 - saved register
-    s3: u64, // x19 - saved register
-    s4: u64, // x20 - saved register
-    s5: u64, // x21 - saved register
-    s6: u64, // x22 - saved register
-    s7: u64, // x23 - saved register
-    s8: u64, // x24 - saved register
-    s9: u64, // x25 - saved register
+    ra: u64,  // x1 - return address
+    sp: u64,  // x2 - stack pointer
+    gp: u64,  // x3 - global pointer
+    tp: u64,  // x4 - thread pointer
+    t0: u64,  // x5 - temporary
+    t1: u64,  // x6 - temporary
+    t2: u64,  // x7 - temporary
+    s0: u64,  // x8 - saved register / frame pointer
+    s1: u64,  // x9 - saved register
+    a0: u64,  // x10 - function argument/return value
+    a1: u64,  // x11 - function argument
+    a2: u64,  // x12 - function argument
+    a3: u64,  // x13 - function argument
+    a4: u64,  // x14 - function argument
+    a5: u64,  // x15 - function argument
+    a6: u64,  // x16 - function argument
+    a7: u64,  // x17 - function argument
+    s2: u64,  // x18 - saved register
+    s3: u64,  // x19 - saved register
+    s4: u64,  // x20 - saved register
+    s5: u64,  // x21 - saved register
+    s6: u64,  // x22 - saved register
+    s7: u64,  // x23 - saved register
+    s8: u64,  // x24 - saved register
+    s9: u64,  // x25 - saved register
     s10: u64, // x26 - saved register
     s11: u64, // x27 - saved register
+    t3: u64,  // x28 - temporary
+    t4: u64,  // x29 - temporary
+    t5: u64,  // x30 - temporary
+    t6: u64,  // x31 - temporary
     satp: u64, // Supervisor Address Translation and Protection register
 
     pub fn zero() Context {
@@ -586,8 +603,21 @@ pub const Scheduler = struct {
         proc.context = Context{
             .ra = 0, // Will be set by caller
             .sp = 0, // No stack needed initially
+            .gp = 0,
+            .tp = 0,
+            .t0 = 0,
+            .t1 = 0,
+            .t2 = 0,
             .s0 = 0,
             .s1 = 0,
+            .a0 = 0,
+            .a1 = 0,
+            .a2 = 0,
+            .a3 = 0,
+            .a4 = 0,
+            .a5 = 0,
+            .a6 = 0,
+            .a7 = 0,
             .s2 = 0,
             .s3 = 0,
             .s4 = 0,
@@ -598,6 +628,10 @@ pub const Scheduler = struct {
             .s9 = 0,
             .s10 = 0,
             .s11 = 0,
+            .t3 = 0,
+            .t4 = 0,
+            .t5 = 0,
+            .t6 = 0,
             .satp = kernel_satp, // Use kernel page table
         };
 
