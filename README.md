@@ -18,6 +18,17 @@ It builds a system — from first principles, not from dependencies.
 You may run it on QEMU, or on real hardware.
 That's an implementation detail.
 
+## Quick Start
+You can build and run Claudia with a single command:
+
+```
+zig build run
+```
+
+This will:
+- Build the kernel and userland
+- Launch the system in QEMU
+
 ## Philosophy
 A system is just structure. POSIX is the sugar that coats it.
 
