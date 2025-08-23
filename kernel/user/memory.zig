@@ -85,7 +85,7 @@ pub const UserMemoryContext = struct {
         // init() will allocate the root page internally
         try pt_ptr.init();
         self.page_table = pt_ptr;
-        
+
         uart.puts("[UserMemoryContext] Created page table with root_ppn: 0x");
         uart.putHex(pt_ptr.root_ppn);
         uart.puts("\n");
@@ -145,9 +145,9 @@ pub const UserMemoryContext = struct {
     // This includes: kernel text/data/bss, MMIO, trampoline, AND kernel stack
     fn addKernelMappings(self: *UserMemoryContext) !void {
         const uart = @import("../driver/uart/core.zig");
-        
+
         uart.puts("[addKernelMappings] Adding kernel mappings to user page table\n");
-        
+
         if (self.page_table == null) {
             uart.puts("  ERROR: Page table is null!\n");
             return;
@@ -161,7 +161,7 @@ pub const UserMemoryContext = struct {
         // Build all kernel global mappings
         uart.puts("  Calling buildKernelGlobalMappings...\n");
         try virtual.buildKernelGlobalMappings(page_table);
-        
+
         // Check if mapping survived
         page_table.checkCriticalPTE("After buildKernelGlobalMappings in addKernelMappings");
 
@@ -169,10 +169,10 @@ pub const UserMemoryContext = struct {
         // This is redundant as buildKernelGlobalMappings() already calls it,
         // but ensures kernel stack is always accessible from trap handler
         try mapKernelStackToPageTable(page_table);
-        
+
         // CRITICAL: Verify kernel mappings were actually added
         uart.puts("  Verifying kernel mappings in user PT...\n");
-        
+
         // Check a few critical kernel addresses
         const test_addrs = [_]u64{
             0x80200000, // Kernel code start
@@ -181,7 +181,7 @@ pub const UserMemoryContext = struct {
             0x80400000, // Kernel heap
             types.KERNEL_STACK_BASE, // Kernel stack
         };
-        
+
         for (test_addrs) |addr| {
             if (page_table.translate(addr)) |phys| {
                 uart.puts("    0x");
@@ -215,7 +215,7 @@ pub const UserMemoryContext = struct {
 
         const page_table = self.page_table.?;
         const result = page_table.translate(vaddr) != null;
-        
+
         // Extra debug for critical addresses
         if (vaddr == 0x8021b000 and !result) {
             const uart = @import("../driver/uart/core.zig");
@@ -224,7 +224,7 @@ pub const UserMemoryContext = struct {
             uart.putHex(page_table.root_ppn);
             uart.puts("\n");
         }
-        
+
         return result;
     }
 

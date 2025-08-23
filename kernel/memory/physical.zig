@@ -49,7 +49,7 @@ pub const FrameAllocator = struct {
                         self.setBit(frame);
                         self.free_frames -= 1;
                         const addr = self.frameToAddr(frame);
-                        
+
                         // Debug critical allocations
                         if (addr >= 0x802bf000 and addr <= 0x802c0000) {
                             const uart = @import("../driver/uart/core.zig");
@@ -57,7 +57,7 @@ pub const FrameAllocator = struct {
                             uart.putHex(addr);
                             uart.puts("\n");
                         }
-                        
+
                         return addr;
                     }
                 }
@@ -77,7 +77,7 @@ pub const FrameAllocator = struct {
             // Stack trace would be helpful here
             return;
         }
-        
+
         // Also protect L1/L0 page tables that might be in use
         if (addr >= 0x200b4000 and addr <= 0x200b5000) {
             const uart = @import("../driver/uart/core.zig");
@@ -85,7 +85,7 @@ pub const FrameAllocator = struct {
             uart.putHex(addr);
             uart.puts("\n");
         }
-        
+
         // Validate address
         if (addr < self.base_addr or addr >= self.base_addr + (self.total_frames << PAGE_SHIFT)) {
             return; // Invalid address
@@ -103,7 +103,7 @@ pub const FrameAllocator = struct {
                 uart.putHex(addr);
                 uart.puts("\n");
             }
-            
+
             self.clearBit(frame);
             self.free_frames += 1;
         } else {

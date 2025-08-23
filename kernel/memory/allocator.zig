@@ -37,7 +37,7 @@ const GlobalAllocator = struct {
     pub fn allocFrame() ?usize {
         std.debug.assert(instance.initialized);
         const frame = instance.frame_allocator.alloc();
-        
+
         // Debug problematic page table allocations
         if (frame) |f| {
             if (f == 0x802cf000) {
@@ -46,7 +46,7 @@ const GlobalAllocator = struct {
                 // Would be nice to have a stack trace here
             }
         }
-        
+
         return frame;
     }
 
