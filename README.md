@@ -26,9 +26,8 @@ What you see is what the hardware sees.
 POSIX is not the system — but a contract you implement to make it human.
 
 ## Acknowledgements
-I was inspired by the elegance of [xv6-riscv](https://github.com/mit-pdos/xv6-riscv), a clean and minimal RISC-V operating system from MIT — a modern reinterpretation of UNIX Sixth Edition for a new architecture.
-
 Claudia is built in the shadow of giants — with gratitude to Ken Thompson and Dennis Ritchie, whose creation of UNIX continues to shape everything we build.
+
 ## License
 Copyright KEI SAWAMURA 2025 All rights reserved.  
 Claudia is licensed under the MIT License. Copying, sharing, and modifying is encouraged and appreciated.
