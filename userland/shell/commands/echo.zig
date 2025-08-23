@@ -1,5 +1,6 @@
 // Echo command implementation
 const sys = @import("sys");
+const utils = @import("shell/utils");
 
 const STDOUT: usize = 1;
 
@@ -8,10 +9,21 @@ fn write_str(str: []const u8) void {
 }
 
 // Echo command entry point
-// args: command arguments (for future use)
-pub fn main(args: []const u8) void {
-    _ = args; // TODO: Parse and echo actual arguments
+pub fn main(args: *const utils.Args) void {
+    // Echo all arguments after the command name
+    if (args.argc <= 1) {
+        // No arguments, just print newline
+        write_str("\n");
+        return;
+    }
 
-    // For now, just print a simple message
-    write_str("Hello from echo command!\n");
+    // Print arguments separated by spaces
+    var i: usize = 1;
+    while (i < args.argc) : (i += 1) {
+        write_str(args.argv[i]);
+        if (i < args.argc - 1) {
+            write_str(" ");
+        }
+    }
+    write_str("\n");
 }

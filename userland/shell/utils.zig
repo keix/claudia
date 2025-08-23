@@ -17,6 +17,22 @@ pub fn readLine(buf: []u8) isize {
     return sys.read(STDIN, @ptrCast(buf.ptr), buf.len);
 }
 
+// Maximum number of arguments
+pub const MAX_ARGS: usize = 16;
+
+// Command arguments structure
+pub const Args = struct {
+    argc: usize,
+    argv: [MAX_ARGS][]const u8,
+
+    pub fn init() Args {
+        return Args{
+            .argc = 0,
+            .argv = undefined,
+        };
+    }
+};
+
 // String utility functions
 pub fn strEq(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
@@ -50,4 +66,31 @@ pub fn parseCommandLine(buffer: []const u8, pos: usize) []const u8 {
     if (end <= start) return ""; // Empty after trimming
 
     return buffer[start..end];
+}
+
+// Parse command line into argc/argv
+pub fn parseArgs(cmdline: []const u8, args: *Args) void {
+    args.argc = 0;
+
+    var i: usize = 0;
+    while (i < cmdline.len and args.argc < MAX_ARGS) {
+        // Skip whitespace
+        while (i < cmdline.len and cmdline[i] == ' ') {
+            i += 1;
+        }
+
+        if (i >= cmdline.len) break;
+
+        // Start of argument
+        const start = i;
+
+        // Find end of argument (simple parsing - no quotes for now)
+        while (i < cmdline.len and cmdline[i] != ' ') {
+            i += 1;
+        }
+
+        // Store argument
+        args.argv[args.argc] = cmdline[start..i];
+        args.argc += 1;
+    }
 }

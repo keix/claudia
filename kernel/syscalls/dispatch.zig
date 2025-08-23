@@ -1,6 +1,7 @@
 // kernel/syscalls/dispatch.zig - Full syscall dispatcher
-const sysno = @import("sysno");
-const defs = @import("abi");
+const abi = @import("abi");
+const sysno = abi.sysno;
+const defs = abi;
 const fs = @import("fs.zig");
 const process = @import("process.zig");
 

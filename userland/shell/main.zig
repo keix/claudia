@@ -43,11 +43,17 @@ pub fn main() noreturn {
 
         const trimmed_cmd = utils.parseCommandLine(buffer[0..], pos);
 
+        // Parse arguments
+        var args = utils.Args.init();
+        utils.parseArgs(trimmed_cmd, &args);
+
+        if (args.argc == 0) continue; // Empty command
+
         // Dispatch commands using index
         var found = false;
         for (commands.commands) |cmd| {
-            if (utils.strEq(trimmed_cmd, cmd.name)) {
-                cmd.func(trimmed_cmd); // TODO: Pass actual arguments in the future
+            if (utils.strEq(args.argv[0], cmd.name)) {
+                cmd.func(&args);
                 found = true;
 
                 // No special handling needed - exit command calls sys.exit() directly
@@ -55,9 +61,9 @@ pub fn main() noreturn {
             }
         }
 
-        if (!found and trimmed_cmd.len > 0) {
+        if (!found) {
             utils.writeStr("Unknown command: ");
-            utils.writeStr(trimmed_cmd);
+            utils.writeStr(args.argv[0]);
             utils.writeStr("\n");
         }
     }

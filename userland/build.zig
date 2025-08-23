@@ -74,11 +74,20 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    // Create shell utils module first
+    const shell_utils_mod = b.createModule(.{
+        .root_source_file = b.path("shell/utils.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+        },
+    });
+
     // Create command modules
     const echo_mod = b.createModule(.{
         .root_source_file = b.path("shell/commands/echo.zig"),
         .imports = &.{
             .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });
 
@@ -86,6 +95,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("shell/commands/help.zig"),
         .imports = &.{
             .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });
 
@@ -93,6 +103,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("shell/commands/exit.zig"),
         .imports = &.{
             .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });
 
@@ -103,14 +114,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "echo.zig", .module = echo_mod },
             .{ .name = "help.zig", .module = help_mod },
             .{ .name = "exit.zig", .module = exit_mod },
-        },
-    });
-
-    // Create shell utils module
-    const shell_utils_mod = b.createModule(.{
-        .root_source_file = b.path("shell/utils.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });
 

@@ -1,3 +1,5 @@
+const utils = @import("shell/utils");
+
 pub const Command = enum {
     echo,
     help,
@@ -6,7 +8,7 @@ pub const Command = enum {
 
 pub const CommandEntry = struct {
     name: []const u8,
-    func: *const fn ([]const u8) void,
+    func: *const fn (*const utils.Args) void,
 };
 
 pub const commands = [_]CommandEntry{
