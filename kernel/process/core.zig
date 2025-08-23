@@ -14,6 +14,12 @@ pub const PID = u32;
 // External assembly function for context switching
 extern fn context_switch(old_context: *Context, new_context: *Context) void;
 
+// Return point for scheduler when no previous context exists
+fn schedulerReturn() noreturn {
+    // This should never be called - it's just a dummy return address
+    @panic("schedulerReturn called - this should never happen");
+}
+
 // Process states
 pub const ProcessState = enum {
     UNUSED, // Slot not in use
@@ -50,6 +56,7 @@ pub const Context = struct {
     s9: u64, // x25 - saved register
     s10: u64, // x26 - saved register
     s11: u64, // x27 - saved register
+    satp: u64, // Supervisor Address Translation and Protection register
 
     pub fn zero() Context {
         return std.mem.zeroes(Context);
@@ -91,12 +98,9 @@ pub const Process = struct {
         proc.name[copy_len] = 0;
 
         // Process name copied
-
-        // Initialize context for new process
-        initProcessContext(&proc);
-
-        // Context initialized
-
+        
+        // Don't initialize context here - it will be done after assignment to table
+        
         return proc;
     }
 
@@ -162,6 +166,9 @@ pub const Scheduler = struct {
                 proc.* = Process.init(next_pid, name, stack);
                 next_pid += 1;
 
+                // Re-initialize context with correct process pointer
+                initProcessContext(proc);
+                
                 return proc;
             }
         }
@@ -195,6 +202,7 @@ pub const Scheduler = struct {
         // Critical section - protect ready queue manipulation
         csr.disableInterrupts();
         defer csr.enableInterrupts();
+        
 
         if (ready_queue_head) |head| {
             ready_queue_head = head.next;
@@ -254,31 +262,68 @@ pub const Scheduler = struct {
                 current_process = next;
 
                 // Switch from the previous kernel context to the next one
+                uart.puts("[SCHED] Context switching from pid=");
+                uart.putHex(proc.pid);
+                uart.puts(" to pid=");
+                uart.putHex(next.pid);
+                uart.puts("\n");
+                
+                // Debug: Check page table before context switch
+                if (next.context.satp != 0) {
+                    const ppn = next.context.satp & 0xFFFFFFFFFFF;
+                    if (ppn == 0x802bf) {
+                        const root_addr = ppn << 12;
+                        const root_table = @as([*]const u64, @ptrFromInt(root_addr));
+                        const vpn2 = (0x8021b000 >> 30) & 0x1FF;
+                        const l2_pte = root_table[vpn2];
+                        
+                        uart.puts("[SCHED] L2 PTE before context switch: 0x");
+                        uart.putHex(l2_pte);
+                        if (l2_pte == 0) {
+                            uart.puts(" - ALREADY CORRUPTED BEFORE SWITCH!\n");
+                        } else {
+                            uart.puts(" - OK\n");
+                        }
+                    }
+                }
+                
                 context_switch(&proc.context, &next.context);
+                
+                // Debug: Check page table after context switch (when we return)
+                const current_satp = csr.readSatp();
+                const current_ppn = current_satp & 0xFFFFFFFFFFF;
+                if (current_ppn == 0x802bf) {
+                    const root_addr = current_ppn << 12;
+                    const root_table = @as([*]const u64, @ptrFromInt(root_addr));
+                    const vpn2 = (0x8021b000 >> 30) & 0x1FF;
+                    const l2_pte = root_table[vpn2];
+                    
+                    uart.puts("[SCHED] L2 PTE after context switch return: 0x");
+                    uart.putHex(l2_pte);
+                    if (l2_pte == 0) {
+                        uart.puts(" - CORRUPTED AFTER SWITCH!\n");
+                    } else {
+                        uart.puts(" - still OK\n");
+                    }
+                }
+                
                 return next;
             }
 
             // No runnable process found
-            // If current is sleeping, we need to clear it
+            // If current is sleeping, keep it as current for interrupt context
             if (proc.state == .SLEEPING) {
-                current_process = null;
+                // Don't clear current_process - we need it for interrupt handling
+                uart.puts("[SCHED] No runnable found for sleeping process, pid=");
+                uart.putHex(proc.pid);
+                uart.puts("\n");
             }
 
             return null;
         }
 
-        // No current: first dispatch or resuming from idle
-        if (dequeueRunnable()) |next| {
-            next.state = .RUNNING;
-            current_process = next;
-
-            // First run → no previous context to switch from
-            processEntryPointWithProc(next); // noreturn
-        }
-
-        // DEBUG: Log when entering idle state - this should not happen with idle process
-        uart.puts("[IDLE] No runnable processes (this should not happen!)\n");
-
+        // No current: shouldn't happen in normal operation
+        // This would only happen if schedule() is called without a current process
         return null;
     }
 
@@ -313,13 +358,97 @@ pub const Scheduler = struct {
         // Re-enable interrupts before scheduling
         // This ensures interrupts can wake us up
         csr.enableInterrupts();
+        
+        // DEBUG: Check page table before schedule
+        if (proc.context.satp != 0) {
+            const ppn = proc.context.satp & 0xFFFFFFFFFFF;
+            if (ppn == 0x802cf) {
+                const root_addr = ppn << 12;
+                const root_table = @as([*]const volatile u64, @ptrFromInt(root_addr));
+                const vpn2 = (0x8021b000 >> 30) & 0x1FF;
+                const l2_pte = root_table[vpn2];
+                uart.puts("[SLEEP] Before schedule: L2 PTE = 0x");
+                uart.putHex(l2_pte);
+                uart.puts("\n");
+            }
+        }
 
         // Switch to another process
-        _ = schedule();
-
-        // If we get here, no other process was runnable
-        // This happens when we have idle process but it's not scheduled
-        // Just return and let the process continue
+        if (schedule()) |_| {
+            // We switched to another process and came back
+            // This means we were woken up and rescheduled
+            
+            // DEBUG: Check page table after schedule
+            if (proc.context.satp != 0) {
+                const ppn = proc.context.satp & 0xFFFFFFFFFFF;
+                if (ppn == 0x802cf) {
+                    const root_addr = ppn << 12;
+                    const root_table = @as([*]const volatile u64, @ptrFromInt(root_addr));
+                    const vpn2 = (0x8021b000 >> 30) & 0x1FF;
+                    const l2_pte = root_table[vpn2];
+                    uart.puts("[SLEEP] After schedule return: L2 PTE = 0x");
+                    uart.putHex(l2_pte);
+                    if (l2_pte == 0) {
+                        uart.puts(" CORRUPTED!\n");
+                    } else {
+                        uart.puts("\n");
+                    }
+                }
+            }
+            
+            return;
+        }
+        
+        // If schedule returns null, there's no other runnable process
+        // We need to idle until this process is woken up
+        uart.puts("[SLEEP] No other processes, idling until woken\n");
+        uart.puts("  proc pointer: 0x");
+        uart.putHex(@intFromPtr(proc));
+        uart.puts("\n");
+        
+        // The process structure is in kernel memory, but we should verify
+        // Check if proc pointer is in kernel range
+        const proc_addr = @intFromPtr(proc);
+        if (proc_addr < 0x80000000 or proc_addr >= 0x90000000) {
+            uart.puts("[SLEEP] ERROR: Process pointer not in kernel range!\n");
+            // This should not happen - process table is in kernel BSS
+            @panic("Process pointer outside kernel range");
+        }
+        
+        // For now, just wait with interrupts enabled
+        // Don't switch page tables - stay with current process's page table
+        var check_count: u32 = 0;
+        while (proc.state == .SLEEPING) {
+            // Periodic check for page table corruption
+            check_count += 1;
+            if (check_count % 100 == 0 and proc.context.satp != 0) {
+                const ppn = proc.context.satp & 0xFFFFFFFFFFF;
+                if (ppn == 0x802cf) {
+                    const root_addr = ppn << 12;
+                    const root_table = @as([*]const volatile u64, @ptrFromInt(root_addr));
+                    const vpn2 = (0x8021b000 >> 30) & 0x1FF;
+                    const l2_pte = root_table[vpn2];
+                    if (l2_pte == 0) {
+                        uart.puts("[SLEEP] CORRUPTION DETECTED in idle loop!\n");
+                        uart.puts("  L2 PTE became 0 at check ");
+                        uart.putHex(check_count);
+                        uart.puts("\n");
+                        // Halt to debug
+                        while (true) {
+                            csr.wfi();
+                        }
+                    }
+                }
+            }
+            
+            // Enable interrupts
+            csr.enableInterrupts();
+            
+            // Wait for interrupt
+            csr.wfi();
+        }
+        
+        uart.puts("[SLEEP] Process woken up\n");
     }
 
     // Wake all processes on wait queue
@@ -332,7 +461,47 @@ pub const Scheduler = struct {
             wq.head = proc.next;
             proc.next = null;
             // makeRunnable will set state to RUNNABLE
+            uart.puts("[WAKE] Waking process pid=");
+            uart.putHex(proc.pid);
+            uart.puts(", state=");
+            uart.putHex(@intFromEnum(proc.state));
+            uart.puts("\n");
+            
+            // CRITICAL DEBUG: Check if user page table is still valid
+            if (proc.context.satp != 0) {
+                const ppn = proc.context.satp & 0xFFFFFFFFFFF;
+                if (ppn == 0x802bf) {
+                    const root_addr = ppn << 12;
+                    const root_table = @as([*]const u64, @ptrFromInt(root_addr));
+                    const vpn2 = (0x8021b000 >> 30) & 0x1FF;
+                    const l2_pte = root_table[vpn2];
+                    
+                    uart.puts("[WAKE] Checking L2 PTE before makeRunnable: 0x");
+                    uart.putHex(l2_pte);
+                    if (l2_pte == 0) {
+                        uart.puts(" - ALREADY CORRUPTED!\n");
+                    } else {
+                        uart.puts(" - still valid\n");
+                    }
+                }
+            }
+            
             makeRunnable(proc);
+            
+            // Check again after makeRunnable
+            if (proc.context.satp != 0) {
+                const ppn = proc.context.satp & 0xFFFFFFFFFFF;
+                if (ppn == 0x802bf) {
+                    const root_addr = ppn << 12;
+                    const root_table = @as([*]const u64, @ptrFromInt(root_addr));
+                    const vpn2 = (0x8021b000 >> 30) & 0x1FF;
+                    const l2_pte = root_table[vpn2];
+                    
+                    if (l2_pte == 0) {
+                        uart.puts("[WAKE] L2 PTE corrupted AFTER makeRunnable!\n");
+                    }
+                }
+            }
         }
 
         if (count > 0) {
@@ -347,29 +516,31 @@ pub const Scheduler = struct {
     // Main scheduler loop - handles all scheduling and idle
     pub fn run() noreturn {
         uart.puts("[SCHED] Scheduler started\n");
+        
+        // Find and run the first process
+        if (dequeueRunnable()) |proc| {
+            proc.state = .RUNNING;
+            current_process = proc;
+            
+            uart.puts("[SCHED] Running first process, pid=");
+            uart.putHex(proc.pid);
+            uart.puts("\n");
+            uart.puts("  Process context SATP: 0x");
+            uart.putHex(proc.context.satp);
+            uart.puts("\n");
+            uart.puts("  Current SATP: 0x");
+            uart.putHex(csr.readSatp());
+            uart.puts("\n");
+            
+            // Jump to the process entry point
+            processEntryPointWithProc(proc);
+        }
+        
+        // No processes to run - just idle
+        uart.puts("[SCHED] No processes to run, entering idle loop\n");
         while (true) {
-            loop_count += 1;
-            // Print every 1000 iterations to avoid flooding
-            if (loop_count % 1000 == 0) {
-                uart.puts("[SCHED] Loop ");
-                uart.putHex(loop_count);
-                uart.puts("\n");
-            }
-
-            // Try to schedule a process
-            if (schedule()) |_| {
-                // Process is now running, continue scheduling
-            } else {
-                // No runnable processes, wait for interrupt
-                // DEBUG: Log WFI entry
-                uart.puts("[SCHED-MAIN] Entering WFI in main loop\n");
-
-                csr.enableInterrupts();
-                csr.wfi();
-
-                // DEBUG: Log WFI exit
-                uart.puts("[SCHED-MAIN] Exited WFI in main loop\n");
-            }
+            csr.enableInterrupts();
+            csr.wfi();
         }
     }
 
@@ -410,6 +581,9 @@ pub const Scheduler = struct {
         proc.is_kernel = true;
 
         // Initialize context for kernel thread
+        // Get current SATP (kernel page table)
+        const kernel_satp = csr.csrr(csr.CSR.satp);
+        
         proc.context = Context{
             .ra = 0, // Will be set by caller
             .sp = 0, // No stack needed initially
@@ -425,6 +599,7 @@ pub const Scheduler = struct {
             .s9 = 0,
             .s10 = 0,
             .s11 = 0,
+            .satp = kernel_satp, // Use kernel page table
         };
 
         return proc;
@@ -443,6 +618,12 @@ pub const Scheduler = struct {
         // Copy parent process context - but child should not go to processEntryPoint
         // Instead, child should resume from the syscall return point
         child.parent = parent;
+        
+        // CRITICAL: For now, child shares parent's page table
+        // This is a simplified fork - proper fork would copy the page table
+        // The child MUST call exec() to get its own page table with kernel mappings
+        uart.puts("[FORK] WARNING: Child sharing parent's page table\n");
+        uart.puts("  Child must call exec() to get proper page table\n");
 
         // Copy user mode trap frame if it exists
         if (parent.user_frame) |parent_frame| {
@@ -457,6 +638,15 @@ pub const Scheduler = struct {
             child.context.ra = @intFromPtr(&forkedChildReturn);
             child.context.s0 = @intFromPtr(child); // ★ Child's Process*
             child.context.sp = @intFromPtr(child.stack.ptr) + child.stack.len - 16; // ★ Child's kernel stack
+            
+            // DEBUG: Log inherited SATP
+            uart.puts("[FORK] Child pid=");
+            uart.putHex(child.pid);
+            uart.puts(" inheriting SATP 0x");
+            uart.putHex(child.context.satp);
+            uart.puts(" from parent pid=");
+            uart.putHex(parent.pid);
+            uart.puts("\n");
         } else {
             // No user frame - this shouldn't happen for forked processes
             return -1;
@@ -488,9 +678,16 @@ pub const Scheduler = struct {
 
 // Entry point for process with direct pointer passing
 fn processEntryPointWithProc(proc: *Process) noreturn {
+    uart.puts("[PROC] processEntryPointWithProc called for pid=");
+    uart.putHex(proc.pid);
+    uart.puts(", name='");
+    uart.puts(proc.getName());
+    uart.puts("'\n");
+    
     // Run process-specific code based on process name
     const name = proc.getName();
     if (std.mem.eql(u8, name, "init")) {
+        uart.puts("[PROC] Calling user.initActualUserMode()\n");
         user.initActualUserMode();
         unreachable; // Should not return
     } else if (std.mem.eql(u8, name, "child")) {
@@ -509,6 +706,11 @@ fn processEntryPointWithProc(proc: *Process) noreturn {
             Scheduler.exit(-1);
             unreachable;
         }
+    } else if (std.mem.eql(u8, name, "idle")) {
+        // Idle process - jump to idle loop
+        uart.puts("[PROC] Starting idle process\n");
+        const idleLoop = @import("../core.zig").idleLoop;
+        idleLoop();
     } else {
         // Generic process - just exit
         Scheduler.exit(0);
@@ -540,6 +742,16 @@ fn initProcessContext(proc: *Process) void {
 
     // Store process pointer in s0 so entry point can access it
     proc.context.s0 = @intFromPtr(proc);
+    
+    // Set SATP to kernel page table
+    const memory = @import("../memory/core.zig");
+    proc.context.satp = csr.SATP_SV39 | memory.kernel_page_table.root_ppn;
+    
+    uart.puts("[PROC] initProcessContext: Setting SATP to 0x");
+    uart.putHex(proc.context.satp);
+    uart.puts(" (root_ppn=0x");
+    uart.putHex(memory.kernel_page_table.root_ppn);
+    uart.puts(")\n");
 }
 
 // Entry point for newly created processes (called via context switch)
@@ -615,6 +827,29 @@ fn freeChildTrapFrame(frame: *trap.TrapFrame) void {
 
 // Return to user mode with given trap frame
 fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
+    // Debug: Check page table before returning to user mode
+    const satp_before = csr.readSatp();
+    const ppn_before = satp_before & 0xFFFFFFFFFFF;
+    uart.puts("[returnToUserMode] SATP before sret: 0x");
+    uart.putHex(satp_before);
+    uart.puts(" (ppn=0x");
+    uart.putHex(ppn_before);
+    uart.puts(")\n");
+    
+    if (ppn_before == 0x802bf) {
+        const root_addr = ppn_before << 12;
+        const root_table = @as([*]const u64, @ptrFromInt(root_addr));
+        const vpn2 = (0x8021b000 >> 30) & 0x1FF;
+        const l2_pte = root_table[vpn2];
+        
+        uart.puts("[returnToUserMode] L2 PTE before sret: 0x");
+        uart.putHex(l2_pte);
+        if (l2_pte == 0) {
+            uart.puts(" - ALREADY CORRUPTED!\n");
+        } else {
+            uart.puts(" - OK\n");
+        }
+    }
 
     // Set up RISC-V CSRs for return to user mode
     // SSTATUS: Use RMW to only modify SPP=0, SPIE=1, preserve other flags

@@ -10,6 +10,7 @@ pub const virtual = @import("virtual.zig");
 // Re-export commonly used types
 pub const PAGE_SIZE = types.PAGE_SIZE;
 pub const PageTable = virtual.PageTable;
+pub const kernel_page_table = &virtual.kernel_page_table;
 
 // Initialize physical memory allocator
 pub fn init() void {

@@ -10,6 +10,7 @@ const defs = @import("abi");
 const sysno = @import("sysno");
 const copy = @import("../user/copy.zig");
 const dispatch = @import("../syscalls/dispatch.zig");
+const memory = @import("../memory/core.zig");
 
 // Import trap vector from assembly
 extern const trap_vector: u8;
@@ -70,6 +71,10 @@ const ExceptionCause = enum(u64) {
     StorePageFault = 15,
 };
 
+// Track TLB retry attempts to prevent infinite loops
+var tlb_retry_count: u32 = 0;
+var last_fault_addr: u64 = 0;
+
 // Initialize trap handling
 pub fn init() void {
 
@@ -124,16 +129,122 @@ fn procExec(filename: []const u8, args: []const u8) isize {
     return proc.Scheduler.exec(filename, args);
 }
 
+// Helper to check PTE corruption at any point
+fn checkPTECorruption(label: []const u8) void {
+    const current_satp = csr.readSatp();
+    const current_ppn = current_satp & 0xFFFFFFFFFFF;
+    if (current_ppn == 0x802bf or current_ppn == 0x802cf) {
+        const root_addr = current_ppn << 12;
+        const root_table = @as([*]const volatile u64, @ptrFromInt(root_addr));
+        const vpn2 = (0x8021b000 >> 30) & 0x1FF;  // VPN2 index for kernel code
+        
+        // Force memory barrier
+        asm volatile("fence rw, rw" ::: "memory");
+        
+        const l2_pte = root_table[vpn2];
+        if (l2_pte == 0) {
+            uart.puts("[PTE CORRUPTION] Detected at: ");
+            uart.puts(label);
+            uart.puts("\n");
+            uart.puts("  Page table 0x");
+            uart.putHex(current_ppn);
+            uart.puts(": L2 PTE[0x");
+            uart.putHex(vpn2);
+            uart.puts("] is ZERO!\n");
+            
+            // Halt to prevent further damage
+            while (true) {
+                csr.wfi();
+            }
+        }
+    }
+}
+
 // Main trap handler called from assembly
 pub export fn trapHandler(frame: *TrapFrame) void {
+    // First, save the original values before they might change
+    const scause_val = frame.scause;
+    const stval_val = frame.stval;
+    const sepc_val = frame.sepc;
+    
+    
     // Debug: Log EVERY trap entry at the very beginning
-    uart.puts("[TRAP] Entry - scause: ");
-    uart.putHex(frame.scause);
-    uart.puts(" stval: ");
-    uart.putHex(frame.stval);
-    uart.puts(" sepc: ");
-    uart.putHex(frame.sepc);
+    uart.puts("[TRAP] Entry - scause: 0x");
+    uart.putHex(scause_val);
+    uart.puts(" stval: 0x");
+    uart.putHex(stval_val);
+    uart.puts(" sepc: 0x");
+    uart.putHex(sepc_val);
     uart.puts("\n");
+    
+    // Additional debug: Show current process info
+    if (proc.Scheduler.getCurrentProcess()) |current| {
+        uart.puts("  Current process: pid=");
+        uart.putHex(current.pid);
+        uart.puts(", state=");
+        switch (current.state) {
+            .UNUSED => uart.puts("UNUSED"),
+            .EMBRYO => uart.puts("EMBRYO"),
+            .RUNNABLE => uart.puts("RUNNABLE"),
+            .RUNNING => uart.puts("RUNNING"),
+            .SLEEPING => uart.puts("SLEEPING"),
+            .ZOMBIE => uart.puts("ZOMBIE"),
+        }
+        uart.puts("\n");
+    }
+    
+    // CRITICAL DEBUG: Check if user page table L2 PTE is still valid
+    const current_satp = csr.readSatp();
+    const current_ppn = current_satp & 0xFFFFFFFFFFF;
+    if (current_ppn == 0x802bf) {
+        const root_addr = current_ppn << 12;
+        const root_table = @as([*]const volatile u64, @ptrFromInt(root_addr));
+        const vpn2 = (0x8021b000 >> 30) & 0x1FF;
+        const l2_pte = root_table[vpn2];
+        
+        // Force memory barrier
+        asm volatile("fence rw, rw" ::: "memory");
+        
+        if (l2_pte == 0) {
+            uart.puts("[TRAP] CRITICAL: L2 PTE is already ZERO on trap entry!\n");
+            uart.puts("  This trap: scause=0x");
+            uart.putHex(scause_val);
+            uart.puts(", sepc=0x");
+            uart.putHex(sepc_val);
+            uart.puts("\n");
+            uart.puts("  First corruption detected at this trap!\n");
+            
+            // Check surrounding PTEs to see if it's just one entry or broader corruption
+            uart.puts("  Checking neighboring L2 PTEs:\n");
+            if (vpn2 > 0) {
+                uart.puts("    PTE[");
+                uart.putHex(vpn2 - 1);
+                uart.puts("] = 0x");
+                uart.putHex(root_table[vpn2 - 1]);
+                uart.puts("\n");
+            }
+            uart.puts("    PTE[");
+            uart.putHex(vpn2);
+            uart.puts("] = 0x");
+            uart.putHex(root_table[vpn2]);
+            uart.puts(" <- CORRUPTED\n");
+            if (vpn2 < 511) {
+                uart.puts("    PTE[");
+                uart.putHex(vpn2 + 1);
+                uart.puts("] = 0x");
+                uart.putHex(root_table[vpn2 + 1]);
+                uart.puts("\n");
+            }
+        } else {
+            // PTE is still valid
+            if ((scause_val & (1 << 63)) != 0) {
+                // This is an interrupt
+                uart.puts("[TRAP] L2 PTE still valid (0x");
+                uart.putHex(l2_pte);
+                uart.puts(") during interrupt\n");
+            }
+        }
+    }
 
     const cause = frame.scause;
     const is_interrupt = (cause & (1 << 63)) != 0;
@@ -157,10 +268,80 @@ pub export fn trapHandler(frame: *TrapFrame) void {
 
     if (is_interrupt) {
         // Handle interrupts
+        checkPTECorruption("Before interruptHandler");
+        
+        // Extra check for UART interrupts
+        if (exception_code == 9) { // External interrupt
+            checkPTECorruption("Before external interrupt (UART)");
+        }
+        
         interruptHandler(frame, exception_code);
+        
+        if (exception_code == 9) {
+            checkPTECorruption("After external interrupt (UART)");
+        }
+        
+        checkPTECorruption("After interruptHandler");
     } else {
         // Handle exceptions
+        checkPTECorruption("Before exceptionHandler");
         exceptionHandler(frame, exception_code);
+        checkPTECorruption("After exceptionHandler");
+    }
+    
+    // Final check before returning to user/kernel mode
+    checkPTECorruption("End of trapHandler");
+    
+    // CRITICAL: Verify current SATP has kernel mappings before returning
+    const final_satp = csr.readSatp();
+    const final_ppn = final_satp & 0xFFFFFFFFFFF;
+    
+    // Check if this is a user page table that might lack kernel mappings
+    if (final_ppn != memory.kernel_page_table.root_ppn and final_ppn != 0) {
+        // This is a user page table - verify it has kernel code mapped
+        const root_addr = final_ppn << 12;
+        const root_table = @as([*]const volatile u64, @ptrFromInt(root_addr));
+        const vpn2_for_kernel = (0x80200000 >> 30) & 0x1FF; // Check kernel code start
+        const l2_pte = root_table[vpn2_for_kernel];
+        
+        if (l2_pte == 0) {
+            uart.puts("[TRAP] FATAL: About to return with page table lacking kernel mappings!\n");
+            uart.puts("  SATP: 0x");
+            uart.putHex(final_satp);
+            uart.puts(", PPN: 0x");
+            uart.putHex(final_ppn);
+            uart.puts("\n  This will cause immediate page fault!\n");
+            
+            // Switch to kernel page table as emergency measure
+            uart.puts("  EMERGENCY: Switching to kernel page table\n");
+            const kernel_satp = csr.SATP_SV39 | memory.kernel_page_table.root_ppn;
+            csr.writeSatp(kernel_satp);
+            csr.sfence_vma();
+            
+            // Update process context too
+            if (proc.Scheduler.getCurrentProcess()) |current| {
+                current.context.satp = kernel_satp;
+            }
+        }
+    }
+    
+    // CRITICAL FIX: Check if we're about to return to kernel code with user privilege
+    // This happens when a syscall sleeps and then wakes up
+    const final_sstatus = csr.readSstatus();
+    const final_spp = (final_sstatus >> 8) & 1;
+    if (final_spp == 0 and frame.sepc >= 0x80000000) {
+        // About to return to kernel code with user privilege - fix it!
+        uart.puts("[TRAP] CRITICAL: Fixing SPP before return to kernel code\n");
+        uart.puts("  sepc=0x");
+        uart.putHex(frame.sepc);
+        uart.puts(" SPP=");
+        uart.putHex(final_spp);
+        uart.puts("\n");
+        
+        // Set SPP=1 to return to supervisor mode
+        const fixed_sstatus = final_sstatus | (1 << 8);
+        csr.writeSstatus(fixed_sstatus);
+        uart.puts("  Fixed SPP=1 for supervisor return\n");
     }
 }
 
@@ -323,9 +504,301 @@ fn handlePageFault(frame: *TrapFrame, code: u64) void {
     uart.puts("  Root page table physical addr: 0x");
     uart.putHex(ppn << 12);
     uart.puts("\n");
+    
+    // Check if the faulting address is actually mapped
+    uart.puts("\n[PAGE_FAULT] Checking kernel page table mapping...\n");
+    
+    // Compare current SATP with kernel page table
+    uart.puts("  kernel_page_table.root_ppn: 0x");
+    uart.putHex(memory.kernel_page_table.root_ppn);
+    uart.puts("\n");
+    uart.puts("  Current SATP root_ppn: 0x");
+    uart.putHex(ppn);
+    if (memory.kernel_page_table.root_ppn == ppn) {
+        uart.puts(" (MATCH)\n");
+    } else {
+        uart.puts(" (MISMATCH!)\n");
+    }
+    
+    if (memory.kernel_page_table.translate(fault_addr)) |phys_addr| {
+        uart.puts("  Virtual 0x");
+        uart.putHex(fault_addr);
+        uart.puts(" -> Physical 0x");
+        uart.putHex(phys_addr);
+        uart.puts(" (MAPPED in kernel_page_table)\n");
+        
+        // Try to check the actual PTE flags - do complete walk
+        const va_vpn = fault_addr >> 12;
+        
+        // DEBUG: Show the calculation step by step
+        uart.puts("  VPN calculation for 0x");
+        uart.putHex(fault_addr);
+        uart.puts(":\n");
+        uart.puts("    fault_addr >> 12 = 0x");
+        uart.putHex(va_vpn);
+        uart.puts("\n");
+        uart.puts("    va_vpn >> 18 = 0x");
+        uart.putHex(va_vpn >> 18);
+        uart.puts("\n");
+        uart.puts("    (va_vpn >> 18) & 0x1FF = 0x");
+        uart.putHex((va_vpn >> 18) & 0x1FF);
+        uart.puts("\n");
+        
+        // Calculate VPNs directly to avoid array indexing issues
+        const vpn2 = (fault_addr >> 30) & 0x1FF;
+        const vpn1 = (fault_addr >> 21) & 0x1FF;
+        const vpn0 = (fault_addr >> 12) & 0x1FF;
+        
+        uart.puts("  Direct VPN calculation:\n");
+        uart.puts("    fault_addr=0x");
+        uart.putHex(fault_addr);
+        uart.puts("\n");
+        uart.puts("    VPN[2]=(addr>>30)&0x1FF=0x");
+        uart.putHex(vpn2);
+        uart.puts("\n");
+        uart.puts("    VPN[1]=(addr>>21)&0x1FF=0x");
+        uart.putHex(vpn1);
+        uart.puts("\n");
+        uart.puts("    VPN[0]=(addr>>12)&0x1FF=0x");
+        uart.putHex(vpn0);
+        uart.puts("\n");
+        
+        uart.puts("  Page table walk for VA 0x");
+        uart.putHex(fault_addr);
+        uart.puts(":\n");
+        uart.puts("    Using VPN[2]=");
+        uart.putHex(vpn2);
+        uart.puts(", VPN[1]=");
+        uart.putHex(vpn1);
+        uart.puts(", VPN[0]=");
+        uart.putHex(vpn0);
+        uart.puts("\n");
+        
+        // Walk the page table to check permissions
+        var table_addr = ppn << 12;
+        
+        // Level 2 (root)
+        var pte_addr = table_addr + @as(usize, vpn2) * 8;
+        var pte_ptr = @as(*const volatile u64, @ptrFromInt(pte_addr));
+        var pte = pte_ptr.*;
+        
+        uart.puts("  L2 PTE at 0x");
+        uart.putHex(pte_addr);
+        uart.puts(" = 0x");
+        uart.putHex(pte);
+        if ((pte & 1) != 0) {
+            uart.puts(" (V)\n");
+            // Level 1
+            table_addr = ((pte >> 10) & 0xFFFFFFFFFFF) << 12;
+            pte_addr = table_addr + @as(usize, vpn1) * 8;
+            pte_ptr = @as(*const volatile u64, @ptrFromInt(pte_addr));
+            pte = pte_ptr.*;
+            
+            uart.puts("  L1 PTE at 0x");
+            uart.putHex(pte_addr);
+            uart.puts(" = 0x");
+            uart.putHex(pte);
+            if ((pte & 1) != 0) {
+                uart.puts(" (V");
+                if ((pte & 2) != 0) uart.puts("R");
+                if ((pte & 4) != 0) uart.puts("W");
+                if ((pte & 8) != 0) uart.puts("X");
+                uart.puts(")\n");
+                
+                // Check if leaf or need L0
+                if ((pte & 0xE) == 0) {
+                    // Non-leaf, go to L0
+                    table_addr = ((pte >> 10) & 0xFFFFFFFFFFF) << 12;
+                    pte_addr = table_addr + @as(usize, vpn0) * 8;
+                    pte_ptr = @as(*const volatile u64, @ptrFromInt(pte_addr));
+                    pte = pte_ptr.*;
+                    
+                    uart.puts("  L0 PTE at 0x");
+                    uart.putHex(pte_addr);
+                    uart.puts(" = 0x");
+                    uart.putHex(pte);
+                    if ((pte & 1) != 0) {
+                        uart.puts(" (V");
+                        if ((pte & 2) != 0) uart.puts("R");
+                        if ((pte & 4) != 0) uart.puts("W");
+                        if ((pte & 8) != 0) uart.puts("X");
+                        if ((pte & 0x10) != 0) uart.puts("U");
+                        uart.puts(")\n");
+                        
+                        // Check if permissions are correct for kernel code
+                        if (is_kernel_addr and (pte & 0x8) != 0) {
+                            uart.puts("  Kernel code IS mapped and executable!\n");
+                        }
+                    } else {
+                        uart.puts(" (INVALID!)\n");
+                    }
+                }
+            } else {
+                uart.puts(" (INVALID!)\n");
+            }
+        } else {
+            uart.puts(" (INVALID!)\n");
+        }
+    } else {
+        uart.puts("  Virtual 0x");
+        uart.putHex(fault_addr);
+        uart.puts(" -> NOT MAPPED!\n");
+    }
 
     uart.puts("==================================================\n\n");
+    
+    // Calculate VPNs for later use
+    const fault_vpn2 = (fault_addr >> 30) & 0x1FF;
+    const fault_vpn1 = (fault_addr >> 21) & 0x1FF;
+    const fault_vpn0 = (fault_addr >> 12) & 0x1FF;
+    
+    // Check if this is a kernel code fault with user page table
+    const is_kernel_fault = fault_addr >= 0x80000000;
+    const is_instruction_fault = (code == @intFromEnum(ExceptionCause.InstructionPageFault));
+    const wrong_page_table = (ppn != memory.kernel_page_table.root_ppn);
+    
+    // CRITICAL: Check if we found valid mappings in the page walk
+    var found_valid_mapping = false;
+    if (ppn != 0) {
+        // We did a page walk - check if we found a valid executable PTE
+        const root_addr = ppn << 12;
+        const root_table = @as([*]const volatile u64, @ptrFromInt(root_addr));
+        const l2_pte = root_table[fault_vpn2];
+        if ((l2_pte & 1) != 0) {
+            // L2 is valid, check deeper
+            const l1_addr = ((l2_pte >> 10) & 0xFFFFFFFFFFF) << 12;
+            const l1_table = @as([*]const volatile u64, @ptrFromInt(l1_addr));
+            const l1_pte = l1_table[fault_vpn1];
+            if ((l1_pte & 1) != 0) {
+                // L1 is valid, check L0
+                const l0_addr = ((l1_pte >> 10) & 0xFFFFFFFFFFF) << 12;
+                const l0_table = @as([*]const volatile u64, @ptrFromInt(l0_addr));
+                const l0_pte = l0_table[fault_vpn0];
+                if ((l0_pte & 0xF) == 0xF) { // Valid + RWX
+                    found_valid_mapping = true;
+                }
+            }
+        }
+    }
+    
+    if (is_kernel_fault and is_instruction_fault and wrong_page_table and !found_valid_mapping) {
+        uart.puts("[PAGE_FAULT] FATAL: Kernel code fault with user page table\n");
+        uart.puts("[PAGE_FAULT] This indicates buildKernelGlobalMappings() failed!\n");
+        uart.puts("[PAGE_FAULT] User page table PPN: 0x");
+        uart.putHex(ppn);
+        uart.puts("\n[PAGE_FAULT] Kernel page table PPN: 0x");
+        uart.putHex(memory.kernel_page_table.root_ppn);
+        uart.puts("\n[PAGE_FAULT] This is a critical error - user PT missing kernel mappings\n");
+    } else if (found_valid_mapping) {
+        uart.puts("[PAGE_FAULT] ERROR: Page table has valid mapping but still faulted!\n");
+        uart.puts("  This suggests:\n");
+        uart.puts("  - Permission issue (User bit set on kernel page?)\n");
+        uart.puts("  - TLB not flushed properly\n");
+        uart.puts("  - Hardware/emulator bug\n");
+        
+        // Check the actual PTE flags
+        const root_addr = ppn << 12;
+        const root_table = @as([*]const volatile u64, @ptrFromInt(root_addr));
+        const l2_pte = root_table[fault_vpn2];
+        const l1_addr = ((l2_pte >> 10) & 0xFFFFFFFFFFF) << 12;
+        const l1_table = @as([*]const volatile u64, @ptrFromInt(l1_addr));
+        const l1_pte = l1_table[fault_vpn1];
+        const l0_addr = ((l1_pte >> 10) & 0xFFFFFFFFFFF) << 12;
+        const l0_table = @as([*]const volatile u64, @ptrFromInt(l0_addr));
+        const l0_pte = l0_table[fault_vpn0];
+        
+        uart.puts("\n  L0 PTE flags analysis:\n");
+        uart.puts("    V=");
+        uart.putHex((l0_pte >> 0) & 1);
+        uart.puts(" R=");
+        uart.putHex((l0_pte >> 1) & 1);
+        uart.puts(" W=");
+        uart.putHex((l0_pte >> 2) & 1);
+        uart.puts(" X=");
+        uart.putHex((l0_pte >> 3) & 1);
+        uart.puts(" U=");
+        uart.putHex((l0_pte >> 4) & 1);
+        uart.puts(" G=");
+        uart.putHex((l0_pte >> 5) & 1);
+        uart.puts(" A=");
+        uart.putHex((l0_pte >> 6) & 1);
+        uart.puts(" D=");
+        uart.putHex((l0_pte >> 7) & 1);
+        uart.puts("\n");
+        
+        if ((l0_pte & 0x10) != 0) {
+            uart.puts("  WARNING: User bit is set on kernel page!\n");
+        }
+    }
 
+    // Check current privilege mode
+    const sstatus = csr.readSstatus();
+    const spp_bit = (sstatus >> 8) & 1;  // SPP bit indicates previous privilege
+    uart.puts("[PAGE_FAULT] Current sstatus: 0x");
+    uart.putHex(sstatus);
+    uart.puts("\n[PAGE_FAULT] SPP bit (previous privilege): ");
+    uart.putHex(spp_bit);
+    if (spp_bit == 0) {
+        uart.puts(" (User mode)\n");
+    } else {
+        uart.puts(" (Supervisor mode)\n");
+    }
+    
+    // Check if we're trying to execute supervisor code from user mode
+    if (found_valid_mapping and is_kernel_addr and is_instruction_fault and spp_bit == 0) {
+        uart.puts("[PAGE_FAULT] CRITICAL: Trying to execute supervisor code from user mode!\n");
+        uart.puts("[PAGE_FAULT] This is a privilege violation, not a mapping issue.\n");
+        uart.puts("[PAGE_FAULT] The read syscall needs to complete in supervisor mode.\n");
+        
+        // This is a fundamental issue - we can't fix it with TLB flushes
+        // The context switch restored the wrong privilege level
+        uart.puts("[PAGE_FAULT] Context switch bug: Lost supervisor mode during sleep/wake\n");
+        // Don't retry - this won't help
+    } else if (found_valid_mapping) {
+        // Check if this is the same fault address
+        if (fault_addr == last_fault_addr) {
+            tlb_retry_count += 1;
+        } else {
+            // New fault address, reset counter
+            tlb_retry_count = 1;
+            last_fault_addr = fault_addr;
+        }
+        
+        // Limit retries to prevent infinite loops
+        if (tlb_retry_count > 3) {
+            uart.puts("[PAGE_FAULT] ERROR: TLB retry limit exceeded (");
+            uart.putHex(tlb_retry_count);
+            uart.puts(" attempts)\n");
+            uart.puts("[PAGE_FAULT] Valid mapping exists but CPU keeps faulting.\n");
+            uart.puts("[PAGE_FAULT] This indicates a hardware bug or emulator issue.\n");
+            // Fall through to halt
+        } else {
+            uart.puts("[PAGE_FAULT] CRITICAL: Found valid mapping but still faulted!\n");
+            uart.puts("[PAGE_FAULT] This is likely a TLB consistency issue.\n");
+            uart.puts("[PAGE_FAULT] Retry attempt ");
+            uart.putHex(tlb_retry_count);
+            uart.puts(" of 3\n");
+            uart.puts("[PAGE_FAULT] Attempting comprehensive TLB flush...\n");
+            
+            // Flush entire TLB
+            csr.sfence_vma();
+            
+            // Also try flushing just this specific address
+            asm volatile ("sfence.vma %[addr], zero" :: [addr] "r" (fault_addr) : "memory");
+            
+            // Add memory barrier
+            asm volatile ("fence.i" ::: "memory");
+            asm volatile ("fence rw, rw" ::: "memory");
+            
+            uart.puts("[PAGE_FAULT] TLB flushed. Returning to retry instruction at 0x");
+            uart.putHex(frame.sepc);
+            uart.puts("\n");
+            
+            // Return without incrementing sepc to retry the same instruction
+            return;
+        }
+    }
+    
     // Halt the system after printing debug info
     uart.puts("[PAGE_FAULT] Halting system due to unhandled page fault\n");
     while (true) {
@@ -369,6 +842,18 @@ fn syscallHandler(frame: *TrapFrame) void {
 
     // Associate trap frame with current process
     current.user_frame = frame;
+    
+    // CRITICAL: Update process's kernel context SATP to match current SATP
+    // This ensures context switches preserve the correct page table
+    const current_satp = csr.readSatp();
+    if (current.context.satp != current_satp) {
+        uart.puts("[SYSCALL] Updating process context SATP from 0x");
+        uart.putHex(current.context.satp);
+        uart.puts(" to 0x");
+        uart.putHex(current_satp);
+        uart.puts("\n");
+        current.context.satp = current_satp;
+    }
 
     // Only show syscall debug for non-repetitive calls (not read/write in shell loop)
     const is_shell_io = (syscall_num == 1) or (syscall_num == 0x3f) or (syscall_num == 0x40); // write or read

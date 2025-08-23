@@ -7,6 +7,7 @@ const csr = @import("../arch/riscv/csr.zig");
 const virtual = @import("../memory/virtual.zig");
 const types = @import("../memory/types.zig");
 const elf = @import("elf.zig");
+const uart = @import("../driver/uart/core.zig");
 
 // Import safe user mode switch function (includes SATP switching)
 extern fn switch_to_user_mode(entry_point: u64, user_stack: u64, kernel_stack: u64, satp_val: u64) void;
@@ -24,6 +25,11 @@ pub fn init() void {
 // Execute user ELF program with proper memory management - noreturn on success
 pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
     _ = args;
+    
+    uart.puts("[executeUserProgram] Starting user program execution\n");
+    uart.puts("  Code size: 0x");
+    uart.putHex(code.len);
+    uart.puts(" bytes\n");
 
     // Parse ELF header
     const header = elf.parseElfHeader(code) catch return error.InvalidELF;
@@ -32,7 +38,15 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
     var new_user_context = memory.UserMemoryContext.init();
 
     // Setup new address space
-    new_user_context.setupAddressSpace() catch return error.MemorySetupFailed;
+    new_user_context.setupAddressSpace() catch |err| {
+        uart.puts("[executeUserProgram] ERROR: setupAddressSpace failed: ");
+        switch (err) {
+            error.OutOfMemory => uart.puts("OutOfMemory"),
+            else => uart.puts("Unknown error"),
+        }
+        uart.puts("\n");
+        return error.MemorySetupFailed;
+    };
 
     // User address space created successfully
 
@@ -115,9 +129,43 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
     new_user_context.mapRegion(&new_user_context.stack_region) catch return error.StackMappingFailed;
 
     // User page table is now complete with kernel global mappings, ELF segments, and stack
+    
+    // Verify critical kernel mappings in user page table
+    uart.puts("[executeUserProgram] Verifying kernel mappings in user PT...\n");
+    
+    // Check a kernel code address (current PC area)
+    const test_kernel_addr: u64 = 0x8021b000; // Near the fault address
+    if (new_user_context.verifyMapping(test_kernel_addr)) {
+        uart.puts("  Kernel code (0x8021b000): MAPPED\n");
+    } else {
+        uart.puts("  ERROR: Kernel code (0x8021b000): NOT MAPPED!\n");
+        return error.KernelMappingFailed;
+    }
+    
+    // Check kernel stack
+    const kernel_stack_test = memory.KERNEL_STACK_BASE + 0x1000;
+    if (new_user_context.verifyMapping(kernel_stack_test)) {
+        uart.puts("  Kernel stack: MAPPED\n");
+    } else {
+        uart.puts("  ERROR: Kernel stack: NOT MAPPED!\n");
+        return error.KernelStackMappingFailed;
+    }
 
     const asid: u16 = 0; // Use ASID 0 for simplicity first
     const satp_value = composeSatp(user_ppn, asid);
+    
+    uart.puts("[executeUserProgram] Page table info:\n");
+    uart.puts("  User page table PPN: 0x");
+    uart.putHex(user_ppn);
+    uart.puts("\n  User PT pointer: 0x");
+    uart.putHex(@intFromPtr(new_user_context.page_table));
+    uart.puts("\n  User PT root_ppn in struct: 0x");
+    if (new_user_context.page_table) |pt| {
+        uart.putHex(pt.root_ppn);
+    } else {
+        uart.puts("NULL");
+    }
+    uart.puts("\n");
 
     // Set up user stack address
     const user_stack = memory.USER_STACK_BASE + memory.USER_STACK_SIZE - 16;
@@ -140,7 +188,87 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
 
     // Ensure TLB is flushed after switching to user address space
     csr.sfence_vma();
+    
+    uart.puts("[executeUserProgram] About to switch to user mode\n");
+    uart.puts("  Entry point: 0x");
+    uart.putHex(header.e_entry);
+    uart.puts("\n  User stack: 0x");
+    uart.putHex(user_stack);
+    uart.puts("\n  Kernel stack: 0x");
+    uart.putHex(kernel_sp);
+    uart.puts("\n  SATP value: 0x");
+    uart.putHex(satp_value);
+    uart.puts("\n");
+    
+    // Final check: is kernel code still mapped?
+    const final_test_addr: u64 = 0x8021b000;
+    if (new_user_context.verifyMapping(final_test_addr)) {
+        uart.puts("  Final check: Kernel code at 0x8021b000 is MAPPED\n");
+        
+        // Extra paranoid check - manually walk the page table
+        if (new_user_context.page_table) |pt| {
+            const root_addr = pt.root_ppn << 12;
+            const root_table = @as([*]const u64, @ptrFromInt(root_addr));
+            const vpn2 = (0x8021b000 >> 30) & 0x1FF;
+            const l2_pte = root_table[vpn2];
+            
+            uart.puts("  Manual check - L2 PTE[");
+            uart.putHex(vpn2);
+            uart.puts("] at root 0x");
+            uart.putHex(root_addr);
+            uart.puts(" = 0x");
+            uart.putHex(l2_pte);
+            uart.puts("\n");
+            
+            if (l2_pte == 0) {
+                uart.puts("  CRITICAL ERROR: L2 PTE is zero! Page table corrupted!\n");
+            }
+        }
+    } else {
+        uart.puts("  ERROR: Kernel code at 0x8021b000 is NOT MAPPED!\n");
+    }
 
+    // Save critical PTE value for debugging
+    const saved_l2_pte: u64 = if (new_user_context.page_table) |pt| blk: {
+        const root_addr = pt.root_ppn << 12;
+        const root_table = @as([*]const u64, @ptrFromInt(root_addr));
+        const vpn2 = (0x8021b000 >> 30) & 0x1FF;
+        break :blk root_table[vpn2];
+    } else 0;
+    
+    uart.puts("  Saved L2 PTE before switch: 0x");
+    uart.putHex(saved_l2_pte);
+    uart.puts("\n");
+    
+    // CRITICAL FIX: Update current process's kernel context SATP
+    // This ensures when we return from interrupts/syscalls, we use the new page table
+    const proc = @import("../process/core.zig");
+    if (proc.Scheduler.getCurrentProcess()) |current| {
+        const old_satp = current.context.satp;
+        uart.puts("  Updating process kernel context SATP from 0x");
+        uart.putHex(old_satp);
+        uart.puts(" to 0x");
+        uart.putHex(satp_value);
+        uart.puts("\n");
+        
+        // Extract old PPN to check if it's the problematic one
+        const old_ppn = old_satp & 0xFFFFFFFFFFF;
+        if (old_ppn == 0x802cf) {
+            uart.puts("  WARNING: Process was using page table 0x802cf without kernel mappings!\n");
+        }
+        
+        current.context.satp = satp_value;
+        
+        // Also update the current CPU's SATP immediately if we're running on this process
+        const current_cpu_satp = csr.readSatp();
+        if (current_cpu_satp == old_satp) {
+            uart.puts("  Also updating current CPU SATP\n");
+            csr.writeSatp(satp_value);
+            csr.sfence_vma();
+        }
+    }
+    
+    uart.puts("  Switching to user mode NOW...\n");
     switch_to_user_mode(header.e_entry, user_stack, kernel_sp, satp_value);
 
     // Should never reach here normally (user program exits via system call)
@@ -154,6 +282,8 @@ fn composeSatp(ppn: u64, asid: u16) u64 {
 }
 
 pub fn initActualUserMode() void {
+    uart.puts("[initActualUserMode] Starting init process setup\n");
+    
     // Executing /sbin/init
 
     // Get the init program code
@@ -168,7 +298,16 @@ pub fn initActualUserMode() void {
 
     if (code_size > 0 and code_size < 2097152) { // Allow up to 2MB for init
         const code = @as([*]const u8, @ptrFromInt(start_addr))[0..code_size];
+        
+        uart.puts("[initActualUserMode] About to call executeUserProgram\n");
+        uart.puts("  Code at: 0x");
+        uart.putHex(start_addr);
+        uart.puts(", size: 0x");
+        uart.putHex(code_size);
+        uart.puts("\n");
+        
         executeUserProgram(code, "") catch {
+            uart.puts("[initActualUserMode] executeUserProgram failed\n");
             // Failed to execute /sbin/init - this should not happen
             while (true) {
                 csr.wfi();

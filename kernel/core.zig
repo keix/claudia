@@ -24,6 +24,36 @@ fn allocStack(size: usize) []u8 {
 
 pub fn init() noreturn {
     uart.init();
+    
+    // Print kernel memory layout info
+    const _start = @extern(*const u8, .{ .name = "_start" });
+    const _end = @extern(*const u8, .{ .name = "_end" });
+    const _bss_start = @extern(*const u8, .{ .name = "_bss_start" });
+    const _bss_end = @extern(*const u8, .{ .name = "_bss_end" });
+    
+    uart.puts("[KERNEL] Memory layout:\n");
+    uart.puts("  _start:     0x");
+    uart.putHex(@intFromPtr(_start));
+    uart.puts("\n");
+    uart.puts("  _bss_start: 0x");
+    uart.putHex(@intFromPtr(_bss_start));
+    uart.puts("\n");
+    uart.puts("  _bss_end:   0x");
+    uart.putHex(@intFromPtr(_bss_end));
+    uart.puts("\n");
+    uart.puts("  _end:       0x");
+    uart.putHex(@intFromPtr(_end));
+    uart.puts("\n");
+    
+    const kernel_size = @intFromPtr(_end) - @intFromPtr(_start);
+    uart.puts("  Kernel size: 0x");
+    uart.putHex(kernel_size);
+    uart.puts(" bytes\n");
+    
+    // Check initial SATP from OpenSBI
+    uart.puts("[KERNEL] Initial SATP from OpenSBI: 0x");
+    uart.putHex(csr.readSatp());
+    uart.puts("\n");
 
     // Initialize memory subsystem
     memory.init();
@@ -73,9 +103,6 @@ pub fn init() noreturn {
     // Initialize process scheduler
     proc.Scheduler.init();
 
-    // Create idle process first
-    createIdleProcess();
-
     // Create and start initial user process (init)
     createInitProcess();
 
@@ -85,24 +112,29 @@ pub fn init() noreturn {
 }
 
 fn createIdleProcess() void {
-    // Create a kernel idle process that runs when no other process is runnable
-    if (proc.Scheduler.createKernelProcess()) |idle_proc| {
-        // Allocate stack for idle process
-        const idle_stack = allocStack(4096);
-        if (idle_stack.len == 0) {
-            uart.puts("[KERNEL] Failed to allocate idle stack!\n");
-            while (true) {
-                csr.wfi();
-            }
+    // Allocate kernel stack for idle process  
+    const idle_stack = allocStack(4096);
+    if (idle_stack.len == 0) {
+        uart.puts("[KERNEL] Failed to allocate idle stack!\n");
+        while (true) {
+            csr.wfi();
         }
+    }
 
+    // Create the idle process using the regular process allocation
+    if (proc.Scheduler.allocProcess("idle", idle_stack)) |idle_proc| {
+        // Mark as kernel process so it won't try to go to user mode
+        idle_proc.is_kernel = true;
+        
+        // Set the entry point to idleLoop
         idle_proc.context.ra = @intFromPtr(&idleLoop);
-        idle_proc.context.sp = @intFromPtr(idle_stack.ptr) + idle_stack.len;
-
-        // Make it runnable with lowest priority
+        
+        // Make it runnable
         proc.Scheduler.makeRunnable(idle_proc);
-
-        uart.puts("[KERNEL] Created idle process\n");
+        
+        uart.puts("[KERNEL] Created idle process, pid=");
+        uart.putHex(idle_proc.pid);
+        uart.puts("\n");
     } else {
         uart.puts("[KERNEL] Failed to create idle process!\n");
         while (true) {
@@ -111,13 +143,20 @@ fn createIdleProcess() void {
     }
 }
 
-fn idleLoop() noreturn {
+pub fn idleLoop() noreturn {
     uart.puts("[IDLE] Idle process started\n");
+    
+    var counter: u32 = 0;
+    // Simple idle loop - just yield frequently
     while (true) {
-        // Just wait for interrupts
-        csr.enableInterrupts();
-        csr.wfi();
-        // After waking up, yield to let scheduler check for runnable processes
+        counter += 1;
+        if (counter % 10000000 == 0) {
+            uart.puts("[IDLE] Still running, counter=");
+            uart.putHex(counter);
+            uart.puts("\n");
+        }
+        
+        // Yield frequently to check for runnable processes
         proc.Scheduler.yield();
     }
 }
