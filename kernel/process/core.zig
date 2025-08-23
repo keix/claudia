@@ -66,6 +66,7 @@ pub const Process = struct {
     name: [16]u8, // Process name (null-terminated)
     parent: ?*Process, // Parent process
     exit_code: i32, // Exit code when zombie
+    is_kernel: bool, // Kernel-only process flag
 
     // Simple linked list for process queue
     next: ?*Process,
@@ -80,6 +81,7 @@ pub const Process = struct {
             .name = std.mem.zeroes([16]u8),
             .parent = null,
             .exit_code = 0,
+            .is_kernel = false,
             .next = null,
         };
 
@@ -205,12 +207,45 @@ pub const Scheduler = struct {
         return null;
     }
 
+    // Internal scheduler function - must be called with current process set
+    // This will context switch and not return until the current process runs again
+    fn sched() void {
+        const proc = current_process orelse unreachable;
+
+        // Find next runnable process
+        if (dequeueRunnable()) |next| {
+            next.state = .RUNNING;
+            current_process = next;
+
+            // Context switch to next process
+            context_switch(&proc.context, &next.context);
+            // When we return here, this process has been rescheduled
+        } else {
+            // No runnable process - need to go to scheduler idle
+            // Clear current process
+            current_process = null;
+
+            // Save context and jump to scheduler idle
+            // This is tricky - we need to save context then jump to idle loop
+            // For now, panic to see if we reach here
+            @panic("No runnable process in sched()");
+        }
+    }
+
     pub fn schedule() ?*Process {
         // If we have a current, try to rotate it out and switch from it
         if (current_process) |proc| {
             // Only make runnable if still RUNNING (not SLEEPING or ZOMBIE)
             if (proc.state == .RUNNING) {
+                // DEBUG: Current process is still running
+                uart.puts("[SCHED] Current still RUNNING, pid=");
+                uart.putHex(proc.pid);
+                uart.puts("\n");
                 makeRunnable(proc);
+            } else if (proc.state == .SLEEPING) {
+                uart.puts("[SCHED] Current SLEEPING, pid=");
+                uart.putHex(proc.pid);
+                uart.puts("\n");
             }
 
             // Find next runnable process
@@ -221,6 +256,12 @@ pub const Scheduler = struct {
                 // Switch from the previous kernel context to the next one
                 context_switch(&proc.context, &next.context);
                 return next;
+            }
+
+            // No runnable process found
+            // If current is sleeping, we need to clear it
+            if (proc.state == .SLEEPING) {
+                current_process = null;
             }
 
             return null;
@@ -234,6 +275,9 @@ pub const Scheduler = struct {
             // First run → no previous context to switch from
             processEntryPointWithProc(next); // noreturn
         }
+
+        // DEBUG: Log when entering idle state - this should not happen with idle process
+        uart.puts("[IDLE] No runnable processes (this should not happen!)\n");
 
         return null;
     }
@@ -257,27 +301,44 @@ pub const Scheduler = struct {
             return;
         }
 
+        // Critical section to prevent lost wakeups
+        csr.disableInterrupts();
+
         proc.state = .SLEEPING;
 
         // Add to wait queue
         proc.next = wq.head;
         wq.head = proc;
 
-        // Switch to another process - sleepOn() does not return until woken up
+        // Re-enable interrupts before scheduling
+        // This ensures interrupts can wake us up
+        csr.enableInterrupts();
+
+        // Switch to another process
         _ = schedule();
-        // When we reach here, this process has been woken up and is RUNNING again
-        // The wakeAll() call will have made us RUNNABLE and scheduler picked us up
+
+        // If we get here, no other process was runnable
+        // This happens when we have idle process but it's not scheduled
+        // Just return and let the process continue
     }
 
     // Wake all processes on wait queue
     pub fn wakeAll(wq: *WaitQ) void {
         csr.disableInterrupts();
 
+        var count: u32 = 0;
         while (wq.head) |proc| {
+            count += 1;
             wq.head = proc.next;
             proc.next = null;
             // makeRunnable will set state to RUNNABLE
             makeRunnable(proc);
+        }
+
+        if (count > 0) {
+            uart.puts("[WAKE] Woke ");
+            uart.putHex(count);
+            uart.puts(" processes\n");
         }
 
         csr.enableInterrupts();
@@ -285,14 +346,29 @@ pub const Scheduler = struct {
 
     // Main scheduler loop - handles all scheduling and idle
     pub fn run() noreturn {
+        uart.puts("[SCHED] Scheduler started\n");
         while (true) {
+            loop_count += 1;
+            // Print every 1000 iterations to avoid flooding
+            if (loop_count % 1000 == 0) {
+                uart.puts("[SCHED] Loop ");
+                uart.putHex(loop_count);
+                uart.puts("\n");
+            }
+
             // Try to schedule a process
             if (schedule()) |_| {
                 // Process is now running, continue scheduling
             } else {
                 // No runnable processes, wait for interrupt
+                // DEBUG: Log WFI entry
+                uart.puts("[SCHED-MAIN] Entering WFI in main loop\n");
+
                 csr.enableInterrupts();
                 csr.wfi();
+
+                // DEBUG: Log WFI exit
+                uart.puts("[SCHED-MAIN] Exited WFI in main loop\n");
             }
         }
     }
@@ -311,6 +387,47 @@ pub const Scheduler = struct {
             // Schedule next process
             _ = schedule();
         }
+    }
+
+    // Allocate a process slot from the process table
+    fn allocateProcess() ?*Process {
+        for (&process_table) |*proc| {
+            if (proc.state == .UNUSED) {
+                return proc;
+            }
+        }
+        return null;
+    }
+
+    // Create a kernel-only process (no user mappings)
+    pub fn createKernelProcess() ?*Process {
+        const proc = allocateProcess() orelse return null;
+
+        // Set up as kernel process
+        proc.pid = next_pid;
+        next_pid += 1;
+        proc.state = .EMBRYO;
+        proc.is_kernel = true;
+
+        // Initialize context for kernel thread
+        proc.context = Context{
+            .ra = 0, // Will be set by caller
+            .sp = 0, // No stack needed initially
+            .s0 = 0,
+            .s1 = 0,
+            .s2 = 0,
+            .s3 = 0,
+            .s4 = 0,
+            .s5 = 0,
+            .s6 = 0,
+            .s7 = 0,
+            .s8 = 0,
+            .s9 = 0,
+            .s10 = 0,
+            .s11 = 0,
+        };
+
+        return proc;
     }
 
     // Fork current process (simplified implementation)
@@ -357,7 +474,6 @@ pub const Scheduler = struct {
     pub fn exec(filename: []const u8, args: []const u8) isize {
         _ = args;
         const current = current_process orelse return -1;
-
 
         // For simplicity, only support "shell" for now
         if (std.mem.eql(u8, filename, "shell") or std.mem.eql(u8, filename, "/bin/shell")) {
@@ -444,7 +560,6 @@ fn forkedChildReturn() noreturn {
             csr.wfi();
         }
     };
-
 
     // Get the child's trap frame and return to user mode
     const frame = child_proc.user_frame orelse {
@@ -570,7 +685,6 @@ fn execShell(_: *Process) noreturn {
     const start_addr = @intFromPtr(_user_shell_start);
     const end_addr = @intFromPtr(_user_shell_end);
     const code_size = end_addr - start_addr;
-
 
     if (code_size > 0 and code_size < 2097152) { // Allow up to 2MB for shell
         const code = @as([*]const u8, @ptrFromInt(start_addr))[0..code_size];

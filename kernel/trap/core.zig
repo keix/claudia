@@ -77,7 +77,6 @@ pub fn init() void {
     const trap_vector_addr = @intFromPtr(&trap_vector);
     csr.writeStvec(trap_vector_addr);
 
-
     // Initialize syscall dispatcher with file system function pointers
     dispatch.init(
         fileGetFile,
@@ -127,15 +126,34 @@ fn procExec(filename: []const u8, args: []const u8) isize {
 
 // Main trap handler called from assembly
 pub export fn trapHandler(frame: *TrapFrame) void {
+    // Debug: Log EVERY trap entry at the very beginning
+    uart.puts("[TRAP] Entry - scause: ");
+    uart.putHex(frame.scause);
+    uart.puts(" stval: ");
+    uart.putHex(frame.stval);
+    uart.puts(" sepc: ");
+    uart.putHex(frame.sepc);
+    uart.puts("\n");
+
     const cause = frame.scause;
     const is_interrupt = (cause & (1 << 63)) != 0;
     const exception_code = cause & 0x7FFFFFFFFFFFFFFF;
 
+    // Debug: Show trap type
+    if (is_interrupt) {
+        uart.puts("[TRAP] INTERRUPT - code: ");
+        uart.putHex(exception_code);
+        uart.puts("\n");
+    } else {
+        uart.puts("[TRAP] EXCEPTION - code: ");
+        uart.putHex(exception_code);
+        uart.puts("\n");
+    }
+
     // Debug: Show we reached trap handler successfully (only for non-syscall and non-external-interrupt traps)
     const is_syscall = (!is_interrupt) and (exception_code == @intFromEnum(ExceptionCause.EcallFromUMode));
     const is_external_int = is_interrupt and (exception_code == 9); // Supervisor external interrupt
-    if (!is_syscall and !is_external_int) {
-    }
+    if (!is_syscall and !is_external_int) {}
 
     if (is_interrupt) {
         // Handle interrupts
@@ -148,17 +166,27 @@ pub export fn trapHandler(frame: *TrapFrame) void {
 
 fn interruptHandler(frame: *TrapFrame, code: u64) void {
     _ = frame;
+    uart.puts("[INTERRUPT] Handler called with code: ");
+    uart.putHex(code);
+    uart.puts("\n");
+
     switch (code) {
         csr.Interrupt.SupervisorExternal => {
+            uart.puts("[INTERRUPT] Supervisor External Interrupt detected!\n");
             // Handle external interrupt via PLIC
             handlePLICInterrupt();
         },
         else => {
+            uart.puts("[INTERRUPT] Unknown interrupt code: ");
+            uart.putHex(code);
+            uart.puts("\n");
         },
     }
 }
 
 fn handlePLICInterrupt() void {
+    uart.puts("[PLIC] Handling PLIC interrupt\n");
+
     // PLIC addresses
     const PLIC_BASE: u64 = 0x0c000000;
     // Hart 0, Context 1 (S-mode) claim/complete register
@@ -168,15 +196,140 @@ fn handlePLICInterrupt() void {
     const claim_addr = @as(*volatile u32, @ptrFromInt(PLIC_CLAIM));
     const irq = claim_addr.*;
 
+    uart.puts("[PLIC] Claimed IRQ: ");
+    uart.putHex(irq);
+    uart.puts("\n");
+
     if (irq == 10) { // UART IRQ
+        uart.puts("[PLIC] UART IRQ 10 detected! Calling uartIsr()\n");
         file.uartIsr();
 
         // Complete the interrupt
         claim_addr.* = irq;
+        uart.puts("[PLIC] UART IRQ completed\n");
     } else if (irq != 0) {
+        uart.puts("[PLIC] Unknown IRQ: ");
+        uart.putHex(irq);
+        uart.puts("\n");
 
         // Complete the interrupt anyway
         claim_addr.* = irq;
+    } else {
+        uart.puts("[PLIC] Spurious interrupt (IRQ 0)\n");
+    }
+}
+
+fn handlePageFault(frame: *TrapFrame, code: u64) void {
+    const fault_addr = frame.stval;
+    const fault_type = switch (code) {
+        @intFromEnum(ExceptionCause.InstructionPageFault) => "Instruction",
+        @intFromEnum(ExceptionCause.LoadPageFault) => "Load",
+        @intFromEnum(ExceptionCause.StorePageFault) => "Store",
+        else => "Unknown",
+    };
+
+    // Detailed page fault debugging
+    uart.puts("\n=============== PAGE FAULT DETAILS ===============\n");
+    uart.puts("[PAGE_FAULT] Type: ");
+    uart.puts(fault_type);
+    uart.puts(" Page Fault (code ");
+    uart.putHex(code);
+    uart.puts(")\n");
+
+    uart.puts("[PAGE_FAULT] Faulting address (stval): 0x");
+    uart.putHex(fault_addr);
+    uart.puts("\n");
+
+    uart.puts("[PAGE_FAULT] Fault occurred at PC (sepc): 0x");
+    uart.putHex(frame.sepc);
+    uart.puts("\n");
+
+    uart.puts("[PAGE_FAULT] Stack pointer (sp): 0x");
+    uart.putHex(frame.sp);
+    uart.puts("\n");
+
+    // Determine if this is a kernel or user address
+    const is_kernel_addr = fault_addr >= 0x80000000;
+    uart.puts("[PAGE_FAULT] Address space: ");
+    if (is_kernel_addr) {
+        uart.puts("KERNEL (>= 0x80000000)\n");
+    } else {
+        uart.puts("USER (< 0x80000000)\n");
+    }
+
+    // Get current process information
+    if (proc.Scheduler.getCurrentProcess()) |current| {
+        uart.puts("[PAGE_FAULT] Current process PID: ");
+        uart.putHex(@intCast(current.pid));
+        uart.puts("\n");
+
+        uart.puts("[PAGE_FAULT] Process state: ");
+        switch (current.state) {
+            .UNUSED => uart.puts("UNUSED"),
+            .EMBRYO => uart.puts("EMBRYO"),
+            .RUNNABLE => uart.puts("RUNNABLE"),
+            .RUNNING => uart.puts("RUNNING"),
+            .SLEEPING => uart.puts("SLEEPING"),
+            .ZOMBIE => uart.puts("ZOMBIE"),
+        }
+        uart.puts("\n");
+
+        // Show if this happened right after waking from sleep
+        if (current.state == .RUNNING) {
+            uart.puts("[PAGE_FAULT] Process is currently RUNNING\n");
+        }
+    } else {
+        uart.puts("[PAGE_FAULT] No current process!\n");
+    }
+
+    // Additional register dump for debugging
+    uart.puts("[PAGE_FAULT] Register dump:\n");
+    uart.puts("  ra: 0x");
+    uart.putHex(frame.ra);
+    uart.puts("\n");
+    uart.puts("  a0: 0x");
+    uart.putHex(frame.a0);
+    uart.puts("\n");
+    uart.puts("  a1: 0x");
+    uart.putHex(frame.a1);
+    uart.puts("\n");
+    uart.puts("  a2: 0x");
+    uart.putHex(frame.a2);
+    uart.puts("\n");
+    uart.puts("  a3: 0x");
+    uart.putHex(frame.a3);
+    uart.puts("\n");
+
+    // Show satp register value to debug page table issues
+    const satp = csr.readSatp();
+    uart.puts("[PAGE_FAULT] satp register: 0x");
+    uart.putHex(satp);
+    uart.puts("\n");
+
+    const mode = (satp >> 60) & 0xF;
+    const asid = (satp >> 44) & 0xFFFF;
+    const ppn = satp & 0xFFFFFFFFFFF;
+
+    uart.puts("[PAGE_FAULT] satp breakdown:\n");
+    uart.puts("  Mode: ");
+    uart.putHex(mode);
+    uart.puts(" (8=Sv39, 9=Sv48)\n");
+    uart.puts("  ASID: ");
+    uart.putHex(asid);
+    uart.puts("\n");
+    uart.puts("  Root page table PPN: 0x");
+    uart.putHex(ppn);
+    uart.puts("\n");
+    uart.puts("  Root page table physical addr: 0x");
+    uart.putHex(ppn << 12);
+    uart.puts("\n");
+
+    uart.puts("==================================================\n\n");
+
+    // Halt the system after printing debug info
+    uart.puts("[PAGE_FAULT] Halting system due to unhandled page fault\n");
+    while (true) {
+        csr.wfi();
     }
 }
 
@@ -187,7 +340,13 @@ fn exceptionHandler(frame: *TrapFrame, code: u64) void {
             // Skip ecall instruction
             frame.sepc += 4;
         },
+        @intFromEnum(ExceptionCause.InstructionPageFault), @intFromEnum(ExceptionCause.LoadPageFault), @intFromEnum(ExceptionCause.StorePageFault) => {
+            handlePageFault(frame, code);
+        },
         else => {
+            uart.puts("[EXCEPTION] Unhandled exception code: ");
+            uart.putHex(code);
+            uart.puts("\n");
 
             // Stop infinite loop - halt system
             while (true) {
@@ -213,8 +372,7 @@ fn syscallHandler(frame: *TrapFrame) void {
 
     // Only show syscall debug for non-repetitive calls (not read/write in shell loop)
     const is_shell_io = (syscall_num == 1) or (syscall_num == 0x3f) or (syscall_num == 0x40); // write or read
-    if (!is_shell_io) {
-    }
+    if (!is_shell_io) {}
 
     // Use full dispatcher
     const result = dispatch.call(syscall_num, frame.a0, frame.a1, frame.a2, frame.a3, frame.a4);
