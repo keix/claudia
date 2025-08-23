@@ -36,7 +36,18 @@ const GlobalAllocator = struct {
 
     pub fn allocFrame() ?usize {
         std.debug.assert(instance.initialized);
-        return instance.frame_allocator.alloc();
+        const frame = instance.frame_allocator.alloc();
+
+        // Debug problematic page table allocations
+        if (frame) |f| {
+            if (f == 0x802cf000) {
+                uart.puts("[ALLOCATOR] CRITICAL: Allocated frame 0x802cf000\n");
+                uart.puts("  This will become a page table - MUST add kernel mappings!\n");
+                // Would be nice to have a stack trace here
+            }
+        }
+
+        return frame;
     }
 
     pub fn freeFrame(addr: usize) void {

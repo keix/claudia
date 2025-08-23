@@ -74,6 +74,9 @@ pub const UserMemoryContext = struct {
             return;
         }
 
+        const uart = @import("../driver/uart/core.zig");
+        uart.puts("[UserMemoryContext] createPageTable called\n");
+
         // Allocate PageTable struct from kernel heap
         const kalloc = @import("../memory/kalloc.zig");
         const pt_ptr = try kalloc.kcreate(virtual.PageTable);
@@ -82,6 +85,10 @@ pub const UserMemoryContext = struct {
         // init() will allocate the root page internally
         try pt_ptr.init();
         self.page_table = pt_ptr;
+
+        uart.puts("[UserMemoryContext] Created page table with root_ppn: 0x");
+        uart.putHex(pt_ptr.root_ppn);
+        uart.puts("\n");
     }
 
     pub fn mapRegion(self: *UserMemoryContext, region: *const UserRegion) !void {
@@ -105,7 +112,17 @@ pub const UserMemoryContext = struct {
         try self.createPageTable();
 
         // Add kernel mappings for trap handling
-        try self.addKernelMappings();
+        self.addKernelMappings() catch |err| {
+            const uart = @import("../driver/uart/core.zig");
+            uart.puts("[setupAddressSpace] ERROR: addKernelMappings failed: ");
+            switch (err) {
+                error.OutOfMemory => uart.puts("OutOfMemory"),
+                error.KernelMappingFailed => uart.puts("KernelMappingFailed"),
+                else => uart.puts("Unknown error"),
+            }
+            uart.puts("\n");
+            return err;
+        };
 
         if (!allocateRegion(&self.code_region)) {
             return error.OutOfMemory;
@@ -127,17 +144,58 @@ pub const UserMemoryContext = struct {
     // Add kernel global mappings to user page table
     // This includes: kernel text/data/bss, MMIO, trampoline, AND kernel stack
     fn addKernelMappings(self: *UserMemoryContext) !void {
-        if (self.page_table == null) return;
+        const uart = @import("../driver/uart/core.zig");
+
+        uart.puts("[addKernelMappings] Adding kernel mappings to user page table\n");
+
+        if (self.page_table == null) {
+            uart.puts("  ERROR: Page table is null!\n");
+            return;
+        }
 
         const page_table = self.page_table.?;
+        uart.puts("  User page table root_ppn: 0x");
+        uart.putHex(page_table.root_ppn);
+        uart.puts("\n");
 
         // Build all kernel global mappings
+        uart.puts("  Calling buildKernelGlobalMappings...\n");
         try virtual.buildKernelGlobalMappings(page_table);
+
+        // Check if mapping survived
+        page_table.checkCriticalPTE("After buildKernelGlobalMappings in addKernelMappings");
 
         // Explicitly ensure kernel stack is mapped (defensive programming)
         // This is redundant as buildKernelGlobalMappings() already calls it,
         // but ensures kernel stack is always accessible from trap handler
         try mapKernelStackToPageTable(page_table);
+
+        // CRITICAL: Verify kernel mappings were actually added
+        uart.puts("  Verifying kernel mappings in user PT...\n");
+
+        // Check a few critical kernel addresses
+        const test_addrs = [_]u64{
+            0x80200000, // Kernel code start
+            0x80210000, // More kernel code
+            0x8021b000, // Near the fault address
+            0x80400000, // Kernel heap
+            types.KERNEL_STACK_BASE, // Kernel stack
+        };
+
+        for (test_addrs) |addr| {
+            if (page_table.translate(addr)) |phys| {
+                uart.puts("    0x");
+                uart.putHex(addr);
+                uart.puts(" -> 0x");
+                uart.putHex(phys);
+                uart.puts(" OK\n");
+            } else {
+                uart.puts("    ERROR: 0x");
+                uart.putHex(addr);
+                uart.puts(" NOT MAPPED!\n");
+                return error.KernelMappingFailed;
+            }
+        }
     }
 
     // DEPRECATED: Old approach - used dynamic stack mapping instead of fixed kernel stack
@@ -156,7 +214,18 @@ pub const UserMemoryContext = struct {
         if (self.page_table == null) return false;
 
         const page_table = self.page_table.?;
-        return page_table.translate(vaddr) != null;
+        const result = page_table.translate(vaddr) != null;
+
+        // Extra debug for critical addresses
+        if (vaddr == 0x8021b000 and !result) {
+            const uart = @import("../driver/uart/core.zig");
+            uart.puts("[verifyMapping] ERROR: 0x8021b000 not found!\n");
+            uart.puts("  Page table root_ppn: 0x");
+            uart.putHex(page_table.root_ppn);
+            uart.puts("\n");
+        }
+
+        return result;
     }
 
     pub fn getPageTablePPN(self: *const UserMemoryContext) ?u64 {

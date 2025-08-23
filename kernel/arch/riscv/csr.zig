@@ -218,7 +218,7 @@ pub inline fn fence_i() void {
 
 // Wait for interrupt
 pub inline fn wfi() void {
-    asm volatile ("wfi");
+    asm volatile ("wfi" ::: "memory");
 }
 
 // Supervisor return

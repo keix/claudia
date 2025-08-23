@@ -185,13 +185,13 @@ const TTY = struct {
 
     fn getCharAtomic(self: *TTY) ?u8 {
         const csr = @import("../arch/riscv/csr.zig");
-        
+
         // Validate TTY structure to detect corruption
         if (self.magic != 0xDEADBEEF) {
             uart.puts("[PANIC] TTY structure corrupted in getCharAtomic!\n");
             @panic("TTY structure corrupted!");
         }
-        
+
         // Save current interrupt state and disable interrupts
         const saved_sstatus = csr.csrrc(csr.CSR.sstatus, csr.SSTATUS.SIE);
         defer {
@@ -228,12 +228,24 @@ comptime {
 
 // UART interrupt handler to feed TTY - drain FIFO completely
 pub fn uartIsr() void {
+    uart.puts("[UART ISR] Called!\n");
+
     var chars_received = false;
     var char_count: u32 = 0;
     var has_newline = false;
 
     // Drain RX FIFO completely - critical for preventing lost chars
     while (uart.getc()) |ch| {
+        uart.puts("[UART ISR] Got char: ");
+        uart.putHex(ch);
+        uart.puts(" ('");
+        if (ch >= 32 and ch <= 126) {
+            uart.putc(ch);
+        } else {
+            uart.putc('?');
+        }
+        uart.puts("')\n");
+
         // Feed directly to TTY ring buffer with atomic access
         if (console_tty.putCharAtomic(ch)) {
             chars_received = true;
@@ -241,19 +253,36 @@ pub fn uartIsr() void {
             if (ch == '\n' or ch == '\r') {
                 has_newline = true;
             }
+        } else {
+            uart.puts("[UART ISR] Ring buffer full, dropping char!\n");
         }
         // If ring buffer full, drop character (could log this)
     }
 
-
     // Wake readers based on mode
     if (chars_received) {
+        uart.puts("[UART ISR] Received ");
+        uart.putHex(char_count);
+        uart.puts(" chars total");
+        // DEBUG: Log interrupt activity
+        if (has_newline) uart.puts(" (has newline)");
+        uart.puts("\n");
+
         if (!console_tty.canonical_mode) {
             // Raw mode: wake on any character
+            uart.puts("[ISR] Waking readers (raw mode)\n");
             proc.Scheduler.wakeAll(&console_tty.read_wait);
         } else if (has_newline) {
             // Canonical mode: wake only on newline
+            uart.puts("[ISR] Waking readers (canonical mode)\n");
             proc.Scheduler.wakeAll(&console_tty.read_wait);
+        } else {
+            // DEBUG: Optionally wake on every character in canonical mode
+            const DEBUG_WAKE_ALWAYS = false; // Set to true for testing
+            if (DEBUG_WAKE_ALWAYS) {
+                uart.puts("[ISR] DEBUG: Waking readers on every char (canonical)\n");
+                proc.Scheduler.wakeAll(&console_tty.read_wait);
+            }
         }
     }
 }
@@ -272,6 +301,13 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 
     const copy = @import("../user/copy.zig");
     const user_addr = @intFromPtr(buffer.ptr);
+    const csr = @import("../arch/riscv/csr.zig");
+
+    // DEBUG: Log read call
+    uart.puts("[READ] consoleRead called, size=");
+    uart.putHex(buffer.len);
+    uart.puts(", mode=");
+    uart.puts(if (console_tty.canonical_mode) "canonical\n" else "raw\n");
 
     // Handle canonical vs raw mode
     // Validate TTY before accessing it
@@ -279,7 +315,7 @@ fn consoleRead(file: *File, buffer: []u8) isize {
         uart.puts("[PANIC] TTY not initialized or corrupted in consoleRead\n");
         return 5; // EIO
     }
-    
+
     if (console_tty.canonical_mode) {
         // Canonical mode: read a complete line
         return consoleReadCanonical(buffer, user_addr);
@@ -293,16 +329,17 @@ fn consoleRead(file: *File, buffer: []u8) isize {
                 return 1;
             }
 
-
             // No data available - wait for input
             if (proc.Scheduler.getCurrentProcess()) |current| {
                 // Conditional sleep: only sleep if buffer is empty (spurious wakeup protection)
                 if (console_tty.input_buffer.isEmpty()) {
+                    // sleepOn now handles interrupt enabling internally
+                    uart.puts("[READ] Going to sleep (raw mode)\n");
                     proc.Scheduler.sleepOn(&console_tty.read_wait, current);
+                    uart.puts("[READ] Woke up from sleep\n");
                 }
             } else {
                 // Boot context without process - use WFI
-                const csr = @import("../arch/riscv/csr.zig");
                 csr.enableInterrupts();
                 csr.wfi();
             }
@@ -313,7 +350,8 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 // Canonical mode read - process line buffering
 fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
     const copy = @import("../user/copy.zig");
-    
+    const csr = @import("../arch/riscv/csr.zig");
+
     // Note: We're already in kernel mode if this function is executing.
     // SPP bit tells us where we came FROM on the last trap, not where we ARE now.
 
@@ -379,13 +417,32 @@ fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
             }
             // Ignore other control characters for now
         } else {
-            // No data available - wait for input
-            // Get current process and sleep on wait queue
+            // No data → 待機
             if (proc.Scheduler.getCurrentProcess()) |current| {
+                // sleepOn now handles interrupt enabling internally
+                uart.puts("[READ] Buffer empty, going to sleep\n");
+                uart.puts("  line_buffer.len=");
+                uart.putHex(console_tty.line_buffer.len);
+                uart.puts(", input_buffer empty=");
+                uart.puts(if (console_tty.input_buffer.isEmpty()) "true\n" else "false\n");
+
+                // Check UART and interrupt status before sleep
+                const uart_base = 0x10000000;
+                const lsr_addr = @as(*volatile u8, @ptrFromInt(uart_base + 5));
+                const ier_addr = @as(*volatile u8, @ptrFromInt(uart_base + 1));
+                uart.puts("  UART before sleep: LSR=");
+                uart.putHex(@as(u64, lsr_addr.*));
+                uart.puts(" IER=");
+                uart.putHex(@as(u64, ier_addr.*));
+                uart.puts("\n");
+
                 proc.Scheduler.sleepOn(&console_tty.read_wait, current);
+
+                uart.puts("[READ] Woke up! line_buffer.len=");
+                uart.putHex(console_tty.line_buffer.len);
+                uart.puts(", input_buffer empty=");
+                uart.puts(if (console_tty.input_buffer.isEmpty()) "true\n" else "false\n");
             } else {
-                // No current process, fall back to polling
-                const csr = @import("../arch/riscv/csr.zig");
                 csr.enableInterrupts();
                 csr.wfi();
             }

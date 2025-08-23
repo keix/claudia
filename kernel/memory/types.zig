@@ -24,6 +24,7 @@ pub const PTE_D: u64 = 1 << 7; // Dirty
 pub const KERNEL_BASE: u64 = 0x80000000; // Kernel code/data start
 pub const KERNEL_HEAP_BASE: u64 = 0x80400000; // Kernel heap start (4MB into kernel)
 pub const KERNEL_HEAP_SIZE: usize = 256 * 1024; // 256KB kernel heap
+pub const KERNEL_END: u64 = 0x80800000; // Map up to 8MB for kernel (generous allocation)
 pub const KERNEL_STACK_BASE: u64 = 0x87F00000; // Kernel stack near end of kernel region
 pub const KERNEL_STACK_SIZE: usize = 4 * PAGE_SIZE; // 16KB kernel stack
 

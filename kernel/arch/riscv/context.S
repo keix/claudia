@@ -16,6 +16,7 @@
 # 88: s9
 # 96: s10
 # 104: s11
+# 112: satp
 
 .section .text
 .global context_switch
@@ -24,7 +25,7 @@
 context_switch:
     # a0 = old context pointer
     # a1 = new context pointer
-    
+
     # Save current context to old (callee-saved registers only)
     sd ra, 0(a0)        # save return address
     sd sp, 8(a0)        # save stack pointer
@@ -40,7 +41,11 @@ context_switch:
     sd s9, 88(a0)       # save s9
     sd s10, 96(a0)      # save s10
     sd s11, 104(a0)     # save s11
-    
+
+    # Save current SATP
+    csrr t0, satp       # read current satp
+    sd t0, 112(a0)      # save to context
+
     # Restore context from new
     ld ra, 0(a1)        # restore return address
     ld sp, 8(a1)        # restore stack pointer
@@ -56,7 +61,30 @@ context_switch:
     ld s9, 88(a1)       # restore s9
     ld s10, 96(a1)      # restore s10
     ld s11, 104(a1)     # restore s11
-    
+
+    # Restore new process's SATP
+    ld t0, 112(a1)      # load new satp
+
+    # Ensure all memory operations complete before changing page table
+    fence rw, rw
+
+    # CRITICAL: Check if switching to problematic page table
+    # Extract PPN from SATP (bits 43:0)
+    li t1, 0xFFFFFFFFFFF
+    and t2, t0, t1      # t2 = PPN
+    li t1, 0x802cf      # Known problematic PPN
+    bne t2, t1, 1f      # Skip warning if not 0x802cf
+
+    # This is the problematic page table - should not happen!
+    # But we can't easily call UART from assembly
+    # Just set a marker that can be checked later
+    li t1, 0xDEADBEEF
+    mv x31, t1          # Use t6 as marker
+
+1:
+    csrw satp, t0       # set satp
+    sfence.vma zero, zero  # flush entire TLB
+
     # Return to new context (ra now points to new process's continuation)
     ret
 
