@@ -164,3 +164,25 @@ fn copyoutProper(user_dst: usize, src: []const u8) !usize {
 
     return bytes_copied;
 }
+
+/// Copy null-terminated string from user space to kernel space
+/// dst: kernel buffer to copy into
+/// user_src: user space address of null-terminated string
+/// Returns: length of string (not including null terminator)
+pub fn copyinstr(dst: []u8, user_src: usize) !usize {
+    var i: usize = 0;
+    while (i < dst.len - 1) { // Leave room for null terminator
+        var ch: [1]u8 = undefined;
+        _ = try copyin(&ch, user_src + i);
+
+        dst[i] = ch[0];
+        if (ch[0] == 0) {
+            return i; // Return length without null terminator
+        }
+        i += 1;
+    }
+
+    // String too long, null terminate and return error
+    dst[i] = 0;
+    return error.StringTooLong;
+}

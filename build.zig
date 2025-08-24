@@ -76,6 +76,13 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "abi", .module = abi_mod },
                 },
             }) },
+            .{ .name = "syscalls/io/close", .module = b.createModule(.{
+                .root_source_file = b.path("userland/syscalls/io/close.zig"),
+                .imports = &.{
+                    .{ .name = "syscall", .module = syscall_mod },
+                    .{ .name = "abi", .module = abi_mod },
+                },
+            }) },
             .{ .name = "syscalls/proc/exit", .module = b.createModule(.{
                 .root_source_file = b.path("userland/syscalls/proc/exit.zig"),
                 .imports = &.{
@@ -119,6 +126,46 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const ls_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/ls.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
+    const test_open_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/test_open.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
+    const test_vfs_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/test_vfs.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
+    const test_file_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/test_file.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
+    const test_null_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/test_null.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
     // Create commands index module
     const commands_index_mod = b.createModule(.{
         .root_source_file = b.path("userland/shell/commands/index.zig"),
@@ -126,6 +173,11 @@ pub fn build(b: *std.Build) void {
             .{ .name = "echo.zig", .module = echo_mod },
             .{ .name = "help.zig", .module = help_mod },
             .{ .name = "exit.zig", .module = exit_mod },
+            .{ .name = "ls.zig", .module = ls_mod },
+            .{ .name = "test_open.zig", .module = test_open_mod },
+            .{ .name = "test_vfs.zig", .module = test_vfs_mod },
+            .{ .name = "test_file.zig", .module = test_file_mod },
+            .{ .name = "test_null.zig", .module = test_null_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });

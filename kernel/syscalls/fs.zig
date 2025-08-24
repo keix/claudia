@@ -8,13 +8,24 @@ var file_getFile: ?*const fn (i32) ?*anyopaque = null;
 var file_write: ?*const fn (*anyopaque, []const u8) isize = null;
 var file_read: ?*const fn (*anyopaque, []u8) isize = null;
 var file_close: ?*const fn (i32) isize = null;
+var file_open: ?*const fn ([]const u8, u32, u16) isize = null;
 
 // Initialize file system function pointers
-pub fn init(getFile: *const fn (i32) ?*anyopaque, writeFile: *const fn (*anyopaque, []const u8) isize, readFile: *const fn (*anyopaque, []u8) isize, closeFile: *const fn (i32) isize) void {
+pub fn init(
+    getFile: *const fn (i32) ?*anyopaque,
+    writeFile: *const fn (*anyopaque, []const u8) isize,
+    readFile: *const fn (*anyopaque, []u8) isize,
+    closeFile: *const fn (i32) isize,
+) void {
     file_getFile = getFile;
     file_write = writeFile;
     file_read = readFile;
     file_close = closeFile;
+}
+
+// Set open function pointer separately (to avoid changing existing init signature)
+pub fn setOpenFn(openFn: *const fn ([]const u8, u32, u16) isize) void {
+    file_open = openFn;
 }
 
 pub fn sys_write(fd: usize, ubuf: usize, len: usize) isize {
@@ -54,4 +65,29 @@ pub fn sys_read(fd: usize, ubuf: usize, len: usize) isize {
 pub fn sys_close(fd: usize) isize {
     const closeFile = file_close orelse return defs.ENOSYS;
     return closeFile(@as(i32, @intCast(fd)));
+}
+
+// AT_FDCWD constant for openat
+const AT_FDCWD: isize = -100;
+
+pub fn sys_openat(dirfd: usize, pathname: usize, flags: usize, mode: usize) isize {
+    const openFile = file_open orelse return defs.ENOSYS;
+
+    // For now, only support AT_FDCWD (ignore dirfd)
+    const fd = @as(isize, @bitCast(dirfd));
+    if (fd != AT_FDCWD) {
+        // TODO: Support relative paths from directory fd
+        return defs.ENOSYS;
+    }
+
+    // Copy pathname from user space
+    var path_buf: [256]u8 = undefined;
+    const path_len = copy.copyinstr(&path_buf, pathname) catch return defs.EFAULT;
+
+    // Convert flags and mode to appropriate types
+    const open_flags = @as(u32, @truncate(flags));
+    const open_mode = @as(u16, @truncate(mode));
+
+    // Call the open function
+    return openFile(path_buf[0..path_len], open_flags, open_mode);
 }

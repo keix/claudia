@@ -4,6 +4,11 @@ pub const Command = enum {
     echo,
     help,
     exit,
+    ls,
+    test_open,
+    test_vfs,
+    test_file,
+    test_null,
 };
 
 pub const CommandEntry = struct {
@@ -15,4 +20,9 @@ pub const commands = [_]CommandEntry{
     .{ .name = "echo", .func = @import("echo.zig").main },
     .{ .name = "help", .func = @import("help.zig").main },
     .{ .name = "exit", .func = @import("exit.zig").main },
+    .{ .name = "ls", .func = @import("ls.zig").main },
+    .{ .name = "test_open", .func = @import("test_open.zig").main },
+    .{ .name = "test_vfs", .func = @import("test_vfs.zig").main },
+    .{ .name = "test_file", .func = @import("test_file.zig").main },
+    .{ .name = "test_null", .func = @import("test_null.zig").main },
 };

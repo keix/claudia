@@ -17,7 +17,8 @@ var test_user_context: memory.UserMemoryContext = undefined;
 
 // Initialize user subsystem
 pub fn init() void {
-    memory.init();
+    // Comment out memory.init() - kernel stack frames might already be allocated
+    // memory.init();
     test_user_context = memory.UserMemoryContext.init();
     // User subsystem initialized
 }

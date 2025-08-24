@@ -5,6 +5,7 @@ const std = @import("std");
 const uart = @import("../driver/uart/core.zig");
 const defs = @import("abi");
 const proc = @import("../process/core.zig");
+const vfs = @import("../fs/vfs.zig");
 
 // Import submodules
 pub const types = @import("types.zig");
@@ -414,6 +415,34 @@ var file_table: [MAX_FDS]?*File = [_]?*File{null} ** MAX_FDS;
 // Console file instances
 var console_file = File.init(.DEVICE, &ConsoleOperations);
 
+// Null device operations
+const NullOperations = FileOperations{
+    .read = nullRead,
+    .write = nullWrite,
+    .close = nullClose,
+};
+
+fn nullRead(file: *File, buffer: []u8) isize {
+    _ = file;
+    _ = buffer;
+    // /dev/null always returns EOF (0 bytes)
+    return 0;
+}
+
+fn nullWrite(file: *File, data: []const u8) isize {
+    _ = file;
+    // /dev/null discards all data but reports success
+    return @as(isize, @intCast(data.len));
+}
+
+fn nullClose(file: *File) void {
+    _ = file;
+    // Nothing to clean up
+}
+
+// Null device file instance
+var null_file = File.init(.DEVICE, &NullOperations);
+
 // File descriptor management
 pub const FileTable = struct {
     pub fn init() void {
@@ -491,6 +520,45 @@ pub const FileTable = struct {
 
         closeFd(fd);
         return 0;
+    }
+
+    pub fn sysOpen(path: []const u8, flags: u32, mode: u16) isize {
+        _ = mode; // Ignore mode for now
+        _ = flags; // Ignore flags for now
+
+        // Use VFS to resolve the path
+        const node = vfs.resolvePath(path) orelse return defs.ENOENT;
+
+        // Handle different node types
+        switch (node.node_type) {
+            .DEVICE => {
+                // For device files, check which device it is
+                if (std.mem.eql(u8, node.getName(), "console") or
+                    std.mem.eql(u8, node.getName(), "tty"))
+                {
+                    // Allocate a new fd for console
+                    if (allocFd(&console_file)) |fd| {
+                        return @as(isize, @intCast(fd));
+                    }
+                    return defs.EMFILE; // Too many open files
+                } else if (std.mem.eql(u8, node.getName(), "null")) {
+                    // Allocate a new fd for /dev/null
+                    if (allocFd(&null_file)) |fd| {
+                        return @as(isize, @intCast(fd));
+                    }
+                    return defs.EMFILE; // Too many open files
+                }
+                return defs.ENODEV; // Device not supported
+            },
+            .FILE => {
+                // TODO: Implement regular file support
+                return defs.ENOSYS;
+            },
+            .DIRECTORY => {
+                // TODO: Implement directory support
+                return defs.EISDIR;
+            },
+        }
     }
 };
 
