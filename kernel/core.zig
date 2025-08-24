@@ -12,6 +12,7 @@ const proc = @import("process/core.zig");
 const trap = @import("trap/core.zig");
 const file = @import("file/core.zig");
 const user = @import("user/core.zig");
+const vfs = @import("fs/vfs.zig");
 
 // Drivers
 const uart = @import("driver/uart/core.zig");
@@ -77,8 +78,11 @@ fn initMemorySystem() void {
 }
 
 fn initCoreSubsystems() void {
-    // Initialize file system
+    // Initialize file system first (before VFS)
     file.FileTable.init();
+
+    // Initialize VFS after file system
+    vfs.init();
 
     // Initialize trap handling
     trap.init();

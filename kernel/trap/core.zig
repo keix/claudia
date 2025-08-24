@@ -92,6 +92,10 @@ pub fn init() void {
         procFork,
         procExec,
     );
+
+    // Set open function separately
+    const fs = @import("../syscalls/fs.zig");
+    fs.setOpenFn(fileOpen);
 }
 
 // File system function wrappers for dispatcher
@@ -127,6 +131,10 @@ fn procFork() isize {
 
 fn procExec(filename: []const u8, args: []const u8) isize {
     return proc.Scheduler.exec(filename, args);
+}
+
+fn fileOpen(path: []const u8, flags: u32, mode: u16) isize {
+    return file.FileTable.sysOpen(path, flags, mode);
 }
 
 // Main trap handler called from assembly

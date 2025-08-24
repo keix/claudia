@@ -32,7 +32,12 @@ pub fn call(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) isi
     return switch (n) {
         sysno.sys_write => fs.sys_write(a0, a1, a2),
         sysno.sys_read => fs.sys_read(a0, a1, a2),
+        sysno.sys_openat => fs.sys_openat(a0, a1, a2, a3),
         sysno.sys_close => fs.sys_close(a0),
+        sysno.sys_getdents64 => {
+            const dir = @import("dir.zig");
+            return dir.sys_readdir(a0, a1, a2);
+        },
         sysno.sys_exit => {
             if (proc_exit) |exit_fn| {
                 exit_fn(@as(i32, @intCast(a0)));

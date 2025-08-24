@@ -16,12 +16,16 @@ fn exec(filename: []const u8) isize {
     return syscall.syscall3(abi.sysno.sys_execve, @intFromPtr(filename.ptr), 0, 0);
 }
 
-export fn _start() noreturn {
-    // Claudia is called from the bootloader.
+fn motd() void {
     write_str("\x1b[2J\x1b[H"); // Clear screen and move cursor to home position
-    write_str("Welcome to Claudia — a modern reimagining of UNIX Sixth Edition.\n");
+    write_str("Claudia — A modern rewrite of UNIX Sixth Edition.\n");
     write_str("/* You are *expected* to understand this. */\n");
     write_str("\n");
+}
+
+export fn _start() noreturn {
+    // Initialize the system
+    motd();
 
     const shell_name = "shell\x00";
     const result = exec(shell_name[0..5]);
