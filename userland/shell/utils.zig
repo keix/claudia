@@ -94,3 +94,51 @@ pub fn parseArgs(cmdline: []const u8, args: *Args) void {
         args.argc += 1;
     }
 }
+
+// Convert integer to string (simple implementation)
+var int_buf: [12]u8 = undefined;
+pub fn intToStr(value: i32) []const u8 {
+    if (value == 0) {
+        int_buf[0] = '0';
+        return int_buf[0..1];
+    }
+    
+    var val = value;
+    var negative = false;
+    if (val < 0) {
+        negative = true;
+        val = -val;
+    }
+    
+    var pos: usize = int_buf.len;
+    while (val > 0) {
+        pos -= 1;
+        int_buf[pos] = @as(u8, '0' + @as(u8, @intCast(@mod(val, 10))));
+        val = @divTrunc(val, 10);
+    }
+    
+    if (negative) {
+        pos -= 1;
+        int_buf[pos] = '-';
+    }
+    
+    return int_buf[pos..];
+}
+
+// Copy string to buffer
+pub fn strCopy(dest: []u8, src: []const u8) void {
+    const len = @min(dest.len - 1, src.len);
+    for (0..len) |i| {
+        dest[i] = src[i];
+    }
+    dest[len] = 0;
+}
+
+// Get string from null-terminated buffer
+pub fn strFromBuf(buf: []const u8) []const u8 {
+    var len: usize = 0;
+    while (len < buf.len and buf[len] != 0) {
+        len += 1;
+    }
+    return buf[0..len];
+}
