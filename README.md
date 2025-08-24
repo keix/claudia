@@ -8,6 +8,13 @@ If you want to understand how a system works, you must write one — under the P
 ## Why Claudia
 A quiet name for a quiet system.  
 
+## Specification
+
+Detailed design document describing architecture, system calls, FS layout, and roadmap is available on Notion:
+
+[Claudia Design Spec — v6-inspired OS in Zig on RISC-V](https://v6-unix.notion.site/259b8ecae49480099831fc262c4c3e2f?v=259b8ecae4948130b6fd000ce1f3ca60)
+
+
 ## Requirements
 Zig is the only requirement.  
 You can build and run Claudia with the Zig compiler version 0.14.1, available at [ziglang.org](https://ziglang.org/download/).

@@ -6,10 +6,6 @@ pub fn main(args: *const utils.Args) void {
     // Default to current directory if no argument
     const path = if (args.argc > 1) args.argv[1] else "/";
 
-    utils.writeStr("ls: ");
-    utils.writeStr(path);
-    utils.writeStr("\n");
-
     // Allocate buffer for directory entries
     var entries: [32]sys.DirEntry = undefined;
 
