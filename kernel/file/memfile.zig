@@ -10,7 +10,7 @@ pub const MemFile = struct {
     file: File,
     vnode: *vfs.VNode,
     position: usize,
-    
+
     pub fn init(vnode: *vfs.VNode) MemFile {
         return .{
             .file = File.init(.REGULAR, &MemFileOperations),
@@ -32,21 +32,21 @@ fn memRead(file: *File, buffer: []u8) isize {
     const mem_file_ptr = @intFromPtr(file) - @offsetOf(MemFile, "file");
     const mem_file = @as(*MemFile, @ptrFromInt(mem_file_ptr));
     const vnode = mem_file.vnode;
-    
+
     // Calculate how much we can read
-    const available = if (vnode.data_size > mem_file.position) 
-        vnode.data_size - mem_file.position 
-    else 
+    const available = if (vnode.data_size > mem_file.position)
+        vnode.data_size - mem_file.position
+    else
         0;
     const to_read = @min(buffer.len, available);
-    
+
     if (to_read == 0) return 0; // EOF
-    
+
     // Copy data from VNode's buffer
     const copy = @import("../user/copy.zig");
     const user_addr = @intFromPtr(buffer.ptr);
-    _ = copy.copyout(user_addr, vnode.data[mem_file.position..mem_file.position + to_read]) catch return defs.EFAULT;
-    
+    _ = copy.copyout(user_addr, vnode.data[mem_file.position .. mem_file.position + to_read]) catch return defs.EFAULT;
+
     mem_file.position += to_read;
     return @as(isize, @intCast(to_read));
 }
@@ -56,25 +56,25 @@ fn memWrite(file: *File, data: []const u8) isize {
     const mem_file_ptr = @intFromPtr(file) - @offsetOf(MemFile, "file");
     const mem_file = @as(*MemFile, @ptrFromInt(mem_file_ptr));
     const vnode = mem_file.vnode;
-    
+
     // Calculate how much we can write
     const available = if (vnode.data.len > mem_file.position)
         vnode.data.len - mem_file.position
     else
         0;
     const to_write = @min(data.len, available);
-    
+
     if (to_write == 0) return defs.ENOSPC; // No space left
-    
+
     // Copy data to VNode's buffer
-    @memcpy(vnode.data[mem_file.position..mem_file.position + to_write], data[0..to_write]);
+    @memcpy(vnode.data[mem_file.position .. mem_file.position + to_write], data[0..to_write]);
     mem_file.position += to_write;
-    
+
     // Update file size if we extended it
     if (mem_file.position > vnode.data_size) {
         vnode.data_size = mem_file.position;
     }
-    
+
     return @as(isize, @intCast(to_write));
 }
 

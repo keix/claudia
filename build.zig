@@ -83,6 +83,13 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "abi", .module = abi_mod },
                 },
             }) },
+            .{ .name = "syscalls/io/readdir", .module = b.createModule(.{
+                .root_source_file = b.path("userland/syscalls/io/readdir.zig"),
+                .imports = &.{
+                    .{ .name = "syscall", .module = syscall_mod },
+                    .{ .name = "abi", .module = abi_mod },
+                },
+            }) },
             .{ .name = "syscalls/proc/exit", .module = b.createModule(.{
                 .root_source_file = b.path("userland/syscalls/proc/exit.zig"),
                 .imports = &.{

@@ -48,3 +48,4 @@ pub const ENOENT: isize = -2; // No such file or directory
 pub const ENODEV: isize = -19; // No such device
 pub const EISDIR: isize = -21; // Is a directory
 pub const ENOSPC: isize = -28; // No space left on device
+pub const ENOTDIR: isize = -20; // Not a directory

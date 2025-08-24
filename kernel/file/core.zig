@@ -527,7 +527,7 @@ pub const FileTable = struct {
 
         // Use VFS to resolve the path
         var node = vfs.resolvePath(path);
-        
+
         // Handle file creation if O_CREAT is set
         if (node == null and (flags & defs.O_CREAT) != 0) {
             // Extract directory and filename from path
@@ -535,11 +535,11 @@ pub const FileTable = struct {
             for (path, 0..) |ch, i| {
                 if (ch == '/') last_slash = i;
             }
-            
+
             if (last_slash) |slash_pos| {
                 const dir_path = if (slash_pos == 0) "/" else path[0..slash_pos];
-                const filename = path[slash_pos + 1..];
-                
+                const filename = path[slash_pos + 1 ..];
+
                 // Create the file
                 if (vfs.createFile(dir_path, filename)) |new_node| {
                     node = new_node;
@@ -555,7 +555,7 @@ pub const FileTable = struct {
                 }
             }
         }
-        
+
         const vnode = node orelse return defs.ENOENT;
 
         // Handle different node types

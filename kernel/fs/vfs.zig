@@ -68,6 +68,11 @@ pub const VNode = struct {
         return null;
     }
 
+    pub fn getChildren(self: *VNode) ?*VNode {
+        if (self.node_type != .DIRECTORY) return null;
+        return self.children;
+    }
+
     pub fn addRef(self: *VNode) void {
         self.ref_count += 1;
     }

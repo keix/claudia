@@ -71,3 +71,4 @@ pub const sys_chdir: usize = 49;
 pub const sys_fchdir: usize = 50;
 pub const sys_fstat: usize = 80;
 pub const sys_fstatat: usize = 79;
+pub const sys_getdents64: usize = 61; // Get directory entries

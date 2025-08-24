@@ -4,9 +4,9 @@ const utils = @import("shell/utils");
 
 pub fn main(args: *const utils.Args) void {
     _ = args;
-    
+
     utils.writeStr("Testing /dev/null device...\n");
-    
+
     // Test 1: Open /dev/null
     const fd = sys.open(@ptrCast("/dev/null"), 0, 0);
     if (fd < 0) {
@@ -15,11 +15,11 @@ pub fn main(args: *const utils.Args) void {
         utils.writeStr("\n");
         return;
     }
-    
+
     utils.writeStr("Successfully opened /dev/null, fd=");
     writeNumber(@intCast(fd));
     utils.writeStr("\n");
-    
+
     // Test 2: Write to /dev/null
     const msg = "This message goes to the void!\n";
     const written = sys.write(@intCast(fd), @ptrCast(msg.ptr), msg.len);
@@ -34,7 +34,7 @@ pub fn main(args: *const utils.Args) void {
         writeNumber(@intCast(written));
         utils.writeStr("\n");
     }
-    
+
     // Test 3: Read from /dev/null (should return EOF)
     var buffer: [32]u8 = undefined;
     const read_result = sys.read(@intCast(fd), @ptrCast(&buffer), buffer.len);
@@ -45,7 +45,7 @@ pub fn main(args: *const utils.Args) void {
         writeNumber(@intCast(read_result));
         utils.writeStr("\n");
     }
-    
+
     // Test 4: Close /dev/null
     const close_result = sys.close(@intCast(fd));
     if (close_result == 0) {
@@ -55,7 +55,7 @@ pub fn main(args: *const utils.Args) void {
         writeNumber(@intCast(-close_result));
         utils.writeStr("\n");
     }
-    
+
     utils.writeStr("\nAll /dev/null tests completed\n");
 }
 
@@ -64,17 +64,17 @@ fn writeNumber(n: usize) void {
         utils.writeStr("0");
         return;
     }
-    
+
     var buffer: [20]u8 = undefined;
     var i: usize = 0;
     var num = n;
-    
+
     while (num > 0 and i < buffer.len) {
         buffer[i] = @intCast('0' + (num % 10));
         num /= 10;
         i += 1;
     }
-    
+
     while (i > 0) {
         i -= 1;
         var ch: [1]u8 = .{buffer[i]};
