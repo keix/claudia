@@ -149,6 +149,14 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const lisp_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/lisp.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
     const test_open_mod = b.createModule(.{
         .root_source_file = b.path("userland/shell/commands/test_open.zig"),
         .imports = &.{
@@ -190,6 +198,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "exit.zig", .module = exit_mod },
             .{ .name = "ls.zig", .module = ls_mod },
             .{ .name = "cat.zig", .module = cat_mod },
+            .{ .name = "lisp.zig", .module = lisp_mod },
             .{ .name = "test_open.zig", .module = test_open_mod },
             .{ .name = "test_vfs.zig", .module = test_vfs_mod },
             .{ .name = "test_file.zig", .module = test_file_mod },

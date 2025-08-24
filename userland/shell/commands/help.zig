@@ -17,6 +17,7 @@ pub fn main(args: *const utils.Args) void {
     write_str("  exit      - Exit the shell\n");
     write_str("  ls        - List directory contents\n");
     write_str("  cat       - Display file contents\n");
+    write_str("  lisp      - Minimal Lisp REPL\n");
     write_str("  test_open - Test the open system call\n");
     write_str("  test_vfs  - Test VFS path resolution\n");
 }
