@@ -1,117 +1,130 @@
+// Kernel core initialization and system startup
+// Coordinates initialization of all kernel subsystems
+
 const std = @import("std");
+
+// Architecture specific
 const csr = @import("arch/riscv/csr.zig");
-const uart = @import("driver/uart/core.zig");
-const proc = @import("process/core.zig");
-const file = @import("file/core.zig");
+
+// Core subsystems
 const memory = @import("memory/core.zig");
+const proc = @import("process/core.zig");
 const trap = @import("trap/core.zig");
+const file = @import("file/core.zig");
 const user = @import("user/core.zig");
 
-// Simple stack allocator for init process
-var stack_memory: [4096 * 4]u8 = undefined;
-var stack_offset: usize = 0;
+// Drivers
+const uart = @import("driver/uart/core.zig");
+const plic = @import("driver/plic.zig");
 
-fn allocStack(size: usize) []u8 {
+// Boot-time memory allocation
+// Simple stack allocator for initial kernel processes
+// This is used before the heap is fully initialized
+var boot_stack_memory: [4096 * 4]u8 = undefined;
+var boot_stack_offset: usize = 0;
+
+fn allocBootStack(size: usize) []u8 {
     const aligned_size = (size + 7) & ~@as(usize, 7); // 8-byte align
-    if (stack_offset + aligned_size > stack_memory.len) {
+    if (boot_stack_offset + aligned_size > boot_stack_memory.len) {
         return &[_]u8{}; // Out of memory
     }
 
-    const stack = stack_memory[stack_offset .. stack_offset + aligned_size];
-    stack_offset += aligned_size;
+    const stack = boot_stack_memory[boot_stack_offset .. boot_stack_offset + aligned_size];
+    boot_stack_offset += aligned_size;
     return stack;
 }
 
+// Main kernel initialization
 pub fn init() noreturn {
+    // Phase 1: Early initialization (no heap, no MMU)
+    initEarlyBoot();
+
+    // Phase 2: Memory system initialization
+    initMemorySystem();
+
+    // Phase 3: Core subsystems
+    initCoreSubsystems();
+
+    // Phase 4: Create initial processes
+    createInitialProcesses();
+
+    // Phase 5: Start scheduling
+    proc.Scheduler.run(); // Never returns
+}
+
+fn initEarlyBoot() void {
+    // Initialize UART for early debugging
     uart.init();
 
-    // Initialize memory subsystem
+    // Initialize physical memory allocator
     memory.init();
+}
 
+fn initMemorySystem() void {
     // Initialize virtual memory
     memory.initVirtual() catch {
-        while (true) {}
+        halt("Failed to initialize virtual memory");
     };
 
     // Initialize kernel heap before enabling MMU
     const kalloc = @import("memory/kalloc.zig");
     kalloc.init() catch {
-        while (true) {}
+        halt("Failed to initialize kernel heap");
     };
 
+    // Enable MMU
+    memory.enableMMU();
+}
+
+fn initCoreSubsystems() void {
     // Initialize file system
     file.FileTable.init();
 
     // Initialize trap handling
     trap.init();
 
-    // Enable supervisor external interrupts for UART
-    csr.enableInterrupts();
-
-    // Enable external interrupts in SIE
-    csr.csrs(csr.CSR.sie, 1 << 9); // SEIE bit
-
-    // Initialize PLIC for UART interrupts
-    initPLIC();
-
-    // Enable MMU
-    memory.enableMMU();
+    // Initialize interrupt system
+    initInterrupts();
 
     // Initialize user subsystem
     user.init();
 
     // Initialize process scheduler
     proc.Scheduler.init();
+}
 
-    // Create and start initial user process (init)
+fn initInterrupts() void {
+    // Enable supervisor external interrupts for UART
+    csr.enableInterrupts();
+
+    // Enable external interrupts in SIE
+    csr.csrs(csr.CSR.sie, 1 << 9); // SEIE bit
+
+    // Initialize PLIC for external interrupts
+    plic.init();
+}
+
+fn createInitialProcesses() void {
+    // Create the init process (PID 1)
     createInitProcess();
-
-    // Start the process scheduler - this will handle all process scheduling
-    proc.Scheduler.run();
 }
 
-fn createIdleProcess() void {
-    // Allocate kernel stack for idle process
-    const idle_stack = allocStack(4096);
-    if (idle_stack.len == 0) {
-        while (true) {
-            csr.wfi();
-        }
-    }
-
-    // Create the idle process using the regular process allocation
-    if (proc.Scheduler.allocProcess("idle", idle_stack)) |idle_proc| {
-        // Mark as kernel process so it won't try to go to user mode
-        idle_proc.is_kernel = true;
-
-        // Set the entry point to idleLoop
-        idle_proc.context.ra = @intFromPtr(&idleLoop);
-
-        // Make it runnable
-        proc.Scheduler.makeRunnable(idle_proc);
-    } else {
-        while (true) {
-            csr.wfi();
-        }
-    }
-}
-
-pub fn idleLoop() noreturn {
-    // Simple idle loop - just yield frequently
+fn halt(msg: []const u8) noreturn {
+    uart.puts("KERNEL PANIC: ");
+    uart.puts(msg);
+    uart.puts("\n");
     while (true) {
-        // Yield frequently to check for runnable processes
-        proc.Scheduler.yield();
+        csr.wfi();
     }
 }
 
+// Process creation
 fn createInitProcess() void {
 
     // Allocate kernel stack for the process
-    const kernel_stack = allocStack(4096);
+    const kernel_stack = allocBootStack(4096);
     if (kernel_stack.len == 0) {
-        while (true) {
-            csr.wfi();
-        }
+        halt("Failed to allocate stack for init process");
     }
 
     // Create the init process
@@ -122,56 +135,20 @@ fn createInitProcess() void {
         // Make the process runnable
         proc.Scheduler.makeRunnable(init_proc);
     } else {
-        while (true) {
-            csr.wfi();
-        }
+        halt("Failed to create init process");
     }
 }
 
 fn setupUserProcess(process: *proc.Process) void {
-    // This function will set up the process context to run the user shell
-    // For now, we'll set up a basic context that will be used when the process
-    // is scheduled to run
-    _ = process; // Mark parameter as used
-
-    // Get the init program code
-    const _user_shell_start = @extern([*]const u8, .{ .name = "_user_shell_start" });
-    const _user_shell_end = @extern([*]const u8, .{ .name = "_user_shell_end" });
-
-    const start_addr = @intFromPtr(_user_shell_start);
-    const end_addr = @intFromPtr(_user_shell_end);
-    _ = start_addr;
-    _ = end_addr;
-
-    // For init process, we'll setup user mode execution through the trap system
-    // The process context is already initialized for kernel-level context switching
-    // User mode setup will be handled when the process runs
-
+    // Mark process for user mode execution
+    // The actual user mode setup happens when the process runs
+    _ = process;
 }
 
-// Initialize PLIC for UART interrupts
-fn initPLIC() void {
-
-    // PLIC addresses for RISC-V virt machine
-    const PLIC_BASE: u64 = 0x0c000000;
-    const PLIC_PRIORITY = PLIC_BASE + 0x000000; // Interrupt source priority
-    const PLIC_ENABLE = PLIC_BASE + 0x002000; // Interrupt enable bits
-    const PLIC_THRESHOLD = PLIC_BASE + 0x200000; // Priority threshold
-
-    // UART0 is interrupt source 10 in QEMU virt machine
-    const UART_IRQ: u32 = 10;
-
-    // Set UART interrupt priority to 1 (non-zero enables it)
-    const priority_addr = @as(*volatile u32, @ptrFromInt(PLIC_PRIORITY + UART_IRQ * 4));
-    priority_addr.* = 1;
-
-    // Enable UART interrupt for hart 0, context 1 (supervisor mode)
-    // For hart 0, context 1: enable register is at offset 0x2080
-    const enable_addr = @as(*volatile u32, @ptrFromInt(PLIC_ENABLE + 0x80)); // Hart 0, context 1
-    enable_addr.* = 1 << UART_IRQ;
-
-    // Set priority threshold to 0 (accept all priorities)
-    // For hart 0, context 1: threshold is at 0x201000
-    const threshold_addr = @as(*volatile u32, @ptrFromInt(PLIC_THRESHOLD + 0x1000));
-    threshold_addr.* = 0;
+// Idle process support
+pub fn idleLoop() noreturn {
+    // Simple idle loop - just yield CPU
+    while (true) {
+        csr.wfi();
+    }
 }

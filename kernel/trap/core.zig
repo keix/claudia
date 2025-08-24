@@ -194,23 +194,18 @@ fn interruptHandler(frame: *TrapFrame, code: u64) void {
 }
 
 fn handlePLICInterrupt() void {
-    // PLIC addresses
-    const PLIC_BASE: u64 = 0x0c000000;
-    // Hart 0, Context 1 (S-mode) claim/complete register
-    const PLIC_CLAIM = PLIC_BASE + 0x201004; // This is the correct address for hart 0, context 1
+    const plic = @import("../driver/plic.zig");
 
-    // Claim the interrupt
-    const claim_addr = @as(*volatile u32, @ptrFromInt(PLIC_CLAIM));
-    const irq = claim_addr.*;
+    // Claim the interrupt (hart 0, context 1 for S-mode)
+    const irq = plic.claim(0, 1);
 
-    if (irq == 10) { // UART IRQ
+    if (irq == plic.IRQ.UART0) {
         file.uartIsr();
+    }
 
-        // Complete the interrupt
-        claim_addr.* = irq;
-    } else if (irq != 0) {
-        // Complete the interrupt anyway
-        claim_addr.* = irq;
+    // Complete the interrupt if one was claimed
+    if (irq != 0) {
+        plic.complete(0, 1, irq);
     }
 }
 
