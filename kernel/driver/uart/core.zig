@@ -74,14 +74,6 @@ pub fn init() void {
     const ier_addr = @as(*volatile u8, @ptrFromInt(base_addr + 1));
     ier_addr.* = 0x01; // Enable RX interrupt
 
-    // Verify interrupt enable
-    const ier_check = ier_addr.*;
-    puts("[UART] IER set to: 0x");
-    putHex(@as(u64, ier_check));
-    puts(" (RX interrupt ");
-    puts(if ((ier_check & 0x01) != 0) "enabled" else "disabled");
-    puts(")\n");
-
     // Modem Control Register (MCR) - offset 4
     const mcr_addr = @as(*volatile u8, @ptrFromInt(base_addr + 4));
     mcr_addr.* = 0x03; // DTR, RTS active

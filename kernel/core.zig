@@ -25,36 +25,6 @@ fn allocStack(size: usize) []u8 {
 pub fn init() noreturn {
     uart.init();
 
-    // Print kernel memory layout info
-    const _start = @extern(*const u8, .{ .name = "_start" });
-    const _end = @extern(*const u8, .{ .name = "_end" });
-    const _bss_start = @extern(*const u8, .{ .name = "_bss_start" });
-    const _bss_end = @extern(*const u8, .{ .name = "_bss_end" });
-
-    uart.puts("[KERNEL] Memory layout:\n");
-    uart.puts("  _start:     0x");
-    uart.putHex(@intFromPtr(_start));
-    uart.puts("\n");
-    uart.puts("  _bss_start: 0x");
-    uart.putHex(@intFromPtr(_bss_start));
-    uart.puts("\n");
-    uart.puts("  _bss_end:   0x");
-    uart.putHex(@intFromPtr(_bss_end));
-    uart.puts("\n");
-    uart.puts("  _end:       0x");
-    uart.putHex(@intFromPtr(_end));
-    uart.puts("\n");
-
-    const kernel_size = @intFromPtr(_end) - @intFromPtr(_start);
-    uart.puts("  Kernel size: 0x");
-    uart.putHex(kernel_size);
-    uart.puts(" bytes\n");
-
-    // Check initial SATP from OpenSBI
-    uart.puts("[KERNEL] Initial SATP from OpenSBI: 0x");
-    uart.putHex(csr.readSatp());
-    uart.puts("\n");
-
     // Initialize memory subsystem
     memory.init();
 
@@ -76,19 +46,9 @@ pub fn init() noreturn {
     trap.init();
 
     // Enable supervisor external interrupts for UART
-    uart.puts("[KERNEL] Enabling interrupts globally...\n");
     csr.enableInterrupts();
 
-    // Read back sstatus to verify interrupts are enabled
-    const sstatus = csr.readSstatus();
-    uart.puts("[KERNEL] sstatus after enableInterrupts: ");
-    uart.putHex(sstatus);
-    uart.puts(" (SIE bit = ");
-    uart.puts(if ((sstatus & (1 << 1)) != 0) "1" else "0");
-    uart.puts(")\n");
-
     // Enable external interrupts in SIE
-    uart.puts("[KERNEL] Enabling external interrupts in SIE...\n");
     csr.csrs(csr.CSR.sie, 1 << 9); // SEIE bit
 
     // Initialize PLIC for UART interrupts
@@ -107,7 +67,6 @@ pub fn init() noreturn {
     createInitProcess();
 
     // Start the process scheduler - this will handle all process scheduling
-    uart.puts("[KERNEL] Starting scheduler...\n");
     proc.Scheduler.run();
 }
 
@@ -115,7 +74,6 @@ fn createIdleProcess() void {
     // Allocate kernel stack for idle process
     const idle_stack = allocStack(4096);
     if (idle_stack.len == 0) {
-        uart.puts("[KERNEL] Failed to allocate idle stack!\n");
         while (true) {
             csr.wfi();
         }
@@ -131,12 +89,7 @@ fn createIdleProcess() void {
 
         // Make it runnable
         proc.Scheduler.makeRunnable(idle_proc);
-
-        uart.puts("[KERNEL] Created idle process, pid=");
-        uart.putHex(idle_proc.pid);
-        uart.puts("\n");
     } else {
-        uart.puts("[KERNEL] Failed to create idle process!\n");
         while (true) {
             csr.wfi();
         }
@@ -144,18 +97,8 @@ fn createIdleProcess() void {
 }
 
 pub fn idleLoop() noreturn {
-    uart.puts("[IDLE] Idle process started\n");
-
-    var counter: u32 = 0;
     // Simple idle loop - just yield frequently
     while (true) {
-        counter += 1;
-        if (counter % 10000000 == 0) {
-            uart.puts("[IDLE] Still running, counter=");
-            uart.putHex(counter);
-            uart.puts("\n");
-        }
-
         // Yield frequently to check for runnable processes
         proc.Scheduler.yield();
     }
@@ -208,7 +151,6 @@ fn setupUserProcess(process: *proc.Process) void {
 
 // Initialize PLIC for UART interrupts
 fn initPLIC() void {
-    uart.puts("[PLIC] Initializing PLIC for UART interrupts\n");
 
     // PLIC addresses for RISC-V virt machine
     const PLIC_BASE: u64 = 0x0c000000;
@@ -222,27 +164,14 @@ fn initPLIC() void {
     // Set UART interrupt priority to 1 (non-zero enables it)
     const priority_addr = @as(*volatile u32, @ptrFromInt(PLIC_PRIORITY + UART_IRQ * 4));
     priority_addr.* = 1;
-    uart.puts("[PLIC] Set UART IRQ priority to 1 at ");
-    uart.putHex(PLIC_PRIORITY + UART_IRQ * 4);
-    uart.puts("\n");
 
     // Enable UART interrupt for hart 0, context 1 (supervisor mode)
     // For hart 0, context 1: enable register is at offset 0x2080
     const enable_addr = @as(*volatile u32, @ptrFromInt(PLIC_ENABLE + 0x80)); // Hart 0, context 1
     enable_addr.* = 1 << UART_IRQ;
-    uart.puts("[PLIC] Enabled UART IRQ bit ");
-    uart.putHex(UART_IRQ);
-    uart.puts(" at ");
-    uart.putHex(PLIC_ENABLE + 0x80);
-    uart.puts(" = ");
-    uart.putHex(enable_addr.*);
-    uart.puts("\n");
 
     // Set priority threshold to 0 (accept all priorities)
     // For hart 0, context 1: threshold is at 0x201000
     const threshold_addr = @as(*volatile u32, @ptrFromInt(PLIC_THRESHOLD + 0x1000));
     threshold_addr.* = 0;
-    uart.puts("[PLIC] Set threshold to 0 at ");
-    uart.putHex(PLIC_THRESHOLD + 0x1000);
-    uart.puts("\n");
 }

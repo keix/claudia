@@ -188,7 +188,6 @@ const TTY = struct {
 
         // Validate TTY structure to detect corruption
         if (self.magic != 0xDEADBEEF) {
-            uart.puts("[PANIC] TTY structure corrupted in getCharAtomic!\n");
             @panic("TTY structure corrupted!");
         }
 
@@ -224,28 +223,14 @@ comptime {
     _ = &console_tty;
 }
 
-// Global counters for lost-wakeup debugging
-
 // UART interrupt handler to feed TTY - drain FIFO completely
 pub fn uartIsr() void {
-    uart.puts("[UART ISR] Called!\n");
-
     var chars_received = false;
     var char_count: u32 = 0;
     var has_newline = false;
 
     // Drain RX FIFO completely - critical for preventing lost chars
     while (uart.getc()) |ch| {
-        uart.puts("[UART ISR] Got char: ");
-        uart.putHex(ch);
-        uart.puts(" ('");
-        if (ch >= 32 and ch <= 126) {
-            uart.putc(ch);
-        } else {
-            uart.putc('?');
-        }
-        uart.puts("')\n");
-
         // Feed directly to TTY ring buffer with atomic access
         if (console_tty.putCharAtomic(ch)) {
             chars_received = true;
@@ -253,36 +238,31 @@ pub fn uartIsr() void {
             if (ch == '\n' or ch == '\r') {
                 has_newline = true;
             }
-        } else {
-            uart.puts("[UART ISR] Ring buffer full, dropping char!\n");
+
+            // Echo immediately if echo is enabled and in canonical mode
+            if (console_tty.echo_enabled and console_tty.canonical_mode) {
+                if (ch == '\n' or ch == '\r') {
+                    uart.putc('\n');
+                } else if (ch == 0x08 or ch == 0x7F) { // Backspace or DEL
+                    // Don't echo backspace here - the read handler needs to check
+                    // if there's actually something to delete in the line buffer
+                } else if (ch >= 32 and ch <= 126) { // Printable character
+                    uart.putc(ch);
+                }
+            }
         }
         // If ring buffer full, drop character (could log this)
     }
 
     // Wake readers based on mode
     if (chars_received) {
-        uart.puts("[UART ISR] Received ");
-        uart.putHex(char_count);
-        uart.puts(" chars total");
-        // DEBUG: Log interrupt activity
-        if (has_newline) uart.puts(" (has newline)");
-        uart.puts("\n");
-
         if (!console_tty.canonical_mode) {
             // Raw mode: wake on any character
-            uart.puts("[ISR] Waking readers (raw mode)\n");
-            proc.Scheduler.wakeAll(&console_tty.read_wait);
-        } else if (has_newline) {
-            // Canonical mode: wake only on newline
-            uart.puts("[ISR] Waking readers (canonical mode)\n");
             proc.Scheduler.wakeAll(&console_tty.read_wait);
         } else {
-            // DEBUG: Optionally wake on every character in canonical mode
-            const DEBUG_WAKE_ALWAYS = false; // Set to true for testing
-            if (DEBUG_WAKE_ALWAYS) {
-                uart.puts("[ISR] DEBUG: Waking readers on every char (canonical)\n");
-                proc.Scheduler.wakeAll(&console_tty.read_wait);
-            }
+            // Canonical mode: wake on every character to process echo/backspace
+            // This ensures immediate response for line editing
+            proc.Scheduler.wakeAll(&console_tty.read_wait);
         }
     }
 }
@@ -303,16 +283,9 @@ fn consoleRead(file: *File, buffer: []u8) isize {
     const user_addr = @intFromPtr(buffer.ptr);
     const csr = @import("../arch/riscv/csr.zig");
 
-    // DEBUG: Log read call
-    uart.puts("[READ] consoleRead called, size=");
-    uart.putHex(buffer.len);
-    uart.puts(", mode=");
-    uart.puts(if (console_tty.canonical_mode) "canonical\n" else "raw\n");
-
     // Handle canonical vs raw mode
     // Validate TTY before accessing it
     if (console_tty.magic != 0xDEADBEEF) {
-        uart.puts("[PANIC] TTY not initialized or corrupted in consoleRead\n");
         return 5; // EIO
     }
 
@@ -334,9 +307,7 @@ fn consoleRead(file: *File, buffer: []u8) isize {
                 // Conditional sleep: only sleep if buffer is empty (spurious wakeup protection)
                 if (console_tty.input_buffer.isEmpty()) {
                     // sleepOn now handles interrupt enabling internally
-                    uart.puts("[READ] Going to sleep (raw mode)\n");
                     proc.Scheduler.sleepOn(&console_tty.read_wait, current);
-                    uart.puts("[READ] Woke up from sleep\n");
                 }
             } else {
                 // Boot context without process - use WFI
@@ -364,7 +335,6 @@ fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
         // Validate pointer before calling method
         const tty_ptr = &console_tty;
         if (@intFromPtr(tty_ptr) == 0 or @intFromPtr(tty_ptr) > 0xFFFFFFFFFFFFFFFF) {
-            uart.puts("[PANIC] Invalid TTY pointer in consoleReadCanonical\n");
             @panic("Invalid TTY pointer");
         }
         ch = tty_ptr.getCharAtomic();
@@ -372,10 +342,7 @@ fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
         if (ch) |c| {
             // Process the character
             if (c == '\n' or c == '\r') {
-                // End of line - echo newline if echo is enabled
-                if (console_tty.echo_enabled) {
-                    uart.putc('\n');
-                }
+                // End of line - newline already echoed by ISR
 
                 // Copy the line to user buffer
                 const line = console_tty.line_buffer.getLine();
@@ -404,10 +371,7 @@ fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
                 }
             } else if (c >= 32 and c <= 126) { // Printable character
                 if (console_tty.line_buffer.append(c)) {
-                    // Echo the character if echo is enabled
-                    if (console_tty.echo_enabled) {
-                        uart.putc(c);
-                    }
+                    // Character already echoed by ISR
                 } else {
                     // Line buffer full - beep or ignore
                     if (console_tty.echo_enabled) {
@@ -420,28 +384,7 @@ fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
             // No data → 待機
             if (proc.Scheduler.getCurrentProcess()) |current| {
                 // sleepOn now handles interrupt enabling internally
-                uart.puts("[READ] Buffer empty, going to sleep\n");
-                uart.puts("  line_buffer.len=");
-                uart.putHex(console_tty.line_buffer.len);
-                uart.puts(", input_buffer empty=");
-                uart.puts(if (console_tty.input_buffer.isEmpty()) "true\n" else "false\n");
-
-                // Check UART and interrupt status before sleep
-                const uart_base = 0x10000000;
-                const lsr_addr = @as(*volatile u8, @ptrFromInt(uart_base + 5));
-                const ier_addr = @as(*volatile u8, @ptrFromInt(uart_base + 1));
-                uart.puts("  UART before sleep: LSR=");
-                uart.putHex(@as(u64, lsr_addr.*));
-                uart.puts(" IER=");
-                uart.putHex(@as(u64, ier_addr.*));
-                uart.puts("\n");
-
                 proc.Scheduler.sleepOn(&console_tty.read_wait, current);
-
-                uart.puts("[READ] Woke up! line_buffer.len=");
-                uart.putHex(console_tty.line_buffer.len);
-                uart.puts(", input_buffer empty=");
-                uart.puts(if (console_tty.input_buffer.isEmpty()) "true\n" else "false\n");
             } else {
                 csr.enableInterrupts();
                 csr.wfi();

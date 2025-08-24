@@ -5,7 +5,7 @@ This project reimagines the spirit of UNIX Sixth Edition, rewritten with modern 
 
 If you want to understand how a system works, you must write one — under the POSIX.
 
-## Why "Claudia"?
+## Why Claudia
 A quiet name for a quiet system.  
 
 ## Requirements

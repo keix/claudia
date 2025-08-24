@@ -32,15 +32,15 @@ pub fn build(b: *std.Build) void {
         if (std.fs.cwd().access("../zig-out/bin/init", .{})) |_| {
             break :blk "../zig-out/bin";
         } else |_| {}
-        
+
         if (std.fs.cwd().access("../userland/zig-out/bin/init", .{})) |_| {
             break :blk "../userland/zig-out/bin";
         } else |_| {}
-        
+
         // Default to the expected path for standalone build
         break :blk "../userland/zig-out/bin";
     };
-    
+
     const init_asm = b.addWriteFiles();
     const init_asm_content = std.fmt.allocPrint(
         b.allocator,
@@ -85,7 +85,7 @@ pub fn build(b: *std.Build) void {
 
     const install_kernel = b.addInstallArtifact(kernel, .{});
     b.default_step.dependOn(&install_kernel.step);
-    
+
     // Add a helpful message step
     const check_userland = b.addSystemCommand(&.{
         "sh", "-c",
@@ -99,13 +99,12 @@ pub fn build(b: *std.Build) void {
         \\fi
     });
     kernel.step.dependOn(&check_userland.step);
-    
+
     // Add clean step
     const clean_step = b.step("clean", "Clean kernel build artifacts");
     const clean_cmd = b.addSystemCommand(&.{
-        "rm", "-rf",
-        "zig-out",
-        ".zig-cache",
+        "rm",      "-rf",
+        "zig-out", ".zig-cache",
     });
     clean_step.dependOn(&clean_cmd.step);
 }

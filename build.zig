@@ -235,25 +235,6 @@ pub fn build(b: *std.Build) void {
     run_cmd.step.dependOn(b.default_step);
     run_step.dependOn(&run_cmd.step);
 
-    // Add debug step for QEMU with GDB
-    const debug_step = b.step("debug", "Run in QEMU with GDB support");
-    const debug_cmd = b.addSystemCommand(&.{
-        "qemu-system-riscv64",
-        "-M",
-        "virt",
-        "-m",
-        "256M",
-        "-nographic",
-        "-kernel",
-        "zig-out/bin/kernel",
-        "-initrd",
-        "zig-out/bin/shell",
-        "-s",
-        "-S",
-    });
-    debug_cmd.step.dependOn(b.default_step);
-    debug_step.dependOn(&debug_cmd.step);
-
     // Add clean step
     const clean_step = b.step("clean", "Clean build artifacts");
     const clean_cmd = b.addSystemCommand(&.{

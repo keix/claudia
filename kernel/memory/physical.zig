@@ -50,14 +50,6 @@ pub const FrameAllocator = struct {
                         self.free_frames -= 1;
                         const addr = self.frameToAddr(frame);
 
-                        // Debug critical allocations
-                        if (addr >= 0x802bf000 and addr <= 0x802c0000) {
-                            const uart = @import("../driver/uart/core.zig");
-                            uart.puts("[FrameAllocator] CRITICAL: Allocated page table frame at 0x");
-                            uart.putHex(addr);
-                            uart.puts("\n");
-                        }
-
                         return addr;
                     }
                 }
@@ -69,21 +61,7 @@ pub const FrameAllocator = struct {
     pub fn free(self: *Self, addr: usize) void {
         // CRITICAL: Never free active page tables!
         if (addr == 0x802bf000 or addr == 0x802cf000) {
-            const uart = @import("../driver/uart/core.zig");
-            uart.puts("[FrameAllocator] CRITICAL: Attempt to free page table at 0x");
-            uart.putHex(addr);
-            uart.puts(" BLOCKED!\n");
-            uart.puts("  This is an active user page table!\n");
-            // Stack trace would be helpful here
             return;
-        }
-
-        // Also protect L1/L0 page tables that might be in use
-        if (addr >= 0x200b4000 and addr <= 0x200b5000) {
-            const uart = @import("../driver/uart/core.zig");
-            uart.puts("[FrameAllocator] WARNING: Freeing L1 page table at 0x");
-            uart.putHex(addr);
-            uart.puts("\n");
         }
 
         // Validate address
@@ -96,24 +74,8 @@ pub const FrameAllocator = struct {
 
         const frame = self.addrToFrame(addr);
         if (self.testBit(frame)) {
-            // Debug critical deallocations
-            if (addr >= 0x802bf000 and addr <= 0x802c0000) {
-                const uart = @import("../driver/uart/core.zig");
-                uart.puts("[FrameAllocator] WARNING: Freeing page table frame at 0x");
-                uart.putHex(addr);
-                uart.puts("\n");
-            }
-
             self.clearBit(frame);
             self.free_frames += 1;
-        } else {
-            // Double free attempt!
-            if (addr >= 0x802bf000 and addr <= 0x802c0000) {
-                const uart = @import("../driver/uart/core.zig");
-                uart.puts("[FrameAllocator] ERROR: Double-free of page table frame at 0x");
-                uart.putHex(addr);
-                uart.puts("\n");
-            }
         }
     }
 

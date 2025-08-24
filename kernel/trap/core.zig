@@ -78,7 +78,6 @@ var last_fault_addr: u64 = 0;
 
 // Initialize trap handling
 pub fn init() void {
-
     // Set trap vector
     const trap_vector_addr = @intFromPtr(&trap_vector);
     csr.writeStvec(trap_vector_addr);
@@ -189,9 +188,7 @@ fn interruptHandler(frame: *TrapFrame, code: u64) void {
             handlePLICInterrupt();
         },
         else => {
-            uart.puts("[INTERRUPT] Unknown interrupt code: ");
-            uart.putHex(code);
-            uart.puts("\n");
+            // Unknown interrupt - ignore
         },
     }
 }
@@ -324,7 +321,7 @@ fn handlePageFault(frame: *TrapFrame, code: u64) void {
             // Also try flushing just this specific address
             asm volatile ("sfence.vma %[addr], zero"
                 :
-                : [addr] "r" (fault_addr)
+                : [addr] "r" (fault_addr),
                 : "memory"
             );
 
@@ -354,10 +351,6 @@ fn exceptionHandler(frame: *TrapFrame, code: u64) void {
             handlePageFault(frame, code);
         },
         else => {
-            uart.puts("[EXCEPTION] Unhandled exception code: ");
-            uart.putHex(code);
-            uart.puts("\n");
-
             // Stop infinite loop - halt system
             while (true) {
                 csr.wfi();

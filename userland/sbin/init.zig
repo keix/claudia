@@ -17,13 +17,11 @@ fn exec(filename: []const u8) isize {
 }
 
 export fn _start() noreturn {
-    // System initialization
-    write_str("Welcome to Claudia!\n");
-    write_str("Init process starting...\n");
-    write_str("Directly executing shell...\n");
-
-    // For now, skip fork and directly exec shell
-    // This eliminates the complex fork/memory management issues
+    // Claudia is called from the bootloader.
+    write_str("\x1b[2J\x1b[H"); // Clear screen and move cursor to home position
+    write_str("Welcome to Claudia — a modern reimagining of UNIX Sixth Edition.\n");
+    write_str("/* You are *expected* to understand this. */\n");
+    write_str("\n");
 
     const shell_name = "shell\x00";
     const result = exec(shell_name[0..5]);
