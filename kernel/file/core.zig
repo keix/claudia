@@ -524,24 +524,53 @@ pub const FileTable = struct {
 
     pub fn sysOpen(path: []const u8, flags: u32, mode: u16) isize {
         _ = mode; // Ignore mode for now
-        _ = flags; // Ignore flags for now
 
         // Use VFS to resolve the path
-        const node = vfs.resolvePath(path) orelse return defs.ENOENT;
+        var node = vfs.resolvePath(path);
+        
+        // Handle file creation if O_CREAT is set
+        if (node == null and (flags & defs.O_CREAT) != 0) {
+            // Extract directory and filename from path
+            var last_slash: ?usize = null;
+            for (path, 0..) |ch, i| {
+                if (ch == '/') last_slash = i;
+            }
+            
+            if (last_slash) |slash_pos| {
+                const dir_path = if (slash_pos == 0) "/" else path[0..slash_pos];
+                const filename = path[slash_pos + 1..];
+                
+                // Create the file
+                if (vfs.createFile(dir_path, filename)) |new_node| {
+                    node = new_node;
+                } else {
+                    return defs.ENOSPC; // No space or other error
+                }
+            } else {
+                // No directory specified, use root
+                if (vfs.createFile("/", path)) |new_node| {
+                    node = new_node;
+                } else {
+                    return defs.ENOSPC;
+                }
+            }
+        }
+        
+        const vnode = node orelse return defs.ENOENT;
 
         // Handle different node types
-        switch (node.node_type) {
+        switch (vnode.node_type) {
             .DEVICE => {
                 // For device files, check which device it is
-                if (std.mem.eql(u8, node.getName(), "console") or
-                    std.mem.eql(u8, node.getName(), "tty"))
+                if (std.mem.eql(u8, vnode.getName(), "console") or
+                    std.mem.eql(u8, vnode.getName(), "tty"))
                 {
                     // Allocate a new fd for console
                     if (allocFd(&console_file)) |fd| {
                         return @as(isize, @intCast(fd));
                     }
                     return defs.EMFILE; // Too many open files
-                } else if (std.mem.eql(u8, node.getName(), "null")) {
+                } else if (std.mem.eql(u8, vnode.getName(), "null")) {
                     // Allocate a new fd for /dev/null
                     if (allocFd(&null_file)) |fd| {
                         return @as(isize, @intCast(fd));
@@ -551,8 +580,17 @@ pub const FileTable = struct {
                 return defs.ENODEV; // Device not supported
             },
             .FILE => {
-                // TODO: Implement regular file support
-                return defs.ENOSYS;
+                // Regular file support using memory files
+                const memfile = @import("memfile.zig");
+                if (memfile.allocMemFile(vnode)) |mf| {
+                    if (allocFd(&mf.file)) |fd| {
+                        return @as(isize, @intCast(fd));
+                    }
+                    // Failed to allocate fd, free the memfile
+                    memfile.freeMemFile(mf);
+                    return defs.EMFILE;
+                }
+                return defs.ENOMEM; // No memory for file structure
             },
             .DIRECTORY => {
                 // TODO: Implement directory support

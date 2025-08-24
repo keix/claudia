@@ -5,36 +5,81 @@ const utils = @import("shell/utils");
 pub fn main(args: *const utils.Args) void {
     _ = args;
 
-    utils.writeStr("Testing file creation (mock for now)...\n");
+    utils.writeStr("Testing file creation and I/O...\n\n");
 
-    // For now, we'll just test that regular files return ENOENT (file not found)
-    // since file creation is not implemented yet
+    // Test 1: Create and write to a file
+    utils.writeStr("1. Creating /test.txt with O_CREAT...\n");
     const fd = sys.open(@ptrCast("/test.txt"), sys.abi.O_CREAT | sys.abi.O_WRONLY, 0o644);
     if (fd < 0) {
-        const error_num = @as(usize, @intCast(-fd));
-        utils.writeStr("Expected error for regular file: ");
+        utils.writeStr("ERROR: Failed to create file, error=");
+        writeNumber(@intCast(-fd));
+        utils.writeStr("\n");
+        return;
+    }
+    utils.writeStr("   Success! fd=");
+    writeNumber(@intCast(fd));
+    utils.writeStr("\n");
 
-        // Debug: directly print the error number
-        if (error_num == 2) {
-            utils.writeStr("2 (ENOENT - File not found, creation not implemented)\n");
-        } else if (error_num == 38) {
-            utils.writeStr("38 (ENOSYS - Not implemented)\n");
-        } else {
-            // For other errors, try to display the number
-            utils.writeStr("error=");
-            writeNumber(error_num);
-            utils.writeStr(" (Unexpected error)\n");
-        }
+    // Test 2: Write to the file
+    utils.writeStr("2. Writing 'Hello, World!' to file...\n");
+    const msg = "Hello, World!\n";
+    const written = sys.write(@intCast(fd), @ptrCast(msg.ptr), msg.len);
+    if (written == msg.len) {
+        utils.writeStr("   Success! Wrote ");
+        writeNumber(@intCast(written));
+        utils.writeStr(" bytes\n");
     } else {
-        utils.writeStr("Unexpected success opening regular file\n");
-        _ = sys.close(@intCast(fd));
+        utils.writeStr("   Failed: expected ");
+        writeNumber(msg.len);
+        utils.writeStr(" bytes, wrote ");
+        writeNumber(@intCast(written));
+        utils.writeStr("\n");
     }
 
-    utils.writeStr("\nOnce implemented, this will:\n");
-    utils.writeStr("1. Create /test.txt\n");
-    utils.writeStr("2. Write 'Hello, World!' to it\n");
-    utils.writeStr("3. Close the file\n");
-    utils.writeStr("4. Re-open and read contents\n");
+    // Test 3: Close the file
+    utils.writeStr("3. Closing file...\n");
+    const close_result = sys.close(@intCast(fd));
+    if (close_result == 0) {
+        utils.writeStr("   Success!\n");
+    } else {
+        utils.writeStr("   Failed: error=");
+        writeNumber(@intCast(-close_result));
+        utils.writeStr("\n");
+    }
+
+    // Test 4: Re-open and read
+    utils.writeStr("4. Re-opening file for reading...\n");
+    const fd2 = sys.open(@ptrCast("/test.txt"), sys.abi.O_RDONLY, 0);
+    if (fd2 < 0) {
+        utils.writeStr("   ERROR: Failed to open, error=");
+        writeNumber(@intCast(-fd2));
+        utils.writeStr("\n");
+        return;
+    }
+    utils.writeStr("   Success! fd=");
+    writeNumber(@intCast(fd2));
+    utils.writeStr("\n");
+
+    // Test 5: Read from file
+    utils.writeStr("5. Reading from file...\n");
+    var buffer: [32]u8 = undefined;
+    const read_bytes = sys.read(@intCast(fd2), @ptrCast(&buffer), buffer.len);
+    if (read_bytes > 0) {
+        utils.writeStr("   Success! Read ");
+        writeNumber(@intCast(read_bytes));
+        utils.writeStr(" bytes: ");
+        utils.writeStr(buffer[0..@intCast(read_bytes)]);
+    } else if (read_bytes == 0) {
+        utils.writeStr("   EOF reached\n");
+    } else {
+        utils.writeStr("   Failed: error=");
+        writeNumber(@intCast(-read_bytes));
+        utils.writeStr("\n");
+    }
+
+    _ = sys.close(@intCast(fd2));
+
+    utils.writeStr("\nFile I/O test completed!\n");
 }
 
 fn writeNumber(n: usize) void {
