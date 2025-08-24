@@ -1,5 +1,5 @@
-# User mode transition for RISC-V
-# Provides one-way transition from S-mode to U-mode
+# RISC-V user mode transition
+# One-way switch from supervisor to user mode
 
 .section .text
 .global switch_to_user_mode
