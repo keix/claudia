@@ -16,8 +16,8 @@ clear_bss:
     j clear_bss
 clear_bss_done:
 
-    # Jump to kernel main
-    call kernel_main
+    # Jump to kernel main (OpenSBI already set us up in S-mode)
+    call start
 
     # If kernel returns, hang
 hang:
