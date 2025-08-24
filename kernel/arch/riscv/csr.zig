@@ -1,5 +1,5 @@
-// RISC-V architecture definitions and utilities
-// Based on RISC-V privileged spec v1.11
+// RISC-V Control and Status Registers
+// Privileged architecture interface for RISC-V
 
 const std = @import("std");
 

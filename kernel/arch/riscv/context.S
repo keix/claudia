@@ -1,6 +1,7 @@
-# RISC-V context switch implementation
+# RISC-V context switching
+# Process context save and restore routines
+
 # void context_switch(Context *old, Context *new)
-# 
 # Context layout (matches full Context struct in process/core.zig):
 # 0:   ra (x1)
 # 8:   sp (x2)

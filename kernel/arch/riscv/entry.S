@@ -1,3 +1,6 @@
+# RISC-V kernel entry point
+# Bootstrap code for kernel initialization
+
 .section .text.boot
 .global _start
 

@@ -1,5 +1,5 @@
-# RISC-V trap handler
-# Handles system calls and exceptions from user mode
+# RISC-V trap handling
+# System call and exception entry from user mode
 
 .section .text
 .global trap_vector
