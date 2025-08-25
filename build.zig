@@ -347,8 +347,45 @@ pub fn build(b: *std.Build) void {
     // Build Steps
     // ======================
 
+    // Build mkinitrd tool (for host system)
+    const mkinitrd = b.addExecutable(.{
+        .name = "mkinitrd",
+        .root_source_file = b.path("mkinitrd.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseFast,
+    });
+    const install_mkinitrd = b.addInstallArtifact(mkinitrd, .{});
+
+    // Create initrd with sample files
+    const initrd_step = b.step("initrd", "Create initrd image");
+    initrd_step.dependOn(&install_mkinitrd.step);
+    
+    // Create initrd from all rootfs files
+    const create_initrd_cmd = b.addSystemCommand(&.{
+        "sh", "-c",
+        "find rootfs -type f -not -path '*/.*' | xargs zig-out/bin/mkinitrd zig-out/initrd.img",
+    });
+    create_initrd_cmd.step.dependOn(&install_mkinitrd.step);
+    initrd_step.dependOn(&create_initrd_cmd.step);
+    
+    // Create assembly wrapper to embed initrd
+    const initrd_asm = b.addWriteFiles();
+    const initrd_asm_file = initrd_asm.add("initrd_data.S",
+        \\.section .rodata
+        \\.global _initrd_start
+        \\.global _initrd_end
+        \\_initrd_start:
+        \\.incbin "zig-out/initrd.img"
+        \\_initrd_end:
+    );
+    initrd_asm.step.dependOn(&create_initrd_cmd.step);
+    
+    // Add the embedded initrd to kernel
+    kernel.addAssemblyFile(initrd_asm_file);
+
     // Default build depends on kernel (which depends on userland)
     b.default_step.dependOn(&install_kernel.step);
+    b.default_step.dependOn(initrd_step);
 
     // Add individual build steps
     const kernel_step = b.step("kernel", "Build only the kernel");
@@ -358,7 +395,7 @@ pub fn build(b: *std.Build) void {
     userland_step.dependOn(&install_init.step);
     userland_step.dependOn(&install_shell.step);
 
-    // Add run step for QEMU
+    // Add run step for QEMU (with embedded initrd)
     const run_step = b.step("run", "Run in QEMU");
     const run_cmd = b.addSystemCommand(&.{
         "qemu-system-riscv64",
@@ -369,11 +406,27 @@ pub fn build(b: *std.Build) void {
         "-nographic",
         "-kernel",
         "zig-out/bin/kernel",
-        "-initrd",
-        "zig-out/bin/shell",
     });
     run_cmd.step.dependOn(b.default_step);
     run_step.dependOn(&run_cmd.step);
+
+    // Add run-initrd step for QEMU with initrd
+    const run_initrd_step = b.step("run-initrd", "Run in QEMU with initrd");
+    const run_initrd_cmd = b.addSystemCommand(&.{
+        "qemu-system-riscv64",
+        "-M",
+        "virt",
+        "-m",
+        "256M",
+        "-nographic",
+        "-kernel",
+        "zig-out/bin/kernel",
+        "-initrd",
+        "zig-out/initrd.img",
+    });
+    run_initrd_cmd.step.dependOn(b.default_step);
+    run_initrd_cmd.step.dependOn(initrd_step);
+    run_initrd_step.dependOn(&run_initrd_cmd.step);
 
     // Add clean step
     const clean_step = b.step("clean", "Clean build artifacts");

@@ -17,6 +17,10 @@ const vfs = @import("fs/vfs.zig");
 // Drivers
 const uart = @import("driver/uart/core.zig");
 const plic = @import("driver/plic.zig");
+const ramdisk = @import("driver/ramdisk.zig");
+
+// Boot
+const initrd = @import("boot/initrd.zig");
 
 // Boot-time memory allocation
 // Simple stack allocator for initial kernel processes
@@ -85,9 +89,13 @@ fn initCoreSubsystems() void {
     vfs.init();
 
     // Initialize RAM disk
-    const ramdisk = @import("driver/ramdisk.zig");
     ramdisk.initGlobalRamDisk() catch {
         halt("Failed to initialize RAM disk");
+    };
+
+    // Load initrd if provided
+    initrd.loadInitrd() catch {
+        uart.puts("Warning: Failed to load initrd\n");
     };
 
     // Initialize trap handling

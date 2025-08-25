@@ -17,8 +17,8 @@ var test_user_context: memory.UserMemoryContext = undefined;
 
 // Initialize user subsystem
 pub fn init() void {
-    // Comment out memory.init() - kernel stack frames might already be allocated
-    // memory.init();
+    // Initialize memory subsystem to allocate kernel stack frames
+    memory.init();
     test_user_context = memory.UserMemoryContext.init();
     // User subsystem initialized
 }
@@ -38,11 +38,8 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
         return error.MemorySetupFailed;
     };
 
-    // User address space created successfully
-
     // Get loadable segments
     const segments = elf.getLoadableSegments(code, header) orelse {
-        // No loadable segments found
         return error.NoLoadableSegments;
     };
 
@@ -191,7 +188,6 @@ fn composeSatp(ppn: u64, asid: u16) u64 {
 }
 
 pub fn initActualUserMode() void {
-
     // Get the init program code
     const _user_init_start = @extern([*]const u8, .{ .name = "_user_init_start" });
     const _user_init_end = @extern([*]const u8, .{ .name = "_user_init_end" });
@@ -201,7 +197,6 @@ pub fn initActualUserMode() void {
     const code_size = end_addr - start_addr;
 
     // Check init binary size
-
     if (code_size > 0 and code_size < 2097152) { // Allow up to 2MB for init
         const code = @as([*]const u8, @ptrFromInt(start_addr))[0..code_size];
 
