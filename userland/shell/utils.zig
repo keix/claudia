@@ -102,26 +102,26 @@ pub fn intToStr(value: i32) []const u8 {
         int_buf[0] = '0';
         return int_buf[0..1];
     }
-    
+
     var val = value;
     var negative = false;
     if (val < 0) {
         negative = true;
         val = -val;
     }
-    
+
     var pos: usize = int_buf.len;
     while (val > 0) {
         pos -= 1;
         int_buf[pos] = @as(u8, '0' + @as(u8, @intCast(@mod(val, 10))));
         val = @divTrunc(val, 10);
     }
-    
+
     if (negative) {
         pos -= 1;
         int_buf[pos] = '-';
     }
-    
+
     return int_buf[pos..];
 }
 

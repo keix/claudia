@@ -8,7 +8,7 @@ var global_pos: usize = 0;
 
 fn alloc(size: usize) ?[]u8 {
     if (global_pos + size > global_buffer.len) return null;
-    const ptr = global_buffer[global_pos..global_pos + size];
+    const ptr = global_buffer[global_pos .. global_pos + size];
     global_pos += size;
     return ptr;
 }
@@ -26,7 +26,7 @@ const Atom = union(enum) {
 
 // List structure
 const List = struct {
-    items: [32]LispValue,  // Fixed size
+    items: [32]LispValue, // Fixed size
     len: usize,
 };
 
@@ -34,7 +34,7 @@ const List = struct {
 const LispValue = union(enum) {
     Atom: Atom,
     List: *List,
-    
+
     fn print(self: LispValue) void {
         switch (self) {
             .Atom => |atom| {
@@ -71,7 +71,7 @@ fn setVar(name: []const u8, value: LispValue) void {
             return;
         }
     }
-    
+
     // Add new variable
     if (var_count < MAX_VARS) {
         utils.strCopy(&var_names[var_count], name);
@@ -100,13 +100,13 @@ fn skipSpace(input: []const u8, pos: *usize) void {
 fn parseNumber(input: []const u8, pos: *usize) ?i32 {
     var num: i32 = 0;
     var found = false;
-    
+
     while (pos.* < input.len and input[pos.*] >= '0' and input[pos.*] <= '9') {
         num = num * 10 + @as(i32, input[pos.*] - '0');
         pos.* += 1;
         found = true;
     }
-    
+
     if (found) return num else return null;
 }
 
@@ -122,23 +122,23 @@ fn parseSymbol(input: []const u8, pos: *usize) ?[]const u8 {
 fn parse(input: []const u8, pos: *usize) ?LispValue {
     skipSpace(input, pos);
     if (pos.* >= input.len) return null;
-    
+
     if (input[pos.*] == '(') {
         // Parse list
-        pos.* += 1;  // Skip '('
+        pos.* += 1; // Skip '('
         const list_ptr = @as(*List, @ptrCast(@alignCast(alloc(@sizeOf(List)) orelse return null)));
         list_ptr.len = 0;
-        
+
         while (true) {
             skipSpace(input, pos);
             if (pos.* >= input.len) return null;
             if (input[pos.*] == ')') {
-                pos.* += 1;  // Skip ')'
+                pos.* += 1; // Skip ')'
                 return LispValue{ .List = list_ptr };
             }
-            
-            if (list_ptr.len >= list_ptr.items.len) return null;  // List full
-            
+
+            if (list_ptr.len >= list_ptr.items.len) return null; // List full
+
             const elem = parse(input, pos) orelse return null;
             list_ptr.items[list_ptr.len] = elem;
             list_ptr.len += 1;
@@ -157,7 +157,7 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
             } else if (utils.strEq(sym, "#f")) {
                 return LispValue{ .Atom = Atom{ .Boolean = false } };
             }
-            
+
             // Store symbol string
             const sym_copy = alloc(sym.len) orelse return null;
             for (sym, 0..) |ch, i| {
@@ -166,7 +166,7 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
             return LispValue{ .Atom = Atom{ .Symbol = sym_copy } };
         }
     }
-    
+
     return null;
 }
 
@@ -183,12 +183,12 @@ fn eval(value: LispValue) ?LispValue {
         },
         .List => |list| {
             if (list.len == 0) return null;
-            
+
             const first = list.items[0];
             if (first != .Atom or first.Atom != .Symbol) return null;
-            
+
             const op = first.Atom.Symbol;
-            
+
             // Built-in operations
             if (utils.strEq(op, "+")) {
                 if (list.len < 3) return null;
@@ -240,7 +240,7 @@ fn eval(value: LispValue) ?LispValue {
                 if (list.len != 2) return null;
                 return list.items[1];
             }
-            
+
             return null;
         },
     }
@@ -249,36 +249,36 @@ fn eval(value: LispValue) ?LispValue {
 // Main command entry point
 pub fn main(args: *const utils.Args) void {
     _ = args;
-    
+
     utils.writeStr("Minimal Lisp REPL for Claudia\n");
     utils.writeStr("Commands: +, -, *, =, define, if, quote\n");
     utils.writeStr("Type 'quit' to exit\n\n");
-    
+
     var input_buffer: [256]u8 = undefined;
-    
+
     while (true) {
         utils.writeStr("> ");
-        
+
         const result = utils.readLine(&input_buffer);
         if (result <= 0) break;
-        
+
         const len = @as(usize, @intCast(result));
-        
+
         // Remove newline
         var input_len = len;
         if (input_len > 0 and (input_buffer[input_len - 1] == '\n' or input_buffer[input_len - 1] == '\r')) {
             input_len -= 1;
         }
-        
+
         if (input_len == 0) continue;
-        
+
         // Check for quit
         const input = input_buffer[0..input_len];
         if (utils.strEq(input, "quit")) break;
-        
+
         // Reset allocator for each expression
         resetAlloc();
-        
+
         // Parse and evaluate
         var pos: usize = 0;
         if (parse(input, &pos)) |expr| {

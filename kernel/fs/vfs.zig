@@ -119,6 +119,7 @@ var dev_node: VNode = undefined;
 var console_node: VNode = undefined;
 var tty_node: VNode = undefined;
 var null_node: VNode = undefined;
+var ramdisk_node: VNode = undefined;
 var initialized = false;
 
 // Initialize VFS with basic structure
@@ -143,6 +144,10 @@ pub fn init() void {
     // Create /dev/null
     null_node = VNode.init(.DEVICE, "null");
     dev_node.addChild(&null_node);
+
+    // Create /dev/ramdisk
+    ramdisk_node = VNode.init(.DEVICE, "ramdisk");
+    dev_node.addChild(&ramdisk_node);
 
     initialized = true;
 }
