@@ -5,32 +5,35 @@ const blockdev = @import("../driver/blockdev.zig");
 
 // Filesystem constants
 const MAGIC: u32 = 0x53494D50; // 'SIMP'
-const MAX_FILES: u32 = 64;
+const MAX_FILES: u32 = 8; // Reduced to fit in one block
 const MAX_FILENAME: u32 = 28;
 const DATA_START_BLOCK: u32 = 2; // After superblock and file table
 
 // On-disk structures
-const SuperBlock = packed struct {
+const SuperBlock = extern struct {
     magic: u32,
     total_blocks: u32,
     free_blocks: u32,
     file_count: u32,
-    reserved: [500]u8 = undefined, // Pad to 512 bytes
+    reserved: [496]u8 = undefined, // Pad to 512 bytes
 };
 
-const FileEntry = packed struct {
-    name: [MAX_FILENAME]u8,
-    size: u32,
-    start_block: u32,
-    blocks_used: u32,
-    flags: u32, // 0 = free, 1 = used
-    reserved: [12]u8 = undefined, // Pad to 64 bytes
+const FileEntry = extern struct {
+    name: [MAX_FILENAME]u8, // 28 bytes
+    size: u32,              // 4 bytes
+    start_block: u32,       // 4 bytes
+    blocks_used: u32,       // 4 bytes
+    flags: u32,             // 4 bytes
+    reserved: [20]u8 = undefined, // Pad to 64 bytes (28+4+4+4+4+20=64)
 };
 
 comptime {
     if (@sizeOf(SuperBlock) != 512) @compileError("SuperBlock must be 512 bytes");
     if (@sizeOf(FileEntry) != 64) @compileError("FileEntry must be 64 bytes");
 }
+
+// Global storage for SimpleFS to avoid stack issues
+var global_fs: SimpleFS = undefined;
 
 // In-memory filesystem state
 pub const SimpleFS = struct {
@@ -53,45 +56,91 @@ pub const SimpleFS = struct {
         @memcpy(block_buf[0..@sizeOf(SuperBlock)], super_bytes);
         try device.writeBlock(0, &block_buf);
 
-        // Clear file table
+        // Clear file table (only block 1 for 16 files)
         @memset(&block_buf, 0);
-        for (0..8) |i| { // 8 blocks for file table (512 entries max)
-            try device.writeBlock(1 + i, &block_buf);
-        }
+        try device.writeBlock(1, &block_buf);
     }
 
-    pub fn mount(device: *blockdev.BlockDevice) !SimpleFS {
-        var fs = SimpleFS{
-            .device = device,
-            .super = undefined,
-            .files = undefined,
-        };
-
+    pub fn mount(device: *blockdev.BlockDevice) error{InvalidFilesystem}!*SimpleFS {
+        // Initialize global_fs first with minimal data
+        global_fs.device = device;
+        @memset(std.mem.asBytes(&global_fs.files), 0);
+        
         // Read superblock
         var block_buf: [blockdev.BLOCK_SIZE]u8 = undefined;
-        try device.readBlock(0, &block_buf);
-        fs.super = std.mem.bytesToValue(SuperBlock, block_buf[0..@sizeOf(SuperBlock)]);
-
-        if (fs.super.magic != MAGIC) {
+        device.readBlock(0, &block_buf) catch {
+            return error.InvalidFilesystem;
+        };
+        
+        // Copy superblock
+        global_fs.super = std.mem.bytesToValue(SuperBlock, block_buf[0..@sizeOf(SuperBlock)]);
+        
+        if (global_fs.super.magic != MAGIC) {
             return error.InvalidFilesystem;
         }
-
-        // Read file table
-        for (0..MAX_FILES) |i| {
-            const block_num = 1 + (i * @sizeOf(FileEntry)) / blockdev.BLOCK_SIZE;
-            const offset = (i * @sizeOf(FileEntry)) % blockdev.BLOCK_SIZE;
-
-            try device.readBlock(block_num, &block_buf);
-            fs.files[i] = std.mem.bytesToValue(FileEntry, block_buf[offset .. offset + @sizeOf(FileEntry)]);
+        
+        // Read file table from block 1
+        device.readBlock(1, &block_buf) catch {
+            return error.InvalidFilesystem;
+        };
+        
+        // Load file entries (up to 8 entries per block)
+        const entries_per_block = blockdev.BLOCK_SIZE / @sizeOf(FileEntry);
+        var i: usize = 0;
+        while (i < entries_per_block and i < MAX_FILES) : (i += 1) {
+            const offset = i * @sizeOf(FileEntry);
+            global_fs.files[i] = std.mem.bytesToValue(FileEntry, block_buf[offset..offset + @sizeOf(FileEntry)]);
         }
-
-        return fs;
+        
+        return &global_fs;
     }
 
     pub fn createFile(self: *SimpleFS, name: []const u8, content: []const u8) !void {
+        
         if (name.len >= MAX_FILENAME) return error.NameTooLong;
 
-        // Find free file entry
+        // First, check if file already exists and update it
+        for (&self.files) |*entry| {
+            if (entry.flags == 1) {
+                const entry_name = std.mem.sliceTo(&entry.name, 0);
+                if (std.mem.eql(u8, entry_name, name)) {
+                    // File exists, update it
+                    // Free old blocks if size is different
+                    const old_blocks = entry.blocks_used;
+                    const new_blocks = if (content.len == 0) 0 else (content.len + blockdev.BLOCK_SIZE - 1) / blockdev.BLOCK_SIZE;
+                    
+                    if (new_blocks > self.super.free_blocks + old_blocks) return error.NoSpace;
+                    
+                    // Write new content
+                    
+                    var block_buf: [blockdev.BLOCK_SIZE]u8 = undefined;
+                    var written: usize = 0;
+                    if (new_blocks > 0) {
+                        for (0..new_blocks) |i| {
+                            @memset(&block_buf, 0);
+                            const to_write = @min(blockdev.BLOCK_SIZE, content.len - written);
+                            @memcpy(block_buf[0..to_write], content[written .. written + to_write]);
+                            
+                            const block_num = entry.start_block + i;
+                            try self.device.writeBlock(block_num, &block_buf);
+                            written += to_write;
+                        }
+                    }
+                    
+                    // Update entry
+                    entry.size = @intCast(content.len);
+                    entry.blocks_used = @intCast(new_blocks);
+                    
+                    // Update superblock
+                    self.super.free_blocks = self.super.free_blocks + @as(u32, @intCast(old_blocks)) - @as(u32, @intCast(new_blocks));
+                    
+                    try self.sync();
+                    return;
+                }
+            }
+        }
+
+        // File doesn't exist, find free entry
         var free_entry: ?*FileEntry = null;
         for (&self.files) |*entry| {
             if (entry.flags == 0) {
@@ -103,21 +152,35 @@ pub const SimpleFS = struct {
         const entry = free_entry orelse return error.NoSpace;
 
         // Calculate blocks needed
-        const blocks_needed = (content.len + blockdev.BLOCK_SIZE - 1) / blockdev.BLOCK_SIZE;
+        const blocks_needed = if (content.len == 0) 0 else (content.len + blockdev.BLOCK_SIZE - 1) / blockdev.BLOCK_SIZE;
         if (blocks_needed > self.super.free_blocks) return error.NoSpace;
 
         // Find contiguous free blocks
-        const start_block = DATA_START_BLOCK + (self.super.total_blocks - self.super.free_blocks - DATA_START_BLOCK);
+        // Calculate the next free block based on existing files
+        var next_free_block: u32 = DATA_START_BLOCK;
+        for (&self.files) |*existing_entry| {
+            if (existing_entry.flags == 1) {
+                const end_block = existing_entry.start_block + existing_entry.blocks_used;
+                if (end_block > next_free_block) {
+                    next_free_block = end_block;
+                }
+            }
+        }
+        const start_block = next_free_block;
 
         // Write file data
         var block_buf: [blockdev.BLOCK_SIZE]u8 = undefined;
         var written: usize = 0;
-        for (0..blocks_needed) |i| {
-            @memset(&block_buf, 0);
-            const to_write = @min(blockdev.BLOCK_SIZE, content.len - written);
-            @memcpy(block_buf[0..to_write], content[written .. written + to_write]);
-            try self.device.writeBlock(start_block + i, &block_buf);
-            written += to_write;
+        if (blocks_needed > 0) {
+            for (0..blocks_needed) |i| {
+                @memset(&block_buf, 0);
+                const to_write = @min(blockdev.BLOCK_SIZE, content.len - written);
+                @memcpy(block_buf[0..to_write], content[written .. written + to_write]);
+                
+                const block_num = start_block + i;
+                try self.device.writeBlock(block_num, &block_buf);
+                written += to_write;
+            }
         }
 
         // Update file entry
@@ -162,7 +225,7 @@ pub const SimpleFS = struct {
             @memcpy(buffer[read .. read + to_read], block_buf[0..to_read]);
             read += to_read;
         }
-
+        
         return entry.size;
     }
 
@@ -191,22 +254,34 @@ pub const SimpleFS = struct {
         try self.device.writeBlock(0, &block_buf);
 
         // Write file table
+        var current_block_num: u64 = 999999; // Invalid block number to force initial read
         for (0..MAX_FILES) |i| {
             const block_num = 1 + (i * @sizeOf(FileEntry)) / blockdev.BLOCK_SIZE;
             const offset = (i * @sizeOf(FileEntry)) % blockdev.BLOCK_SIZE;
 
-            // Read block first if we're not at the start
-            if (offset != 0 or i == 0) {
-                try self.device.readBlock(block_num, &block_buf);
+            // Read block if it's a different block than the current one
+            if (block_num != current_block_num) {
+                // Write previous block if needed
+                if (current_block_num != 999999) {
+                    try self.device.writeBlock(current_block_num, &block_buf);
+                }
+                
+                // Read new block
+                @memset(&block_buf, 0);
+                if (offset != 0) {
+                    // Partial block - need to preserve existing data
+                    try self.device.readBlock(block_num, &block_buf);
+                }
+                current_block_num = block_num;
             }
 
             const entry_bytes = std.mem.asBytes(&self.files[i]);
             @memcpy(block_buf[offset .. offset + @sizeOf(FileEntry)], entry_bytes);
-
-            // Write block if we're at the end or filled it
-            if (offset + @sizeOf(FileEntry) == blockdev.BLOCK_SIZE or i == MAX_FILES - 1) {
-                try self.device.writeBlock(block_num, &block_buf);
-            }
+        }
+        
+        // Write the last block
+        if (current_block_num != 999999) {
+            try self.device.writeBlock(current_block_num, &block_buf);
         }
     }
 };

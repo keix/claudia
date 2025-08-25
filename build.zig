@@ -221,6 +221,30 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const write_fs_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/write_fs.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
+    const read_fs_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/read_fs.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
+    const list_fs_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/list_fs.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
     // Create commands index module
     const commands_index_mod = b.createModule(.{
         .root_source_file = b.path("userland/shell/commands/index.zig"),
@@ -239,6 +263,9 @@ pub fn build(b: *std.Build) void {
             .{ .name = "test_ramdisk.zig", .module = test_ramdisk_mod },
             .{ .name = "test_simplefs.zig", .module = test_simplefs_mod },
             .{ .name = "init_fs.zig", .module = init_fs_mod },
+            .{ .name = "write_fs.zig", .module = write_fs_mod },
+            .{ .name = "read_fs.zig", .module = read_fs_mod },
+            .{ .name = "list_fs.zig", .module = list_fs_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });

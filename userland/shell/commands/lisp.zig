@@ -220,6 +220,34 @@ fn eval(value: LispValue) ?LispValue {
                 const b = eval(list.items[2]) orelse return null;
                 if (a != .Atom or a.Atom != .Number or b != .Atom or b.Atom != .Number) return null;
                 return LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number == b.Atom.Number } };
+            } else if (utils.strEq(op, "<=")) {
+                if (list.len != 3) return null;
+                const a = eval(list.items[1]) orelse return null;
+                const b = eval(list.items[2]) orelse return null;
+                if (a != .Atom or a.Atom != .Number or b != .Atom or b.Atom != .Number) return null;
+                return LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number <= b.Atom.Number } };
+            } else if (utils.strEq(op, "mod")) {
+                if (list.len != 3) return null;
+                const a = eval(list.items[1]) orelse return null;
+                const b = eval(list.items[2]) orelse return null;
+                if (a != .Atom or a.Atom != .Number or b != .Atom or b.Atom != .Number) return null;
+                if (b.Atom.Number == 0) return null; // Division by zero
+                return LispValue{ .Atom = Atom{ .Number = @mod(a.Atom.Number, b.Atom.Number) } };
+            } else if (utils.strEq(op, "and")) {
+                if (list.len != 3) return null;
+                const a = eval(list.items[1]) orelse return null;
+                const b = eval(list.items[2]) orelse return null;
+                if (a != .Atom or a.Atom != .Boolean or b != .Atom or b.Atom != .Boolean) return null;
+                return LispValue{ .Atom = Atom{ .Boolean = a.Atom.Boolean and b.Atom.Boolean } };
+            } else if (utils.strEq(op, "print")) {
+                if (list.len < 2) return null;
+                for (1..list.len) |i| {
+                    if (i > 1) utils.writeStr(" ");
+                    const val = eval(list.items[i]) orelse return null;
+                    val.print();
+                }
+                utils.writeStr("\n");
+                return LispValue{ .Atom = Atom{ .Symbol = "ok" } };
             } else if (utils.strEq(op, "define")) {
                 if (list.len != 3) return null;
                 if (list.items[1] != .Atom or list.items[1].Atom != .Symbol) return null;
@@ -246,12 +274,108 @@ fn eval(value: LispValue) ?LispValue {
     }
 }
 
+// Helper to execute Lisp code from a string
+fn executeLisp(code: []const u8) void {
+    // Reset allocator
+    resetAlloc();
+
+    // Parse and evaluate each expression
+    var pos: usize = 0;
+    while (pos < code.len) {
+        skipSpace(code, &pos);
+        if (pos >= code.len) break;
+
+        if (parse(code, &pos)) |expr| {
+            if (eval(expr)) |result_val| {
+                result_val.print();
+                utils.writeStr("\n");
+            } else {
+                utils.writeStr("Error: evaluation failed\n");
+                break;
+            }
+        } else {
+            utils.writeStr("Error: parse failed\n");
+            break;
+        }
+    }
+}
+
+// Read file from SimpleFS
+fn readFileFromSimpleFS(filename: []const u8, buffer: []u8) ?usize {
+    // Open /dev/ramdisk for reading
+    const path = "/dev/ramdisk";
+    const fd = sys.open(@ptrCast(path.ptr), sys.abi.O_RDWR, 0);
+    if (fd < 0) return null;
+    defer _ = sys.close(@intCast(fd));
+
+    // Try to read from SimpleFS
+    var cmd_buffer: [256]u8 = undefined;
+    var pos: usize = 0;
+
+    // Command: Read file (0x02)
+    cmd_buffer[pos] = 0x02;
+    pos += 1;
+
+    // Filename length and filename
+    cmd_buffer[pos] = @intCast(filename.len);
+    pos += 1;
+    @memcpy(cmd_buffer[pos..pos + filename.len], filename);
+    pos += filename.len;
+
+    // Send command to prepare file read
+    const result = sys.write(@intCast(fd), @ptrCast(&cmd_buffer), pos);
+    if (result < 0) return null;
+
+    // Now read the actual file content
+    const bytes_read = sys.read(@intCast(fd), buffer.ptr, buffer.len);
+    if (bytes_read > 0) {
+        return @intCast(bytes_read);
+    }
+    
+    return null;
+}
+
 // Main command entry point
 pub fn main(args: *const utils.Args) void {
-    _ = args;
+    // Check if a filename was provided
+    if (args.argc > 1) {
+        // Execute file mode
+        const filename = args.argv[1];
+        utils.writeStr("Executing Lisp file: ");
+        utils.writeStr(filename);
+        utils.writeStr("\n");
 
+        // Try to read from SimpleFS
+        var file_buffer: [4096]u8 = undefined;
+        if (readFileFromSimpleFS(filename, &file_buffer)) |size| {
+            executeLisp(file_buffer[0..size]);
+        } else {
+            // Try reading as a regular file
+            const fd = sys.open(@ptrCast(filename.ptr), sys.abi.O_RDONLY, 0);
+            if (fd < 0) {
+                utils.writeStr("Error: Cannot open file ");
+                utils.writeStr(filename);
+                utils.writeStr("\n");
+                return;
+            }
+            defer _ = sys.close(@intCast(fd));
+
+            const bytes_read = sys.read(@intCast(fd), &file_buffer, file_buffer.len);
+            if (bytes_read < 0) {
+                utils.writeStr("Error: Cannot read file\n");
+                return;
+            }
+
+            if (bytes_read > 0) {
+                executeLisp(file_buffer[0..@intCast(bytes_read)]);
+            }
+        }
+        return;
+    }
+
+    // REPL mode
     utils.writeStr("Minimal Lisp REPL for Claudia\n");
-    utils.writeStr("Commands: +, -, *, =, define, if, quote\n");
+    utils.writeStr("Commands: +, -, *, =, <=, mod, and, print, define, if, quote\n");
     utils.writeStr("Type 'quit' to exit\n\n");
 
     var input_buffer: [256]u8 = undefined;
@@ -276,20 +400,7 @@ pub fn main(args: *const utils.Args) void {
         const input = input_buffer[0..input_len];
         if (utils.strEq(input, "quit")) break;
 
-        // Reset allocator for each expression
-        resetAlloc();
-
-        // Parse and evaluate
-        var pos: usize = 0;
-        if (parse(input, &pos)) |expr| {
-            if (eval(expr)) |result_val| {
-                result_val.print();
-                utils.writeStr("\n");
-            } else {
-                utils.writeStr("Error: evaluation failed\n");
-            }
-        } else {
-            utils.writeStr("Error: parse failed\n");
-        }
+        // Execute the expression
+        executeLisp(input);
     }
 }

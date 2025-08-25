@@ -31,31 +31,55 @@ const BlockFileOps = core.FileOperations{
 fn blockRead(file: *core.File, buffer: []u8) isize {
     const bf: *BlockFile = @alignCast(@fieldParentPtr("file", file));
 
-    // Calculate block-aligned read
-    const block_num = bf.pos / blockdev.BLOCK_SIZE;
-    const offset = bf.pos % blockdev.BLOCK_SIZE;
+    // Check if this is a SimpleFS file read
+    const simplefs_ops = @import("../fs/simplefs_ops.zig");
+    if (simplefs_ops.handleFileRead(buffer)) |bytes_read| {
+        return @as(isize, @intCast(bytes_read));
+    } else |_| {
+        // Regular block-aligned read
+        const block_num = bf.pos / blockdev.BLOCK_SIZE;
+        const offset = bf.pos % blockdev.BLOCK_SIZE;
 
-    if (block_num >= bf.device.total_blocks) {
-        return 0; // EOF
+        if (block_num >= bf.device.total_blocks) {
+            return 0; // EOF
+        }
+
+        // For simplicity, read one block at a time
+        var block_buf: [blockdev.BLOCK_SIZE]u8 = undefined;
+        bf.device.readBlock(block_num, &block_buf) catch return defs.EIO;
+
+        // Copy data from block buffer
+        const available = blockdev.BLOCK_SIZE - offset;
+        const to_read = @min(buffer.len, available);
+        @memcpy(buffer[0..to_read], block_buf[offset .. offset + to_read]);
+
+        bf.pos += to_read;
+        return @as(isize, @intCast(to_read));
     }
-
-    // For simplicity, read one block at a time
-    var block_buf: [blockdev.BLOCK_SIZE]u8 = undefined;
-    bf.device.readBlock(block_num, &block_buf) catch return defs.EIO;
-
-    // Copy data from block buffer
-    const available = blockdev.BLOCK_SIZE - offset;
-    const to_read = @min(buffer.len, available);
-    @memcpy(buffer[0..to_read], block_buf[offset .. offset + to_read]);
-
-    bf.pos += to_read;
-    return @as(isize, @intCast(to_read));
 }
 
 fn blockWrite(file: *core.File, data: []const u8) isize {
     const bf: *BlockFile = @alignCast(@fieldParentPtr("file", file));
 
-    // Calculate block-aligned write
+    // Check if this is a SimpleFS command (first byte >= 0x00 and <= 0x03)
+    if (data.len > 0 and data[0] >= 0x00 and data[0] <= 0x03) {
+        // Handle SimpleFS command
+        const simplefs_ops = @import("../fs/simplefs_ops.zig");
+        _ = simplefs_ops.handleCommand(data) catch |err| {
+            return switch (err) {
+                error.InvalidCommand => defs.EINVAL,
+                error.FileNotFound => defs.ENOENT,
+                error.NoSpace => defs.ENOSPC,
+                error.NameTooLong => defs.ENAMETOOLONG,
+                else => defs.EIO,
+            };
+        };
+        // Reset position after command for subsequent reads
+        bf.pos = 0;
+        return @intCast(data.len); // Return full command length as written
+    }
+
+    // Regular block-aligned write
     const block_num = bf.pos / blockdev.BLOCK_SIZE;
     const offset = bf.pos % blockdev.BLOCK_SIZE;
 

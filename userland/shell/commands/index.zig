@@ -15,6 +15,9 @@ pub const Command = enum {
     test_ramdisk,
     test_simplefs,
     init_fs,
+    write_fs,
+    read_fs,
+    list_fs,
 };
 
 pub const CommandEntry = struct {
@@ -37,4 +40,7 @@ pub const commands = [_]CommandEntry{
     .{ .name = "test_ramdisk", .func = @import("test_ramdisk.zig").main },
     .{ .name = "test_simplefs", .func = @import("test_simplefs.zig").main },
     .{ .name = "init_fs", .func = @import("init_fs.zig").main },
+    .{ .name = "write_fs", .func = @import("write_fs.zig").main },
+    .{ .name = "read_fs", .func = @import("read_fs.zig").main },
+    .{ .name = "list_fs", .func = @import("list_fs.zig").main },
 };

@@ -50,3 +50,4 @@ pub const EISDIR: isize = -21; // Is a directory
 pub const ENOSPC: isize = -28; // No space left on device
 pub const ENOTDIR: isize = -20; // Not a directory
 pub const EIO: isize = -5; // I/O error
+pub const ENAMETOOLONG: isize = -36; // File name too long

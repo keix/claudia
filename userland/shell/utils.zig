@@ -68,7 +68,7 @@ pub fn parseCommandLine(buffer: []const u8, pos: usize) []const u8 {
     return buffer[start..end];
 }
 
-// Parse command line into argc/argv
+// Parse command line into argc/argv (with quote support)
 pub fn parseArgs(cmdline: []const u8, args: *Args) void {
     args.argc = 0;
 
@@ -81,17 +81,38 @@ pub fn parseArgs(cmdline: []const u8, args: *Args) void {
 
         if (i >= cmdline.len) break;
 
-        // Start of argument
-        const start = i;
+        // Check if this argument starts with a quote
+        if (cmdline[i] == '"') {
+            // Quoted argument
+            i += 1; // Skip opening quote
+            const start = i;
+            
+            // Find closing quote
+            while (i < cmdline.len and cmdline[i] != '"') {
+                i += 1;
+            }
+            
+            // Store argument (without quotes)
+            args.argv[args.argc] = cmdline[start..i];
+            args.argc += 1;
+            
+            // Skip closing quote if present
+            if (i < cmdline.len and cmdline[i] == '"') {
+                i += 1;
+            }
+        } else {
+            // Regular argument
+            const start = i;
 
-        // Find end of argument (simple parsing - no quotes for now)
-        while (i < cmdline.len and cmdline[i] != ' ') {
-            i += 1;
+            // Find end of argument
+            while (i < cmdline.len and cmdline[i] != ' ') {
+                i += 1;
+            }
+
+            // Store argument
+            args.argv[args.argc] = cmdline[start..i];
+            args.argc += 1;
         }
-
-        // Store argument
-        args.argv[args.argc] = cmdline[start..i];
-        args.argc += 1;
     }
 }
 
