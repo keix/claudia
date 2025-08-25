@@ -9,6 +9,10 @@ pub const RamDisk = struct {
     device: blockdev.BlockDevice,
     data: []u8,
 
+    pub fn getDataPtr(self: *RamDisk) []u8 {
+        return self.data;
+    }
+
     pub fn init(size_in_blocks: u64) !RamDisk {
         const total_size = size_in_blocks * blockdev.BLOCK_SIZE;
 
@@ -73,6 +77,10 @@ var global_ramdisk: ?RamDisk = null;
 
 pub fn initGlobalRamDisk() !void {
     global_ramdisk = try RamDisk.init(256); // 128KB RAM disk
+    // Fix device_data to point to the global instance
+    if (global_ramdisk) |*rd| {
+        rd.device.device_data = rd;
+    }
 }
 
 pub fn getGlobalRamDisk() ?*RamDisk {

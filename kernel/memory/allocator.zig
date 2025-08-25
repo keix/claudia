@@ -9,7 +9,7 @@ extern const _end: u8;
 // Global allocator state management
 const GlobalAllocator = struct {
     frame_allocator: physical.FrameAllocator,
-    bitmap_storage: [16 * 1024]u8 align(8),
+    bitmap_storage: [32 * 1024]u8 align(8), // Increased for 256MB
     initialized: bool,
 
     var instance: GlobalAllocator = .{
@@ -24,9 +24,11 @@ const GlobalAllocator = struct {
         const available_start = (kernel_end + types.PAGE_SIZE - 1) & ~(types.PAGE_SIZE - 1);
 
         // Physical memory info for QEMU virt machine
+        // Note: QEMU with -m 256M provides 256MB, but we only manage the lower portion
+        // to avoid complexity. This covers kernel + initrd region.
         const mem = types.PhysicalMemory{
             .base = 0x80000000,
-            .size = 128 * 1024 * 1024, // 128MB
+            .size = 256 * 1024 * 1024, // 256MB to cover initrd at 0x88000000
             .available = available_start,
         };
 

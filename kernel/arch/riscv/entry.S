@@ -9,6 +9,15 @@ _start:
     # RISC-V stack grows downward, set to end of RAM
     la sp, _stack_top
     
+    # Save boot parameters from OpenSBI
+    # a0 = hartid, a1 = dtb pointer, a2 = initrd address (if provided)
+    la t0, boot_hartid
+    sd a0, 0(t0)
+    la t0, boot_dtb_ptr
+    sd a1, 0(t0)
+    la t0, boot_initrd_addr
+    sd a2, 0(t0)
+    
     # Clear BSS section
     la t0, _bss_start
     la t1, _bss_end
@@ -26,6 +35,14 @@ clear_bss_done:
 hang:
     wfi
     j hang
+
+.section .data
+.global boot_hartid
+.global boot_dtb_ptr
+.global boot_initrd_addr
+boot_hartid:      .dword 0
+boot_dtb_ptr:     .dword 0
+boot_initrd_addr: .dword 0
 
 .section .bss
 .align 16

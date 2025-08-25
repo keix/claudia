@@ -311,6 +311,34 @@ pub fn setupKernelPageTable() !void {
     while (plic_addr < plic_end) : (plic_addr += PAGE_SIZE) {
         try kernel_page_table.map(plic_addr, plic_addr, PTE_R | PTE_W | PTE_G);
     }
+    
+    // Map region after kernel for initrd - QEMU loads initrd after kernel
+    // Map 16MB region after kernel to cover various initrd placements
+    var initrd_scan_addr = (types.KERNEL_END + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    const initrd_scan_end = initrd_scan_addr + (16 * 1024 * 1024); // 16MB
+    while (initrd_scan_addr < initrd_scan_end) : (initrd_scan_addr += PAGE_SIZE) {
+        kernel_page_table.map(initrd_scan_addr, initrd_scan_addr, PTE_R | PTE_W | PTE_G) catch {
+            // Ignore mapping errors - memory might not exist at this address
+            break;
+        };
+    }
+    
+    // Map DTB region - QEMU passes DTB at various addresses
+    // Common DTB locations on QEMU virt
+    const dtb_candidates = [_]usize{
+        0x8fe00000,  // Common on 256MB config
+        0x9fe00000,  // Common on 512MB config
+    };
+    for (dtb_candidates) |dtb_base| {
+        // Map 1MB for DTB (way more than needed, but safe)
+        var dtb_addr = dtb_base;
+        const dtb_end = dtb_base + (1024 * 1024);
+        while (dtb_addr < dtb_end) : (dtb_addr += PAGE_SIZE) {
+            kernel_page_table.map(dtb_addr, dtb_addr, PTE_R | PTE_G) catch {
+                break;
+            };
+        }
+    }
 }
 
 // Enable MMU with kernel page table
@@ -372,6 +400,17 @@ pub fn buildKernelGlobalMappings(page_table: *PageTable) !void {
     const plic_end = types.PLIC_BASE + types.PLIC_SIZE;
     while (plic_addr < plic_end) : (plic_addr += PAGE_SIZE) {
         try page_table.map(plic_addr, plic_addr, PTE_R | PTE_W | PTE_G);
+    }
+
+    // Map region after kernel for initrd - QEMU loads initrd after kernel
+    // Map 16MB region after kernel to cover various initrd placements  
+    var initrd_scan_addr = (types.KERNEL_END + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    const initrd_scan_end = initrd_scan_addr + (16 * 1024 * 1024); // 16MB
+    while (initrd_scan_addr < initrd_scan_end) : (initrd_scan_addr += PAGE_SIZE) {
+        page_table.map(initrd_scan_addr, initrd_scan_addr, PTE_R | PTE_W | PTE_G) catch {
+            // Ignore mapping errors - memory might not exist at this address
+            break;
+        };
     }
 
     // Map kernel stack (supervisor only, global) - CRITICAL for trap handling
