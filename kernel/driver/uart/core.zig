@@ -46,6 +46,28 @@ const Uart = struct {
         }
         return null;
     }
+
+    // Write a decimal number
+    pub fn putDec(self: *const Uart, value: u64) void {
+        if (value == 0) {
+            self.putc('0');
+            return;
+        }
+
+        var buf: [20]u8 = undefined;
+        var i: usize = 0;
+        var n = value;
+
+        while (n > 0) : (i += 1) {
+            buf[i] = @intCast('0' + (n % 10));
+            n /= 10;
+        }
+
+        while (i > 0) {
+            i -= 1;
+            self.putc(buf[i]);
+        }
+    }
 };
 
 // Global UART instance
@@ -103,4 +125,10 @@ pub fn putHex(value: u64) void {
 pub fn getc() ?u8 {
     if (!initialized) return null;
     return uart.getc();
+}
+
+// Write a decimal number
+pub fn putDec(value: u64) void {
+    if (!initialized) return;
+    uart.putDec(value);
 }

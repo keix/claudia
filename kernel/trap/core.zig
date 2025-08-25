@@ -100,7 +100,8 @@ pub fn init() void {
 
 // File system function wrappers for dispatcher
 fn fileGetFile(fd: i32) ?*anyopaque {
-    return @as(?*anyopaque, @ptrCast(file.FileTable.getFile(fd)));
+    const result = file.FileTable.getFile(fd);
+    return @as(?*anyopaque, @ptrCast(result));
 }
 
 fn fileWrite(f: *anyopaque, data: []const u8) isize {

@@ -1,7 +1,8 @@
 # Claudia — A Rewrite of UNIX Sixth Edition
 For a crystal-clear understanding of the system’s structure, start here.
 
-This project reimagines the spirit of UNIX Sixth Edition, rewritten with modern clarity and minimalism on the [RISC-V](https://github.com/riscv/riscv-isa-manual/tree/main) architecture. No libc. No runtime. No frameworks. Only the language.
+This project reimagines UNIX Sixth Edition  
+Rewritten in Zig with modern clarity and minimalism on the [RISC-V](https://github.com/riscv/riscv-isa-manual/tree/main) architecture.
 
 If you want to understand how a system works, you must write one — under the POSIX.
 
@@ -9,10 +10,15 @@ If you want to understand how a system works, you must write one — under the P
 A quiet name for a quiet system.  
 
 ## Specification
+In the spirit of UNIX, the specification is simple.  
+Everything else emerges from these foundations.
 
-Detailed design document describing architecture, system calls, FS layout, and roadmap is available on Notion:
+You deserve Lisp. And I, Zig.
 
-[Claudia Design Spec — v6-inspired OS in Zig on RISC-V](https://v6-unix.notion.site/259b8ecae49480099831fc262c4c3e2f?v=259b8ecae4948130b6fd000ce1f3ca60)
+- An experimental Lisp extension
+- The core implementation of UNIX Sixth Edition  
+
+[Claudia Design Spec — v6-inspired OS in Zig on RISC-V](https://v6-unix.notion.site/25ab8ecae494815ba362d80c0a11cb83?v=25ab8ecae49481ff826a000c72a7926b4)
 
 
 ## Requirements
