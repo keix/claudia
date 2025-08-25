@@ -29,6 +29,13 @@ pub fn setOpenFn(openFn: *const fn ([]const u8, u32, u16) isize) void {
 }
 
 pub fn sys_write(fd: usize, ubuf: usize, len: usize) isize {
+    // const uart = @import("../driver/uart/core.zig");
+    // uart.puts("[sys_write] called with fd=");
+    // uart.putDec(fd);
+    // uart.puts(", len=");
+    // uart.putDec(len);
+    // uart.puts("\n");
+    
     const getFile = file_getFile orelse return defs.ENOSYS;
     const writeFile = file_write orelse return defs.ENOSYS;
 
@@ -37,15 +44,30 @@ pub fn sys_write(fd: usize, ubuf: usize, len: usize) isize {
     var left = len;
     var off: usize = 0;
     var done: usize = 0;
+    
     while (left > 0) {
         const n = if (left > tmp.len) tmp.len else left;
         if (copy.copyin(tmp[0..n], ubuf + off)) |_| {} else |_| return defs.EFAULT;
+        // uart.puts("[sys_write] About to call writeFile with ");
+        // uart.putDec(n);
+        // uart.puts(" bytes\n");
         const w = writeFile(f, tmp[0..n]);
+        // uart.puts("[sys_write] writeFile returned: ");
+        // uart.putDec(@as(usize, @bitCast(w)));
+        // uart.puts("\n");
         if (w < 0) return w;
-        done += @as(usize, @intCast(w));
-        left -= n;
-        off += n;
+        const written = @as(usize, @intCast(w));
+        done += written;
+        
+        // Check for zero write to prevent infinite loop
+        if (written == 0) {
+            break;
+        }
+        
+        left -= written;
+        off += written;
     }
+    
     return @as(isize, @intCast(done));
 }
 

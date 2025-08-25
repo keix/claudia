@@ -84,6 +84,12 @@ fn initCoreSubsystems() void {
     // Initialize VFS after file system
     vfs.init();
 
+    // Initialize RAM disk
+    const ramdisk = @import("driver/ramdisk.zig");
+    ramdisk.initGlobalRamDisk() catch {
+        halt("Failed to initialize RAM disk");
+    };
+
     // Initialize trap handling
     trap.init();
 

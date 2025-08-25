@@ -19,6 +19,7 @@ fn exec(filename: []const u8) isize {
 fn motd() void {
     write_str("\x1b[2J\x1b[H"); // Clear screen and move cursor to home position
     write_str("Claudia — A modern rewrite of UNIX Sixth Edition.\n");
+    write_str("For a crystal-clear understanding of the system’s structure, start here.\n\n");
     write_str("/* You are *expected* to understand this. */\n");
     write_str("\n");
 }

@@ -576,6 +576,16 @@ pub const FileTable = struct {
                         return @as(isize, @intCast(fd));
                     }
                     return defs.EMFILE; // Too many open files
+                } else if (std.mem.eql(u8, vnode.getName(), "ramdisk")) {
+                    // Allocate a new fd for /dev/ramdisk
+                    const blockfile = @import("blockfile.zig");
+                    if (blockfile.getRamdiskFile()) |bf| {
+                        if (allocFd(&bf.file)) |fd| {
+                            return @as(isize, @intCast(fd));
+                        }
+                        return defs.EMFILE; // Too many open files
+                    }
+                    return defs.ENODEV;
                 }
                 return defs.ENODEV; // Device not supported
             },
