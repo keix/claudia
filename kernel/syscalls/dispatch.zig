@@ -4,9 +4,7 @@ const sysno = abi.sysno;
 const defs = abi;
 const fs = @import("fs.zig");
 const process = @import("process.zig");
-
-// Process management function pointer
-var proc_exit: ?*const fn (i32) noreturn = null;
+const dir = @import("dir.zig");
 
 // Initialize the dispatcher with required function pointers
 pub fn init(
@@ -22,10 +20,7 @@ pub fn init(
     fs.init(getFile, writeFile, readFile, closeFile);
 
     // Initialize process subsystem
-    process.init(procFork, procExec);
-
-    // Set process exit function
-    proc_exit = procExit;
+    process.init(procFork, procExec, procExit);
 }
 
 pub fn call(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) isize {
@@ -34,18 +29,8 @@ pub fn call(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) isi
         sysno.sys_read => fs.sys_read(a0, a1, a2),
         sysno.sys_openat => fs.sys_openat(a0, a1, a2, a3),
         sysno.sys_close => fs.sys_close(a0),
-        sysno.sys_getdents64 => {
-            const dir = @import("dir.zig");
-            return dir.sys_readdir(a0, a1, a2);
-        },
-        sysno.sys_exit => {
-            if (proc_exit) |exit_fn| {
-                exit_fn(@as(i32, @intCast(a0)));
-                return 0;
-            } else {
-                return defs.ENOSYS;
-            }
-        },
+        sysno.sys_getdents64 => dir.sys_getdents64(a0, a1, a2),
+        sysno.sys_exit => process.sys_exit(a0),
         sysno.sys_clone => process.sys_clone(a0, a1, a2, a3, a4),
         sysno.sys_fork => process.sys_fork(),
         sysno.sys_execve => process.sys_execve(a0, a1, a2),

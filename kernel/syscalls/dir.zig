@@ -10,6 +10,13 @@ pub const DirEntry = struct {
     node_type: u8, // 1=FILE, 2=DIRECTORY, 3=DEVICE
 };
 
+// sys_getdents64 implementation (using readdir internally)
+pub fn sys_getdents64(fd: usize, dirp: usize, count: usize) isize {
+    // For now, we treat fd as path_addr for simplicity
+    // TODO: Properly handle file descriptors
+    return sys_readdir(fd, dirp, count);
+}
+
 // Read directory entries
 // Returns number of entries read, or negative error
 pub fn sys_readdir(path_addr: usize, entries_addr: usize, max_entries: usize) isize {

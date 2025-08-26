@@ -6,11 +6,13 @@ const proc = @import("../process/core.zig");
 // Process management function pointers
 var proc_fork: ?*const fn () isize = null;
 var proc_exec: ?*const fn ([]const u8, []const u8) isize = null;
+var proc_exit: ?*const fn (i32) noreturn = null;
 
 // Initialize process management function pointers
-pub fn init(forkFn: *const fn () isize, execFn: *const fn ([]const u8, []const u8) isize) void {
+pub fn init(forkFn: *const fn () isize, execFn: *const fn ([]const u8, []const u8) isize, exitFn: *const fn (i32) noreturn) void {
     proc_fork = forkFn;
     proc_exec = execFn;
+    proc_exit = exitFn;
 }
 
 // sys_clone implementation (simplified fork for now)
@@ -50,4 +52,11 @@ pub fn sys_sched_yield() isize {
     const proc_yield = proc.Scheduler.yield;
     proc_yield();
     return 0; // Always succeeds
+}
+
+// sys_exit implementation
+pub fn sys_exit(status: usize) isize {
+    const exitFn = proc_exit orelse return defs.ENOSYS;
+    exitFn(@as(i32, @intCast(status)));
+    return 0; // Never reached
 }
