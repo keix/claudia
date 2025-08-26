@@ -38,7 +38,7 @@ pub fn execute(args: []const []const u8) !void {
     // Filename length and filename
     cmd_buffer[pos] = @intCast(filename.len);
     pos += 1;
-    @memcpy(cmd_buffer[pos..pos + filename.len], filename);
+    @memcpy(cmd_buffer[pos .. pos + filename.len], filename);
     pos += filename.len;
 
     // Send command to prepare file read
@@ -62,12 +62,12 @@ pub fn execute(args: []const []const u8) !void {
     // Now read the actual file content
     var file_buffer: [4096]u8 = undefined;
     const bytes_read = sys.read(@intCast(fd), @ptrCast(&file_buffer), file_buffer.len);
-    
+
     if (bytes_read < 0) {
         utils.writeStr("Error: Failed to read file\n");
         return;
     }
-    
+
     if (bytes_read == 0) {
         utils.writeStr("Error: File not found or empty\n");
         return;
@@ -75,7 +75,7 @@ pub fn execute(args: []const []const u8) !void {
 
     // Display file content
     _ = sys.write(1, @ptrCast(&file_buffer), @intCast(bytes_read));
-    
+
     // Ensure we end with a newline if the content doesn't already have one
     if (bytes_read > 0 and file_buffer[@intCast(bytes_read - 1)] != '\n') {
         utils.writeStr("\n");

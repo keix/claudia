@@ -35,7 +35,7 @@ pub fn sys_write(fd: usize, ubuf: usize, len: usize) isize {
     // uart.puts(", len=");
     // uart.putDec(len);
     // uart.puts("\n");
-    
+
     const getFile = file_getFile orelse return defs.ENOSYS;
     const writeFile = file_write orelse return defs.ENOSYS;
 
@@ -44,7 +44,7 @@ pub fn sys_write(fd: usize, ubuf: usize, len: usize) isize {
     var left = len;
     var off: usize = 0;
     var done: usize = 0;
-    
+
     while (left > 0) {
         const n = if (left > tmp.len) tmp.len else left;
         if (copy.copyin(tmp[0..n], ubuf + off)) |_| {} else |_| return defs.EFAULT;
@@ -58,16 +58,16 @@ pub fn sys_write(fd: usize, ubuf: usize, len: usize) isize {
         if (w < 0) return w;
         const written = @as(usize, @intCast(w));
         done += written;
-        
+
         // Check for zero write to prevent infinite loop
         if (written == 0) {
             break;
         }
-        
+
         left -= written;
         off += written;
     }
-    
+
     return @as(isize, @intCast(done));
 }
 

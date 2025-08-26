@@ -13,7 +13,7 @@ pub fn main(args: *const utils.Args) void {
 
     write_str("Available commands:\n");
     write_str("  echo      - Echo arguments to stdout\n");
-    write_str("  help      - Show this help\n");  
+    write_str("  help      - Show this help\n");
     write_str("  exit      - Exit the shell\n");
     write_str("  ls        - List directory contents\n");
     write_str("  cat       - Display file contents\n");

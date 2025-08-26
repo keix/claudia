@@ -31,9 +31,9 @@ const FDT_END: u32 = 0x00000009;
 // Convert big-endian to little-endian
 fn be32ToLe(val: u32) u32 {
     return ((val & 0xFF) << 24) |
-           ((val & 0xFF00) << 8) |
-           ((val & 0xFF0000) >> 8) |
-           ((val & 0xFF000000) >> 24);
+        ((val & 0xFF00) << 8) |
+        ((val & 0xFF0000) >> 8) |
+        ((val & 0xFF000000) >> 24);
 }
 
 fn be64ToLe(val: u64) u64 {
@@ -73,14 +73,14 @@ pub fn findInitrd() ?InitrdInfo {
     // Try to read first word to test access
     const test_ptr = @as(*const volatile u32, @ptrFromInt(dtb_addr));
     const first_word = test_ptr.*;
-    
+
     uart.puts("First word at DTB: 0x");
     uart.putHex(first_word);
     uart.puts("\n");
-    
+
     // Read FDT header
     const header = @as(*const FdtHeader, @ptrFromInt(dtb_addr));
-    
+
     // Check magic number
     const magic = be32ToLe(header.magic);
     if (magic != FDT_MAGIC) {
@@ -93,7 +93,7 @@ pub fn findInitrd() ?InitrdInfo {
     // Get offsets
     const struct_offset = be32ToLe(header.off_dt_struct);
     const strings_offset = be32ToLe(header.off_dt_strings);
-    
+
     // Start parsing structure
     var offset = dtb_addr + struct_offset;
     var depth: u32 = 0;
@@ -111,11 +111,11 @@ pub fn findInitrd() ?InitrdInfo {
                 // Node name follows
                 const name_ptr = @as([*:0]const u8, @ptrFromInt(offset));
                 const name = std.mem.sliceTo(name_ptr, 0);
-                
+
                 if (depth == 0 and std.mem.eql(u8, name, "chosen")) {
                     in_chosen = true;
                 }
-                
+
                 depth += 1;
                 offset = align4(offset + name.len + 1);
             },
@@ -171,7 +171,7 @@ pub fn findInitrd() ?InitrdInfo {
         uart.puts(" - 0x");
         uart.putHex(initrd_end.?);
         uart.puts("\n");
-        
+
         return InitrdInfo{
             .start = initrd_start.?,
             .end = initrd_end.?,

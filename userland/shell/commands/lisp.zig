@@ -118,7 +118,7 @@ fn parseNumber(input: []const u8, pos: *usize) ?i32 {
 
 fn parseSymbol(input: []const u8, pos: *usize) ?[]const u8 {
     const start = pos.*;
-    while (pos.* < input.len and input[pos.*] != ' ' and input[pos.*] != '(' and input[pos.*] != ')' and input[pos.*] != '\n') {
+    while (pos.* < input.len and input[pos.*] != ' ' and input[pos.*] != '(' and input[pos.*] != ')' and input[pos.*] != '\n' and input[pos.*] != '"') {
         pos.* += 1;
     }
     if (start == pos.*) return null;
@@ -139,7 +139,7 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
         if (pos.* >= input.len) return null; // Unclosed string
         const str = input[start..pos.*];
         pos.* += 1; // Skip closing quote
-        
+
         // Store string
         const str_copy = alloc(str.len) orelse return null;
         for (str, 0..) |ch, i| {
@@ -196,7 +196,7 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
 // Helper functions for operations
 fn evalArithmetic(list: *List, op: u8) ?LispValue {
     if (list.len < 3) return null;
-    
+
     if (op == '+') {
         var sum: i32 = 0;
         for (1..list.len) |i| {
@@ -214,13 +214,13 @@ fn evalArithmetic(list: *List, op: u8) ?LispValue {
         }
         return LispValue{ .Atom = Atom{ .Number = prod } };
     }
-    
+
     // Binary operations
     if (list.len != 3) return null;
     const a = eval(list.items[1]) orelse return null;
     const b = eval(list.items[2]) orelse return null;
     if (a != .Atom or a.Atom != .Number or b != .Atom or b.Atom != .Number) return null;
-    
+
     return switch (op) {
         '-' => LispValue{ .Atom = Atom{ .Number = a.Atom.Number - b.Atom.Number } },
         '/' => blk: {
@@ -256,13 +256,15 @@ fn eval(value: LispValue) ?LispValue {
             // Arithmetic operations
             if (op.len == 1) {
                 const ch = op[0];
-                if (ch == '+' or ch == '-' or ch == '*') {
+                if (ch == '+' or ch == '-' or ch == '*' or ch == '/') {
                     return evalArithmetic(list, ch);
                 }
             } else if (utils.strEq(op, "=")) {
                 return evalArithmetic(list, '=');
             } else if (utils.strEq(op, "<=")) {
                 return evalArithmetic(list, '<');
+            } else if (utils.strEq(op, ">")) {
+                return evalArithmetic(list, '>');
             } else if (utils.strEq(op, "mod")) {
                 if (list.len != 3) return null;
                 const a = eval(list.items[1]) orelse return null;
@@ -279,18 +281,18 @@ fn eval(value: LispValue) ?LispValue {
             } else if (utils.strEq(op, "concat")) {
                 if (list.len < 2) return null;
                 var total_len: usize = 0;
-                
+
                 // First pass: calculate total length
                 for (1..list.len) |i| {
                     const val = eval(list.items[i]) orelse return null;
                     if (val != .Atom or val.Atom != .String) return null;
                     total_len += val.Atom.String.len;
                 }
-                
+
                 // Allocate result string
                 const result = alloc(total_len) orelse return null;
                 var pos: usize = 0;
-                
+
                 // Second pass: concatenate strings
                 for (1..list.len) |i| {
                     const val = eval(list.items[i]) orelse return null;
@@ -300,7 +302,7 @@ fn eval(value: LispValue) ?LispValue {
                         pos += 1;
                     }
                 }
-                
+
                 return LispValue{ .Atom = Atom{ .String = result[0..total_len] } };
             } else if (utils.strEq(op, "print")) {
                 if (list.len < 2) return null;
@@ -354,7 +356,9 @@ fn executeLisp(code: []const u8) void {
                 result_val.print();
                 utils.writeStr("\n");
             } else {
-                utils.writeStr("Error: evaluation failed\n");
+                utils.writeStr("Error: evaluation failed at position ");
+                utils.writeStr(utils.intToStr(@intCast(pos)));
+                utils.writeStr("\n");
                 break;
             }
         } else {
@@ -383,7 +387,7 @@ fn readFileFromSimpleFS(filename: []const u8, buffer: []u8) ?usize {
     // Filename length and filename
     cmd_buffer[pos] = @intCast(filename.len);
     pos += 1;
-    @memcpy(cmd_buffer[pos..pos + filename.len], filename);
+    @memcpy(cmd_buffer[pos .. pos + filename.len], filename);
     pos += filename.len;
 
     // Send command to prepare file read
@@ -395,7 +399,7 @@ fn readFileFromSimpleFS(filename: []const u8, buffer: []u8) ?usize {
     if (bytes_read > 0) {
         return @intCast(bytes_read);
     }
-    
+
     return null;
 }
 
@@ -439,8 +443,8 @@ pub fn main(args: *const utils.Args) void {
 
     // REPL mode
     utils.writeStr("Minimal Lisp REPL for Claudia\n");
-    utils.writeStr("Commands: +, -, *, =, <=, mod, and, print, concat, define, if, quote\n");
-    utils.writeStr("Strings: (print \"Hello, World!\")\n");
+    utils.writeStr("Commands: +, -, *, /, =, <=, >, mod, and, print, concat, define, if, quote\n");
+    utils.writeStr("Strings: (print \"Hello, World!\") (concat \"Hello, \" \"World!\")\n");
     utils.writeStr("Type 'quit' to exit\n\n");
 
     var input_buffer: [256]u8 = undefined;

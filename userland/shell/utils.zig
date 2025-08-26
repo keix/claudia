@@ -86,16 +86,16 @@ pub fn parseArgs(cmdline: []const u8, args: *Args) void {
             // Quoted argument
             i += 1; // Skip opening quote
             const start = i;
-            
+
             // Find closing quote
             while (i < cmdline.len and cmdline[i] != '"') {
                 i += 1;
             }
-            
+
             // Store argument (without quotes)
             args.argv[args.argc] = cmdline[start..i];
             args.argc += 1;
-            
+
             // Skip closing quote if present
             if (i < cmdline.len and cmdline[i] == '"') {
                 i += 1;

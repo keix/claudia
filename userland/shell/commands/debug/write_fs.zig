@@ -40,7 +40,7 @@ pub fn execute(args: []const []const u8) !void {
     // Filename length and filename
     buffer[pos] = @intCast(filename.len);
     pos += 1;
-    @memcpy(buffer[pos..pos + filename.len], filename);
+    @memcpy(buffer[pos .. pos + filename.len], filename);
     pos += filename.len;
 
     // Content length (4 bytes, little endian)
@@ -52,10 +52,9 @@ pub fn execute(args: []const []const u8) !void {
     pos += 4;
 
     // Content
-    @memcpy(buffer[pos..pos + content.len], content);
+    @memcpy(buffer[pos .. pos + content.len], content);
     pos += content.len;
 
-    
     // Write to ramdisk
     const written = sys.write(@intCast(fd), @ptrCast(&buffer), pos);
     if (written < 0 or written != @as(isize, @intCast(pos))) {
