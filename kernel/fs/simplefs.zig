@@ -5,9 +5,9 @@ const blockdev = @import("../driver/blockdev.zig");
 
 // Filesystem constants
 const MAGIC: u32 = 0x53494D50; // 'SIMP'
-const MAX_FILES: u32 = 16; // Increased to allow more files
+const MAX_FILES: u32 = 32; // Increased to allow more files
 const MAX_FILENAME: u32 = 28;
-const DATA_START_BLOCK: u32 = 3; // After superblock and file table (blocks 0-2)
+const DATA_START_BLOCK: u32 = 5; // After superblock (1) and file table (32*64=2048 bytes = 4 blocks)
 
 // On-disk structures
 pub const SuperBlock = extern struct {
@@ -60,10 +60,12 @@ pub const SimpleFS = struct {
         @memcpy(block_buf[0..@sizeOf(SuperBlock)], super_bytes);
         try device.writeBlock(0, &block_buf);
 
-        // Clear file table (blocks 1-2 for 16 files)
+        // Clear file table (blocks 1-4 for 32 files)
         @memset(&block_buf, 0);
         try device.writeBlock(1, &block_buf);
         try device.writeBlock(2, &block_buf);
+        try device.writeBlock(3, &block_buf);
+        try device.writeBlock(4, &block_buf);
     }
 
     pub fn mount(device: *blockdev.BlockDevice) error{InvalidFilesystem}!*SimpleFS {
@@ -102,7 +104,7 @@ pub const SimpleFS = struct {
             }
 
             block_num += 1;
-            if (block_num > 2) break; // Only blocks 1-2 for file table
+            if (block_num > 4) break; // Only blocks 1-4 for file table (32 files)
         }
 
         return &global_fs;

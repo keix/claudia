@@ -49,6 +49,13 @@ pub const VNode = struct {
 
     pub fn addChild(self: *VNode, child: *VNode) void {
         if (self.node_type != .DIRECTORY) return;
+        
+        const uart = @import("../driver/uart/core.zig");
+        uart.puts("[VFS] Adding child '");
+        uart.puts(child.getName());
+        uart.puts("' to parent '");
+        uart.puts(self.getName());
+        uart.puts("'\n");
 
         child.parent = self;
         child.next_sibling = self.children;
@@ -125,13 +132,18 @@ var initialized = false;
 // Initialize VFS with basic structure
 pub fn init() void {
     if (initialized) return;
+    
+    const uart = @import("../driver/uart/core.zig");
+    uart.puts("[VFS] Initializing VFS...\n");
 
     // Create root directory
     root_node = VNode.init(.DIRECTORY, "/");
+    uart.puts("[VFS] Created root directory\n");
 
     // Create /dev directory
     dev_node = VNode.init(.DIRECTORY, "dev");
     root_node.addChild(&dev_node);
+    uart.puts("[VFS] Created /dev directory\n");
 
     // Create /dev/console
     console_node = VNode.init(.DEVICE, "console");
