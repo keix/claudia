@@ -3,10 +3,10 @@ const std = @import("std");
 
 // SimpleFS constants (must match kernel/fs/simplefs.zig)
 const MAGIC: u32 = 0x53494D50; // 'SIMP'
-const MAX_FILES: u32 = 8;
+const MAX_FILES: u32 = 16;
 const MAX_FILENAME: u32 = 28;
 const BLOCK_SIZE: u32 = 512;
-const DATA_START_BLOCK: u32 = 2;
+const DATA_START_BLOCK: u32 = 3;
 
 // File flags
 const FLAG_EXISTS: u32 = 0x01;
@@ -85,9 +85,21 @@ pub fn main() !void {
     @memcpy(block_buf[0..@sizeOf(SuperBlock)], std.mem.asBytes(&super));
     try out_file.writeAll(&block_buf);
 
-    // Create and write file table
+    // Create and write file table (across blocks 1-2)
+    const entries_per_block = BLOCK_SIZE / @sizeOf(FileEntry);
+    var current_block: u32 = 1;
+    var block_index: usize = 0;
+
     @memset(&block_buf, 0);
-    for (file_list.items, 0..) |info, i| {
+    for (file_list.items) |info| {
+        // Check if we need to write current block and move to next
+        if (block_index >= entries_per_block) {
+            try out_file.writeAll(&block_buf);
+            @memset(&block_buf, 0);
+            current_block += 1;
+            block_index = 0;
+        }
+
         var entry = FileEntry{
             .name = undefined,
             .size = info.size,
@@ -101,10 +113,19 @@ pub fn main() !void {
         const copy_len = @min(info.name.len, MAX_FILENAME - 1);
         @memcpy(entry.name[0..copy_len], info.name[0..copy_len]);
 
-        const offset = i * @sizeOf(FileEntry);
-        @memcpy(block_buf[offset..offset + @sizeOf(FileEntry)], std.mem.asBytes(&entry));
+        const offset = block_index * @sizeOf(FileEntry);
+        @memcpy(block_buf[offset .. offset + @sizeOf(FileEntry)], std.mem.asBytes(&entry));
+        block_index += 1;
     }
+
+    // Write the last block
     try out_file.writeAll(&block_buf);
+
+    // If we only used block 1, write an empty block 2
+    if (current_block == 1) {
+        @memset(&block_buf, 0);
+        try out_file.writeAll(&block_buf);
+    }
 
     // Write file data
     for (file_list.items) |info| {

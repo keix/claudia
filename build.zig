@@ -4,9 +4,9 @@ pub fn build(b: *std.Build) void {
     // Add clean step first to avoid unnecessary dependencies
     const clean_step = b.step("clean", "Clean build artifacts");
     const clean_cmd = b.addSystemCommand(&.{
-        "rm", "-rf",
-        "zig-out", ".zig-cache",
-        "kernel/.zig-cache", "kernel/zig-out",
+        "rm",                  "-rf",
+        "zig-out",             ".zig-cache",
+        "kernel/.zig-cache",   "kernel/zig-out",
         "userland/.zig-cache", "userland/zig-out",
     });
     clean_step.dependOn(&clean_cmd.step);

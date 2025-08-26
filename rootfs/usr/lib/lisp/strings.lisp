@@ -1,0 +1,5 @@
+(print "Hello, World!")
+(define greeting "Welcome to Claudia!")
+(print greeting)
+(print (concat "The answer is: " "42"))
+(if #t (print "This is true") (print "This is false"))

@@ -43,11 +43,18 @@ This will:
 - Launch the system in QEMU
 
 ## Philosophy
-A system is just structure. POSIX is the sugar that coats it.
+UNIX Sixth Edition was small enough to be understood.  
+Lions' Commentary proved that a system can be read like a book.  
 
-Claudia doesn't hide the machine — it reveals it.  
-What you see is what the hardware sees.  
-POSIX is not the system — but a contract you implement to make it human.
+Claudia inherits that spirit:  
+- POSIX is the contract, not the system.  
+- The kernel is written in Zig, exposing syscalls as they are.  
+- The userland shell is minimal — Lisp is the modern extension.  
+
+A system is structure. Everything else is noise.  
+Claudia refuses to grow beyond what can be read.  
+
+How to Read Claudia: [Claudia Reading Guide — Speaks Only in Code](docs/README.md)
 
 ## Acknowledgements
 Claudia is built in the shadow of giants — with gratitude to Ken Thompson and Dennis Ritchie, whose creation of UNIX continues to shape everything we build.

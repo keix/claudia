@@ -5,9 +5,9 @@ const blockdev = @import("../driver/blockdev.zig");
 
 // Filesystem constants
 const MAGIC: u32 = 0x53494D50; // 'SIMP'
-const MAX_FILES: u32 = 8; // Reduced to fit in one block
+const MAX_FILES: u32 = 16; // Increased to allow more files
 const MAX_FILENAME: u32 = 28;
-const DATA_START_BLOCK: u32 = 2; // After superblock and file table
+const DATA_START_BLOCK: u32 = 3; // After superblock and file table (blocks 0-2)
 
 // On-disk structures
 pub const SuperBlock = extern struct {
@@ -60,9 +60,10 @@ pub const SimpleFS = struct {
         @memcpy(block_buf[0..@sizeOf(SuperBlock)], super_bytes);
         try device.writeBlock(0, &block_buf);
 
-        // Clear file table (only block 1 for 16 files)
+        // Clear file table (blocks 1-2 for 16 files)
         @memset(&block_buf, 0);
         try device.writeBlock(1, &block_buf);
+        try device.writeBlock(2, &block_buf);
     }
 
     pub fn mount(device: *blockdev.BlockDevice) error{InvalidFilesystem}!*SimpleFS {
@@ -83,17 +84,25 @@ pub const SimpleFS = struct {
             return error.InvalidFilesystem;
         }
 
-        // Read file table from block 1
-        device.readBlock(1, &block_buf) catch {
-            return error.InvalidFilesystem;
-        };
-
-        // Load file entries (up to 8 entries per block)
+        // Read file table from blocks 1-2
         const entries_per_block = blockdev.BLOCK_SIZE / @sizeOf(FileEntry);
-        var i: usize = 0;
-        while (i < entries_per_block and i < MAX_FILES) : (i += 1) {
-            const offset = i * @sizeOf(FileEntry);
-            global_fs.files[i] = std.mem.bytesToValue(FileEntry, block_buf[offset .. offset + @sizeOf(FileEntry)]);
+        var block_num: u32 = 1;
+        var file_index: usize = 0;
+
+        while (file_index < MAX_FILES) {
+            device.readBlock(block_num, &block_buf) catch {
+                return error.InvalidFilesystem;
+            };
+
+            var i: usize = 0;
+            while (i < entries_per_block and file_index < MAX_FILES) : (i += 1) {
+                const offset = i * @sizeOf(FileEntry);
+                global_fs.files[file_index] = std.mem.bytesToValue(FileEntry, block_buf[offset .. offset + @sizeOf(FileEntry)]);
+                file_index += 1;
+            }
+
+            block_num += 1;
+            if (block_num > 2) break; // Only blocks 1-2 for file table
         }
 
         return &global_fs;
@@ -292,24 +301,31 @@ pub const SimpleFS = struct {
 
                 if (name_len > 0) {
                     uart.puts("  ");
+
+                    // For directories, add leading slash
+                    if (entry.flags & FLAG_DIRECTORY != 0) {
+                        uart.putc('/');
+                    }
+
                     // Print only the actual filename without garbage
                     for (0..name_len) |j| {
                         uart.putc(name_buf[j]);
                     }
+
                     // Add spacing for alignment
-                    var padding: usize = if (name_len < 20) 20 - name_len else 0;
+                    const display_len = if (entry.flags & FLAG_DIRECTORY != 0) name_len + 1 else name_len;
+                    var padding: usize = if (display_len < 20) 20 - display_len else 0;
                     while (padding > 0) : (padding -= 1) {
                         uart.putc(' ');
                     }
-                    
-                    // Show type and size
-                    if (entry.flags & FLAG_DIRECTORY != 0) {
-                        uart.puts(" <DIR>\n");
-                    } else {
+
+                    // Show size for files
+                    if (entry.flags & FLAG_DIRECTORY == 0) {
                         uart.puts(" (");
                         uart.putDec(entry.size);
-                        uart.puts(" bytes)\n");
+                        uart.puts(" bytes)");
                     }
+                    uart.puts("\n");
                 }
             }
         }

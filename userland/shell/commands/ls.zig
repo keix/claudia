@@ -38,13 +38,17 @@ pub fn main(args: *const utils.Args) void {
     while (i < count) : (i += 1) {
         const entry = &entries[i];
 
+        // Add prefix for directories
+        if (entry.node_type == 2) {
+            utils.writeStr("/");
+        }
+
         // Print name
         const name = entry.name[0..entry.name_len];
         utils.writeStr(name);
 
         // Add suffix based on type
         switch (entry.node_type) {
-            2 => utils.writeStr("/"), // Directory
             3 => utils.writeStr("*"), // Device
             else => {}, // Regular file
         }

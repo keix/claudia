@@ -311,7 +311,7 @@ pub fn setupKernelPageTable() !void {
     while (plic_addr < plic_end) : (plic_addr += PAGE_SIZE) {
         try kernel_page_table.map(plic_addr, plic_addr, PTE_R | PTE_W | PTE_G);
     }
-    
+
     // Map region after kernel for initrd - QEMU loads initrd after kernel
     // Map 16MB region after kernel to cover various initrd placements
     var initrd_scan_addr = (types.KERNEL_END + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
@@ -322,12 +322,12 @@ pub fn setupKernelPageTable() !void {
             break;
         };
     }
-    
+
     // Map DTB region - QEMU passes DTB at various addresses
     // Common DTB locations on QEMU virt
     const dtb_candidates = [_]usize{
-        0x8fe00000,  // Common on 256MB config
-        0x9fe00000,  // Common on 512MB config
+        0x8fe00000, // Common on 256MB config
+        0x9fe00000, // Common on 512MB config
     };
     for (dtb_candidates) |dtb_base| {
         // Map 1MB for DTB (way more than needed, but safe)
@@ -403,7 +403,7 @@ pub fn buildKernelGlobalMappings(page_table: *PageTable) !void {
     }
 
     // Map region after kernel for initrd - QEMU loads initrd after kernel
-    // Map 16MB region after kernel to cover various initrd placements  
+    // Map 16MB region after kernel to cover various initrd placements
     var initrd_scan_addr = (types.KERNEL_END + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     const initrd_scan_end = initrd_scan_addr + (16 * 1024 * 1024); // 16MB
     while (initrd_scan_addr < initrd_scan_end) : (initrd_scan_addr += PAGE_SIZE) {
