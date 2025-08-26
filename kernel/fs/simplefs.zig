@@ -18,12 +18,16 @@ pub const SuperBlock = extern struct {
     reserved: [496]u8 = undefined, // Pad to 512 bytes
 };
 
+// File flags
+pub const FLAG_EXISTS: u32 = 0x01;
+pub const FLAG_DIRECTORY: u32 = 0x02;
+
 pub const FileEntry = extern struct {
     name: [MAX_FILENAME]u8, // 28 bytes
     size: u32, // 4 bytes
     start_block: u32, // 4 bytes
     blocks_used: u32, // 4 bytes
-    flags: u32, // 4 bytes
+    flags: u32, // 4 bytes - bit 0: exists, bit 1: is_directory
     reserved: [20]u8 = undefined, // Pad to 64 bytes (28+4+4+4+4+20=64)
 };
 
@@ -95,12 +99,51 @@ pub const SimpleFS = struct {
         return &global_fs;
     }
 
+    pub fn createDirectory(self: *SimpleFS, name: []const u8) !void {
+        if (name.len >= MAX_FILENAME) return error.NameTooLong;
+
+        // Check if directory already exists
+        for (&self.files) |*entry| {
+            if (entry.flags & FLAG_EXISTS != 0) {
+                const entry_name = std.mem.sliceTo(&entry.name, 0);
+                if (std.mem.eql(u8, entry_name, name)) {
+                    return error.AlreadyExists;
+                }
+            }
+        }
+
+        // Find free entry
+        var free_entry: ?*FileEntry = null;
+        for (&self.files) |*entry| {
+            if (entry.flags & FLAG_EXISTS == 0) {
+                free_entry = entry;
+                break;
+            }
+        }
+
+        const entry = free_entry orelse return error.NoSpace;
+
+        // Update directory entry
+        @memset(&entry.name, 0);
+        @memcpy(entry.name[0..name.len], name);
+        entry.size = 0; // Directories have no content size
+        entry.start_block = 0; // No data blocks needed
+        entry.blocks_used = 0;
+        entry.flags = FLAG_EXISTS | FLAG_DIRECTORY;
+
+        // Update superblock
+        self.super.file_count += 1;
+
+        // Write updated structures
+        try self.sync();
+    }
+
     pub fn createFile(self: *SimpleFS, name: []const u8, content: []const u8) !void {
         if (name.len >= MAX_FILENAME) return error.NameTooLong;
 
         // First, check if file already exists and update it
         for (&self.files) |*entry| {
-            if (entry.flags == 1) {
+            if (entry.flags & FLAG_EXISTS != 0) {
                 const entry_name = std.mem.sliceTo(&entry.name, 0);
                 if (std.mem.eql(u8, entry_name, name)) {
                     // File exists, update it
@@ -142,7 +185,7 @@ pub const SimpleFS = struct {
         // File doesn't exist, find free entry
         var free_entry: ?*FileEntry = null;
         for (&self.files) |*entry| {
-            if (entry.flags == 0) {
+            if (entry.flags & FLAG_EXISTS == 0) {
                 free_entry = entry;
                 break;
             }
@@ -158,7 +201,7 @@ pub const SimpleFS = struct {
         // Calculate the next free block based on existing files
         var next_free_block: u32 = DATA_START_BLOCK;
         for (&self.files) |*existing_entry| {
-            if (existing_entry.flags == 1) {
+            if (existing_entry.flags & FLAG_EXISTS != 0) {
                 const end_block = existing_entry.start_block + existing_entry.blocks_used;
                 if (end_block > next_free_block) {
                     next_free_block = end_block;
@@ -188,7 +231,7 @@ pub const SimpleFS = struct {
         entry.size = @intCast(content.len);
         entry.start_block = @intCast(start_block);
         entry.blocks_used = @intCast(blocks_needed);
-        entry.flags = 1;
+        entry.flags = FLAG_EXISTS; // File exists, not a directory
 
         // Update superblock
         self.super.file_count += 1;
@@ -202,7 +245,7 @@ pub const SimpleFS = struct {
         // Find file
         var file_entry: ?*const FileEntry = null;
         for (&self.files) |*entry| {
-            if (entry.flags == 1) {
+            if (entry.flags & FLAG_EXISTS != 0) {
                 const entry_name = std.mem.sliceTo(&entry.name, 0);
                 if (std.mem.eql(u8, entry_name, name)) {
                     file_entry = entry;
@@ -238,7 +281,7 @@ pub const SimpleFS = struct {
             if (count >= MAX_FILES) break;
             count += 1;
 
-            if (entry.flags == 1) {
+            if (entry.flags & FLAG_EXISTS != 0) {
                 // Safe name extraction - create a null-terminated buffer
                 var name_buf: [MAX_FILENAME + 1]u8 = undefined;
                 var name_len: usize = 0;
@@ -258,9 +301,15 @@ pub const SimpleFS = struct {
                     while (padding > 0) : (padding -= 1) {
                         uart.putc(' ');
                     }
-                    uart.puts(" (");
-                    uart.putDec(entry.size);
-                    uart.puts(" bytes)\n");
+                    
+                    // Show type and size
+                    if (entry.flags & FLAG_DIRECTORY != 0) {
+                        uart.puts(" <DIR>\n");
+                    } else {
+                        uart.puts(" (");
+                        uart.putDec(entry.size);
+                        uart.puts(" bytes)\n");
+                    }
                 }
             }
         }

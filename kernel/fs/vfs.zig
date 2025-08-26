@@ -211,6 +211,32 @@ fn debugPrintNodeWithUart(node: *VNode, depth: usize) void {
     }
 }
 
+// Create a new directory node
+pub fn createDirectory(parent_path: []const u8, name: []const u8) ?*VNode {
+    const parent = resolvePath(parent_path) orelse return null;
+    if (parent.node_type != .DIRECTORY) return null;
+
+    // Check if directory already exists
+    if (parent.findChild(name) != null) return null;
+
+    // For now, we'll use a static allocation (not ideal, but simple)
+    // In a real implementation, this would use a proper allocator
+    const node_storage = struct {
+        var nodes: [100]VNode = undefined;
+        var next_idx: usize = 0;
+    };
+
+    if (node_storage.next_idx >= node_storage.nodes.len) return null;
+
+    const new_node = &node_storage.nodes[node_storage.next_idx];
+    node_storage.next_idx += 1;
+
+    new_node.* = VNode.init(.DIRECTORY, name);
+    parent.addChild(new_node);
+
+    return new_node;
+}
+
 // Create a new file node (in memory only for now)
 pub fn createFile(parent_path: []const u8, name: []const u8) ?*VNode {
     const parent = resolvePath(parent_path) orelse return null;

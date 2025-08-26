@@ -68,7 +68,7 @@ fn setReadFileState(name: []const u8) !void {
     
     // Find file
     for (&fs_instance.files) |*entry| {
-        if (entry.flags == 1) {
+        if (entry.flags & simplefs.FLAG_EXISTS != 0) {
             const entry_name = std.mem.sliceTo(&entry.name, 0);
             if (std.mem.eql(u8, entry_name, name)) {
                 // Set up read state
