@@ -54,7 +54,7 @@ Claudia inherits that spirit:
 A system is structure. Everything else is noise.  
 Claudia refuses to grow beyond what can be read.  
 
-How to Read Claudia: [Claudia Reading Guide — Speaks Only in Code](docs/README.md)
+How to Read Claudia: [Claudia Reading Guide — Speaks Only in Code](docs/claudia_reading_guide.md)
 
 ## Acknowledgements
 Claudia is built in the shadow of giants — with gratitude to Ken Thompson and Dennis Ritchie, whose creation of UNIX continues to shape everything we build.
