@@ -22,6 +22,7 @@ const Atom = union(enum) {
     Number: i32,
     Symbol: []const u8,
     Boolean: bool,
+    String: []const u8,
 };
 
 // List structure
@@ -42,6 +43,11 @@ const LispValue = union(enum) {
                     .Number => |n| utils.writeStr(utils.intToStr(n)),
                     .Symbol => |s| utils.writeStr(s),
                     .Boolean => |b| utils.writeStr(if (b) "#t" else "#f"),
+                    .String => |s| {
+                        utils.writeStr("\"");
+                        utils.writeStr(s);
+                        utils.writeStr("\"");
+                    },
                 }
             },
             .List => |list| {
@@ -123,7 +129,24 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
     skipSpace(input, pos);
     if (pos.* >= input.len) return null;
 
-    if (input[pos.*] == '(') {
+    if (input[pos.*] == '"') {
+        // Parse string literal
+        pos.* += 1; // Skip opening quote
+        const start = pos.*;
+        while (pos.* < input.len and input[pos.*] != '"') {
+            pos.* += 1;
+        }
+        if (pos.* >= input.len) return null; // Unclosed string
+        const str = input[start..pos.*];
+        pos.* += 1; // Skip closing quote
+        
+        // Store string
+        const str_copy = alloc(str.len) orelse return null;
+        for (str, 0..) |ch, i| {
+            str_copy[i] = ch;
+        }
+        return LispValue{ .Atom = Atom{ .String = str_copy } };
+    } else if (input[pos.*] == '(') {
         // Parse list
         pos.* += 1; // Skip '('
         const list_ptr = @as(*List, @ptrCast(@alignCast(alloc(@sizeOf(List)) orelse return null)));
@@ -170,12 +193,53 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
     return null;
 }
 
+// Helper functions for operations
+fn evalArithmetic(list: *List, op: u8) ?LispValue {
+    if (list.len < 3) return null;
+    
+    if (op == '+') {
+        var sum: i32 = 0;
+        for (1..list.len) |i| {
+            const arg = eval(list.items[i]) orelse return null;
+            if (arg != .Atom or arg.Atom != .Number) return null;
+            sum += arg.Atom.Number;
+        }
+        return LispValue{ .Atom = Atom{ .Number = sum } };
+    } else if (op == '*') {
+        var prod: i32 = 1;
+        for (1..list.len) |i| {
+            const arg = eval(list.items[i]) orelse return null;
+            if (arg != .Atom or arg.Atom != .Number) return null;
+            prod *= arg.Atom.Number;
+        }
+        return LispValue{ .Atom = Atom{ .Number = prod } };
+    }
+    
+    // Binary operations
+    if (list.len != 3) return null;
+    const a = eval(list.items[1]) orelse return null;
+    const b = eval(list.items[2]) orelse return null;
+    if (a != .Atom or a.Atom != .Number or b != .Atom or b.Atom != .Number) return null;
+    
+    return switch (op) {
+        '-' => LispValue{ .Atom = Atom{ .Number = a.Atom.Number - b.Atom.Number } },
+        '/' => blk: {
+            if (b.Atom.Number == 0) break :blk null;
+            break :blk LispValue{ .Atom = Atom{ .Number = @divFloor(a.Atom.Number, b.Atom.Number) } };
+        },
+        '=' => LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number == b.Atom.Number } },
+        '<' => LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number <= b.Atom.Number } },
+        '>' => LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number > b.Atom.Number } },
+        else => null,
+    };
+}
+
 // Evaluator
 fn eval(value: LispValue) ?LispValue {
     switch (value) {
         .Atom => |atom| {
             switch (atom) {
-                .Number, .Boolean => return value,
+                .Number, .Boolean, .String => return value,
                 .Symbol => |name| {
                     return getVar(name);
                 },
@@ -189,49 +253,22 @@ fn eval(value: LispValue) ?LispValue {
 
             const op = first.Atom.Symbol;
 
-            // Built-in operations
-            if (utils.strEq(op, "+")) {
-                if (list.len < 3) return null;
-                var sum: i32 = 0;
-                for (1..list.len) |i| {
-                    const arg = eval(list.items[i]) orelse return null;
-                    if (arg != .Atom or arg.Atom != .Number) return null;
-                    sum += arg.Atom.Number;
+            // Arithmetic operations
+            if (op.len == 1) {
+                const ch = op[0];
+                if (ch == '+' or ch == '-' or ch == '*') {
+                    return evalArithmetic(list, ch);
                 }
-                return LispValue{ .Atom = Atom{ .Number = sum } };
-            } else if (utils.strEq(op, "-")) {
-                if (list.len != 3) return null;
-                const a = eval(list.items[1]) orelse return null;
-                const b = eval(list.items[2]) orelse return null;
-                if (a != .Atom or a.Atom != .Number or b != .Atom or b.Atom != .Number) return null;
-                return LispValue{ .Atom = Atom{ .Number = a.Atom.Number - b.Atom.Number } };
-            } else if (utils.strEq(op, "*")) {
-                if (list.len < 3) return null;
-                var prod: i32 = 1;
-                for (1..list.len) |i| {
-                    const arg = eval(list.items[i]) orelse return null;
-                    if (arg != .Atom or arg.Atom != .Number) return null;
-                    prod *= arg.Atom.Number;
-                }
-                return LispValue{ .Atom = Atom{ .Number = prod } };
             } else if (utils.strEq(op, "=")) {
-                if (list.len != 3) return null;
-                const a = eval(list.items[1]) orelse return null;
-                const b = eval(list.items[2]) orelse return null;
-                if (a != .Atom or a.Atom != .Number or b != .Atom or b.Atom != .Number) return null;
-                return LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number == b.Atom.Number } };
+                return evalArithmetic(list, '=');
             } else if (utils.strEq(op, "<=")) {
-                if (list.len != 3) return null;
-                const a = eval(list.items[1]) orelse return null;
-                const b = eval(list.items[2]) orelse return null;
-                if (a != .Atom or a.Atom != .Number or b != .Atom or b.Atom != .Number) return null;
-                return LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number <= b.Atom.Number } };
+                return evalArithmetic(list, '<');
             } else if (utils.strEq(op, "mod")) {
                 if (list.len != 3) return null;
                 const a = eval(list.items[1]) orelse return null;
                 const b = eval(list.items[2]) orelse return null;
                 if (a != .Atom or a.Atom != .Number or b != .Atom or b.Atom != .Number) return null;
-                if (b.Atom.Number == 0) return null; // Division by zero
+                if (b.Atom.Number == 0) return null;
                 return LispValue{ .Atom = Atom{ .Number = @mod(a.Atom.Number, b.Atom.Number) } };
             } else if (utils.strEq(op, "and")) {
                 if (list.len != 3) return null;
@@ -239,12 +276,43 @@ fn eval(value: LispValue) ?LispValue {
                 const b = eval(list.items[2]) orelse return null;
                 if (a != .Atom or a.Atom != .Boolean or b != .Atom or b.Atom != .Boolean) return null;
                 return LispValue{ .Atom = Atom{ .Boolean = a.Atom.Boolean and b.Atom.Boolean } };
+            } else if (utils.strEq(op, "concat")) {
+                if (list.len < 2) return null;
+                var total_len: usize = 0;
+                
+                // First pass: calculate total length
+                for (1..list.len) |i| {
+                    const val = eval(list.items[i]) orelse return null;
+                    if (val != .Atom or val.Atom != .String) return null;
+                    total_len += val.Atom.String.len;
+                }
+                
+                // Allocate result string
+                const result = alloc(total_len) orelse return null;
+                var pos: usize = 0;
+                
+                // Second pass: concatenate strings
+                for (1..list.len) |i| {
+                    const val = eval(list.items[i]) orelse return null;
+                    const str = val.Atom.String;
+                    for (str) |ch| {
+                        result[pos] = ch;
+                        pos += 1;
+                    }
+                }
+                
+                return LispValue{ .Atom = Atom{ .String = result[0..total_len] } };
             } else if (utils.strEq(op, "print")) {
                 if (list.len < 2) return null;
                 for (1..list.len) |i| {
                     if (i > 1) utils.writeStr(" ");
                     const val = eval(list.items[i]) orelse return null;
-                    val.print();
+                    // For strings, print without quotes
+                    if (val == .Atom and val.Atom == .String) {
+                        utils.writeStr(val.Atom.String);
+                    } else {
+                        val.print();
+                    }
                 }
                 utils.writeStr("\n");
                 return LispValue{ .Atom = Atom{ .Symbol = "ok" } };
@@ -259,11 +327,7 @@ fn eval(value: LispValue) ?LispValue {
                 if (list.len != 4) return null;
                 const cond = eval(list.items[1]) orelse return null;
                 if (cond != .Atom or cond.Atom != .Boolean) return null;
-                if (cond.Atom.Boolean) {
-                    return eval(list.items[2]);
-                } else {
-                    return eval(list.items[3]);
-                }
+                return if (cond.Atom.Boolean) eval(list.items[2]) else eval(list.items[3]);
             } else if (utils.strEq(op, "quote")) {
                 if (list.len != 2) return null;
                 return list.items[1];
@@ -375,7 +439,8 @@ pub fn main(args: *const utils.Args) void {
 
     // REPL mode
     utils.writeStr("Minimal Lisp REPL for Claudia\n");
-    utils.writeStr("Commands: +, -, *, =, <=, mod, and, print, define, if, quote\n");
+    utils.writeStr("Commands: +, -, *, =, <=, mod, and, print, concat, define, if, quote\n");
+    utils.writeStr("Strings: (print \"Hello, World!\")\n");
     utils.writeStr("Type 'quit' to exit\n\n");
 
     var input_buffer: [256]u8 = undefined;
