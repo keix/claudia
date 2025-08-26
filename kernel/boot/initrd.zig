@@ -5,6 +5,7 @@ const ramdisk = @import("../driver/ramdisk.zig");
 const uart = @import("../driver/uart/core.zig");
 const dtb = @import("dtb.zig");
 const memory = @import("../memory/types.zig");
+const vfs = @import("../fs/vfs.zig");
 
 // Boot parameters from assembly
 extern var boot_hartid: usize;
@@ -77,12 +78,18 @@ pub fn loadInitrd() !void {
             
             
             // Mount the filesystem
-            _ = simplefs.SimpleFS.mount(&ram_disk.device) catch |err| {
+            const fs = simplefs.SimpleFS.mount(&ram_disk.device) catch |err| {
                 uart.puts("Failed to mount initrd: ");
                 if (err == error.InvalidFilesystem) {
+                    uart.puts("Invalid filesystem\n");
                 }
                 return;
             };
+            
+            uart.puts("Initrd mounted successfully\n");
+            
+            // Populate VFS from SimpleFS
+            populateVFS(fs);
             
             return;
         }
@@ -90,4 +97,108 @@ pub fn loadInitrd() !void {
     
     
     // No embedded initrd found
+}
+
+// Populate VFS from SimpleFS
+fn populateVFS(fs: *simplefs.SimpleFS) void {
+    
+    uart.puts("Populating VFS from initrd:\n");
+    
+    // Iterate through all entries in SimpleFS
+    for (&fs.files) |*entry| {
+        if (entry.flags & simplefs.FLAG_EXISTS != 0) {
+            const name = std.mem.sliceTo(&entry.name, 0);
+            
+            // Parse path components
+            var path_parts: [10][]const u8 = undefined;
+            var part_count: usize = 0;
+            var start: usize = 0;
+            
+            // Split path by '/'
+            for (name, 0..) |c, i| {
+                if (c == '/') {
+                    if (i > start) {
+                        path_parts[part_count] = name[start..i];
+                        part_count += 1;
+                    }
+                    start = i + 1;
+                }
+            }
+            if (start < name.len) {
+                path_parts[part_count] = name[start..];
+                part_count += 1;
+            }
+            
+            // Create directories and files in VFS
+            if (entry.flags & simplefs.FLAG_DIRECTORY != 0) {
+                // It's a directory
+                uart.puts("  Creating directory: ");
+                uart.puts(name);
+                uart.puts("\n");
+                
+                _ = createVFSPath(path_parts[0..part_count], true);
+            } else {
+                // It's a file
+                uart.puts("  Creating file: ");
+                uart.puts(name);
+                uart.puts(" (");
+                uart.putDec(entry.size);
+                uart.puts(" bytes)\n");
+                
+                // Create parent directories if needed
+                if (part_count > 1) {
+                    _ = createVFSPath(path_parts[0..part_count-1], true);
+                }
+                
+                // Create the file
+                if (createVFSPath(path_parts[0..part_count], false)) |file_node| {
+                    // Load file content from SimpleFS
+                    if (entry.size > 0 and entry.size <= file_node.data.len) {
+                        var buffer: [1024]u8 = undefined;
+                        const read_size = fs.readFile(name, &buffer) catch 0;
+                        if (read_size > 0) {
+                            @memcpy(file_node.data[0..read_size], buffer[0..read_size]);
+                            file_node.data_size = read_size;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Helper function to create a path in VFS
+fn createVFSPath(path_parts: [][]const u8, is_directory: bool) ?*vfs.VNode {
+    
+    // Start from root
+    var current_path: [256]u8 = undefined;
+    var path_len: usize = 0;
+    
+    for (path_parts, 0..) |part, i| {
+        // Build current path
+        if (path_len > 0) {
+            current_path[path_len] = '/';
+            path_len += 1;
+        }
+        @memcpy(current_path[path_len..path_len + part.len], part);
+        path_len += part.len;
+        
+        const current_path_str = current_path[0..path_len];
+        
+        // Check if this component exists
+        if (vfs.resolvePath(current_path_str) == null) {
+            // Create it
+            const parent_path = if (i == 0) "/" else current_path[0..path_len - part.len - 1];
+            
+            if (i == path_parts.len - 1 and !is_directory) {
+                // Last component and it's a file
+                return vfs.createFile(parent_path, part);
+            } else {
+                // It's a directory or intermediate path component
+                _ = vfs.createDirectory(parent_path, part);
+            }
+        }
+    }
+    
+    return null;
 }

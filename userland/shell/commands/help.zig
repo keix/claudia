@@ -13,17 +13,15 @@ pub fn main(args: *const utils.Args) void {
 
     write_str("Available commands:\n");
     write_str("  echo      - Echo arguments to stdout\n");
-    write_str("  help      - Show this help\n");
+    write_str("  help      - Show this help\n");  
     write_str("  exit      - Exit the shell\n");
     write_str("  ls        - List directory contents\n");
     write_str("  cat       - Display file contents\n");
     write_str("  lisp      - Minimal Lisp REPL\n");
-    write_str("  test_open - Test the open system call\n");
-    write_str("  test_vfs  - Test VFS path resolution\n");
-    write_str("  test_ramdisk - Test RAM disk\n");
-    write_str("  test_simplefs - Test SimpleFS\n");
-    write_str("  init_fs   - Format SimpleFS on RAM disk\n");
-    write_str("  write_fs  - Write a file to SimpleFS\n");
-    write_str("  read_fs   - Read a file from SimpleFS\n");
-    write_str("  list_fs   - List files in SimpleFS\n");
+    write_str("\n");
+    write_str("Usage examples:\n");
+    write_str("  ls              - List files in current directory\n");
+    write_str("  ls /etc         - List files in /etc directory\n");
+    write_str("  cat /etc/passwd - Display contents of passwd file\n");
+    write_str("  lisp hello.lisp - Run a Lisp script\n");
 }

@@ -1,6 +1,16 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
+    // Add clean step first to avoid unnecessary dependencies
+    const clean_step = b.step("clean", "Clean build artifacts");
+    const clean_cmd = b.addSystemCommand(&.{
+        "rm", "-rf",
+        "zig-out", ".zig-cache",
+        "kernel/.zig-cache", "kernel/zig-out",
+        "userland/.zig-cache", "userland/zig-out",
+    });
+    clean_step.dependOn(&clean_cmd.step);
+
     // Target options for RISC-V 64-bit freestanding
     const target = b.standardTargetOptions(.{
         .default_target = .{
@@ -157,94 +167,6 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const test_open_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/test_open.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
-    const test_vfs_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/test_vfs.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
-    const test_file_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/test_file.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
-    const test_null_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/test_null.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
-    const mkfs_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/mkfs.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
-    const test_ramdisk_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/test_ramdisk.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
-    const test_simplefs_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/test_simplefs.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
-    const init_fs_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/init_fs.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
-    const write_fs_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/write_fs.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
-    const read_fs_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/read_fs.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
-    const list_fs_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/list_fs.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
     // Create commands index module
     const commands_index_mod = b.createModule(.{
         .root_source_file = b.path("userland/shell/commands/index.zig"),
@@ -255,17 +177,6 @@ pub fn build(b: *std.Build) void {
             .{ .name = "ls.zig", .module = ls_mod },
             .{ .name = "cat.zig", .module = cat_mod },
             .{ .name = "lisp.zig", .module = lisp_mod },
-            .{ .name = "test_open.zig", .module = test_open_mod },
-            .{ .name = "test_vfs.zig", .module = test_vfs_mod },
-            .{ .name = "test_file.zig", .module = test_file_mod },
-            .{ .name = "test_null.zig", .module = test_null_mod },
-            .{ .name = "mkfs.zig", .module = mkfs_mod },
-            .{ .name = "test_ramdisk.zig", .module = test_ramdisk_mod },
-            .{ .name = "test_simplefs.zig", .module = test_simplefs_mod },
-            .{ .name = "init_fs.zig", .module = init_fs_mod },
-            .{ .name = "write_fs.zig", .module = write_fs_mod },
-            .{ .name = "read_fs.zig", .module = read_fs_mod },
-            .{ .name = "list_fs.zig", .module = list_fs_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });
@@ -359,15 +270,14 @@ pub fn build(b: *std.Build) void {
     // Create initrd with sample files
     const initrd_step = b.step("initrd", "Create initrd image");
     initrd_step.dependOn(&install_mkinitrd.step);
-    
-    // Create initrd from all rootfs files
+
+    // Create initrd from rootfs directory
     const create_initrd_cmd = b.addSystemCommand(&.{
-        "sh", "-c",
-        "find rootfs -type f -not -path '*/.*' | xargs zig-out/bin/mkinitrd zig-out/initrd.img",
+        "zig-out/bin/mkinitrd", "zig-out/initrd.img", "rootfs",
     });
     create_initrd_cmd.step.dependOn(&install_mkinitrd.step);
     initrd_step.dependOn(&create_initrd_cmd.step);
-    
+
     // Create assembly wrapper to embed initrd
     const initrd_asm = b.addWriteFiles();
     const initrd_asm_file = initrd_asm.add("initrd_data.S",
@@ -379,7 +289,7 @@ pub fn build(b: *std.Build) void {
         \\_initrd_end:
     );
     initrd_asm.step.dependOn(&create_initrd_cmd.step);
-    
+
     // Add the embedded initrd to kernel
     kernel.addAssemblyFile(initrd_asm_file);
 
@@ -409,32 +319,4 @@ pub fn build(b: *std.Build) void {
     });
     run_cmd.step.dependOn(b.default_step);
     run_step.dependOn(&run_cmd.step);
-
-    // Add run-initrd step for QEMU with initrd
-    const run_initrd_step = b.step("run-initrd", "Run in QEMU with initrd");
-    const run_initrd_cmd = b.addSystemCommand(&.{
-        "qemu-system-riscv64",
-        "-M",
-        "virt",
-        "-m",
-        "256M",
-        "-nographic",
-        "-kernel",
-        "zig-out/bin/kernel",
-        "-initrd",
-        "zig-out/initrd.img",
-    });
-    run_initrd_cmd.step.dependOn(b.default_step);
-    run_initrd_cmd.step.dependOn(initrd_step);
-    run_initrd_step.dependOn(&run_initrd_cmd.step);
-
-    // Add clean step
-    const clean_step = b.step("clean", "Clean build artifacts");
-    const clean_cmd = b.addSystemCommand(&.{
-        "rm",                  "-rf",
-        "zig-out",             ".zig-cache",
-        "kernel/.zig-cache",   "kernel/zig-out",
-        "userland/.zig-cache", "userland/zig-out",
-    });
-    clean_step.dependOn(&clean_cmd.step);
 }
