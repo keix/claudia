@@ -3,7 +3,7 @@ const utils = @import("shell/utils");
 const sys = @import("sys");
 
 // Simple fixed-size allocator
-var global_buffer: [8192]u8 = undefined;
+var global_buffer: [32768]u8 = undefined;
 var global_pos: usize = 0;
 
 fn alloc(size: usize) ?[]u8 {
@@ -226,6 +226,9 @@ const BuiltinOp = enum {
     If,
     Quote,
     Syscall,
+    While,
+    Cond,
+    Set,
     Unknown,
 
     fn fromSymbol(sym: []const u8) BuiltinOp {
@@ -236,6 +239,9 @@ const BuiltinOp = enum {
         if (utils.strEq(sym, "if")) return .If;
         if (utils.strEq(sym, "quote")) return .Quote;
         if (utils.strEq(sym, "syscall")) return .Syscall;
+        if (utils.strEq(sym, "while")) return .While;
+        if (utils.strEq(sym, "cond")) return .Cond;
+        if (utils.strEq(sym, "set")) return .Set;
         return .Unknown;
     }
 };
@@ -259,12 +265,12 @@ const ArithOp = enum {
                 '-' => .Subtract,
                 '*' => .Multiply,
                 '/' => .Divide,
+                '=' => .Equal,
+                '>' => .Greater,
                 else => .Unknown,
             };
         }
-        if (utils.strEq(sym, "=")) return .Equal;
         if (utils.strEq(sym, "<=")) return .LessEqual;
-        if (utils.strEq(sym, ">")) return .Greater;
         if (utils.strEq(sym, "mod")) return .Mod;
         return .Unknown;
     }
@@ -501,6 +507,72 @@ fn evalQuote(list: *List) ?LispValue {
     return list.items[1];
 }
 
+fn evalWhile(list: *List) ?LispValue {
+    if (list.len < 3) return null;
+    
+    // (while condition body...)
+    var last_result: ?LispValue = null;
+    while (true) {
+        const cond = eval(list.items[1]) orelse return null;
+        if (cond != .Atom or cond.Atom != .Boolean) return null;
+        if (!cond.Atom.Boolean) break;
+        
+        // Execute body
+        for (2..list.len) |i| {
+            last_result = eval(list.items[i]);
+        }
+    }
+    
+    return last_result orelse LispValue{ .Atom = Atom{ .Symbol = "nil" } };
+}
+
+fn evalCond(list: *List) ?LispValue {
+    if (list.len < 2) return null;
+    
+    // (cond (test1 expr1...) (test2 expr2...) ...)
+    for (1..list.len) |i| {
+        const clause = list.items[i];
+        if (clause != .List or clause.List.len < 2) return null;
+        
+        const test_val = eval(clause.List.items[0]) orelse return null;
+        
+        // Check if test is true
+        const is_true = switch (test_val) {
+            .Atom => |atom| switch (atom) {
+                .Boolean => atom.Boolean,
+                .Symbol => utils.strEq(atom.Symbol, "#t"),
+                else => false,
+            },
+            else => false,
+        };
+        
+        if (is_true) {
+            // Execute the expressions in this clause
+            var result: ?LispValue = null;
+            for (1..clause.List.len) |j| {
+                result = eval(clause.List.items[j]);
+            }
+            return result;
+        }
+    }
+    
+    return LispValue{ .Atom = Atom{ .Symbol = "nil" } };
+}
+
+fn evalSet(list: *List) ?LispValue {
+    if (list.len != 3) return null;
+    if (list.items[1] != .Atom or list.items[1].Atom != .Symbol) return null;
+    
+    const name = list.items[1].Atom.Symbol;
+    const value = eval(list.items[2]) orelse return null;
+    
+    // Check if variable exists
+    if (getVar(name) == null) return null;
+    
+    setVar(name, value);
+    return value;
+}
+
 // Evaluator
 fn eval(value: LispValue) ?LispValue {
     switch (value) {
@@ -536,6 +608,9 @@ fn eval(value: LispValue) ?LispValue {
                 .If => evalIf(list),
                 .Quote => evalQuote(list),
                 .Syscall => evalSyscall(list),
+                .While => evalWhile(list),
+                .Cond => evalCond(list),
+                .Set => evalSet(list),
                 .Unknown => null,
             };
         },
@@ -570,7 +645,16 @@ fn executeLisp(code: []const u8) void {
             utils.writeStr(utils.intToStr(@intCast(pos)));
             utils.writeStr(" of ");
             utils.writeStr(utils.intToStr(@intCast(code.len)));
-            utils.writeStr("\n");
+            if (pos < code.len) {
+                utils.writeStr(" (near '");
+                // Show up to 10 characters from error position
+                var end = pos + 10;
+                if (end > code.len) end = code.len;
+                utils.writeStr(code[pos..end]);
+                utils.writeStr("')\n");
+            } else {
+                utils.writeStr("\n");
+            }
             break;
         }
     }
