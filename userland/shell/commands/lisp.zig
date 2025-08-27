@@ -217,26 +217,91 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
     return null;
 }
 
-// Helper functions for operations
-fn evalArithmetic(list: *List, op: u8) ?LispValue {
-    if (list.len < 3) return null;
+// Built-in operation types for better organization
+const BuiltinOp = enum {
+    And,
+    Concat,
+    Print,
+    Define,
+    If,
+    Quote,
+    Syscall,
+    Unknown,
 
-    if (op == '+') {
-        var sum: i32 = 0;
-        for (1..list.len) |i| {
-            const arg = eval(list.items[i]) orelse return null;
-            if (arg != .Atom or arg.Atom != .Number) return null;
-            sum += arg.Atom.Number;
+    fn fromSymbol(sym: []const u8) BuiltinOp {
+        if (utils.strEq(sym, "and")) return .And;
+        if (utils.strEq(sym, "concat")) return .Concat;
+        if (utils.strEq(sym, "print")) return .Print;
+        if (utils.strEq(sym, "define")) return .Define;
+        if (utils.strEq(sym, "if")) return .If;
+        if (utils.strEq(sym, "quote")) return .Quote;
+        if (utils.strEq(sym, "syscall")) return .Syscall;
+        return .Unknown;
+    }
+};
+
+// Arithmetic operation types
+const ArithOp = enum {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Equal,
+    LessEqual,
+    Greater,
+    Mod,
+    Unknown,
+
+    fn fromSymbol(sym: []const u8) ArithOp {
+        if (sym.len == 1) {
+            return switch (sym[0]) {
+                '+' => .Add,
+                '-' => .Subtract,
+                '*' => .Multiply,
+                '/' => .Divide,
+                else => .Unknown,
+            };
         }
-        return LispValue{ .Atom = Atom{ .Number = sum } };
-    } else if (op == '*') {
-        var prod: i32 = 1;
-        for (1..list.len) |i| {
-            const arg = eval(list.items[i]) orelse return null;
-            if (arg != .Atom or arg.Atom != .Number) return null;
-            prod *= arg.Atom.Number;
-        }
-        return LispValue{ .Atom = Atom{ .Number = prod } };
+        if (utils.strEq(sym, "=")) return .Equal;
+        if (utils.strEq(sym, "<=")) return .LessEqual;
+        if (utils.strEq(sym, ">")) return .Greater;
+        if (utils.strEq(sym, "mod")) return .Mod;
+        return .Unknown;
+    }
+
+    fn isVariadic(self: ArithOp) bool {
+        return self == .Add or self == .Multiply;
+    }
+};
+
+// Helper functions for operations
+fn evalArithmetic(list: *List, op: ArithOp) ?LispValue {
+    if (list.len < 2) return null;
+
+    // Variadic operations
+    if (op.isVariadic()) {
+        if (list.len < 3) return null;
+        return switch (op) {
+            .Add => {
+                var sum: i32 = 0;
+                for (1..list.len) |i| {
+                    const arg = eval(list.items[i]) orelse return null;
+                    if (arg != .Atom or arg.Atom != .Number) return null;
+                    sum += arg.Atom.Number;
+                }
+                return LispValue{ .Atom = Atom{ .Number = sum } };
+            },
+            .Multiply => {
+                var prod: i32 = 1;
+                for (1..list.len) |i| {
+                    const arg = eval(list.items[i]) orelse return null;
+                    if (arg != .Atom or arg.Atom != .Number) return null;
+                    prod *= arg.Atom.Number;
+                }
+                return LispValue{ .Atom = Atom{ .Number = prod } };
+            },
+            else => null,
+        };
     }
 
     // Binary operations
@@ -246,16 +311,194 @@ fn evalArithmetic(list: *List, op: u8) ?LispValue {
     if (a != .Atom or a.Atom != .Number or b != .Atom or b.Atom != .Number) return null;
 
     return switch (op) {
-        '-' => LispValue{ .Atom = Atom{ .Number = a.Atom.Number - b.Atom.Number } },
-        '/' => blk: {
-            if (b.Atom.Number == 0) break :blk null;
-            break :blk LispValue{ .Atom = Atom{ .Number = @divFloor(a.Atom.Number, b.Atom.Number) } };
-        },
-        '=' => LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number == b.Atom.Number } },
-        '<' => LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number <= b.Atom.Number } },
-        '>' => LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number > b.Atom.Number } },
+        .Subtract => LispValue{ .Atom = Atom{ .Number = a.Atom.Number - b.Atom.Number } },
+        .Divide => if (b.Atom.Number == 0) null else LispValue{ .Atom = Atom{ .Number = @divFloor(a.Atom.Number, b.Atom.Number) } },
+        .Equal => LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number == b.Atom.Number } },
+        .LessEqual => LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number <= b.Atom.Number } },
+        .Greater => LispValue{ .Atom = Atom{ .Boolean = a.Atom.Number > b.Atom.Number } },
+        .Mod => if (b.Atom.Number == 0) null else LispValue{ .Atom = Atom{ .Number = @mod(a.Atom.Number, b.Atom.Number) } },
         else => null,
     };
+}
+
+// Evaluator
+// Syscall types
+const SyscallType = enum {
+    Write,
+    Open,
+    Close,
+    Read,
+    Unknown,
+
+    fn fromString(name: []const u8) SyscallType {
+        if (utils.strEq(name, "write")) return .Write;
+        if (utils.strEq(name, "open")) return .Open;
+        if (utils.strEq(name, "close")) return .Close;
+        if (utils.strEq(name, "read")) return .Read;
+        return .Unknown;
+    }
+
+    fn expectedArgCount(self: SyscallType) usize {
+        return switch (self) {
+            .Write => 4,  // (syscall "write" fd data)
+            .Open => 5,   // (syscall "open" filename flags mode)
+            .Close => 3,  // (syscall "close" fd)
+            .Read => 5,   // (syscall "read" fd buffer size)
+            .Unknown => 0,
+        };
+    }
+};
+
+// Syscall evaluation helper
+fn evalSyscall(list: *List) ?LispValue {
+    if (list.len < 2) return null;
+
+    const name_val = eval(list.items[1]) orelse return null;
+    if (name_val != .Atom or name_val.Atom != .String) return null;
+    
+    const syscall_type = SyscallType.fromString(name_val.Atom.String);
+    if (syscall_type == .Unknown) return null;
+    
+    if (list.len != syscall_type.expectedArgCount()) return null;
+
+    return switch (syscall_type) {
+        .Write => syscallWrite(list),
+        .Open => syscallOpen(list),
+        .Close => syscallClose(list),
+        .Read => syscallRead(list),
+        .Unknown => null,
+    };
+}
+
+// Helper to extract number argument
+fn getNumberArg(list: *List, index: usize) ?i32 {
+    if (index >= list.len) return null;
+    const val = eval(list.items[index]) orelse return null;
+    if (val != .Atom or val.Atom != .Number) return null;
+    return val.Atom.Number;
+}
+
+// Helper to extract string argument
+fn getStringArg(list: *List, index: usize) ?[]const u8 {
+    if (index >= list.len) return null;
+    const val = eval(list.items[index]) orelse return null;
+    if (val != .Atom or val.Atom != .String) return null;
+    return val.Atom.String;
+}
+
+fn syscallWrite(list: *List) ?LispValue {
+    const fd = getNumberArg(list, 2) orelse return null;
+    const data = getStringArg(list, 3) orelse return null;
+    const result = sys.write(@intCast(fd), @ptrCast(data.ptr), data.len);
+    return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
+}
+
+fn syscallOpen(list: *List) ?LispValue {
+    const filename = getStringArg(list, 2) orelse return null;
+    const flags = getNumberArg(list, 3) orelse return null;
+    const mode = getNumberArg(list, 4) orelse return null;
+
+    var path_buf: [256]u8 = undefined;
+    if (filename.len >= path_buf.len) return null;
+    @memcpy(path_buf[0..filename.len], filename);
+    path_buf[filename.len] = 0;
+
+    const result = sys.open(@ptrCast(&path_buf), @as(u32, @intCast(flags)), @as(u32, @intCast(mode)));
+    return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
+}
+
+fn syscallClose(list: *List) ?LispValue {
+    const fd = getNumberArg(list, 2) orelse return null;
+    const result = sys.close(@intCast(fd));
+    return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
+}
+
+fn syscallRead(list: *List) ?LispValue {
+    const fd = getNumberArg(list, 2) orelse return null;
+    const size = getNumberArg(list, 4) orelse return null;
+
+    const buffer = alloc(@as(usize, @intCast(size))) orelse return null;
+    const result = sys.read(@intCast(fd), @ptrCast(buffer.ptr), @as(usize, @intCast(size)));
+
+    if (result > 0) {
+        return LispValue{ .Atom = Atom{ .String = buffer[0..@intCast(result)] } };
+    } else {
+        return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
+    }
+}
+
+// Individual evaluation functions for built-in operations
+fn evalAnd(list: *List) ?LispValue {
+    if (list.len != 3) return null;
+    const a = eval(list.items[1]) orelse return null;
+    const b = eval(list.items[2]) orelse return null;
+    if (a != .Atom or a.Atom != .Boolean or b != .Atom or b.Atom != .Boolean) return null;
+    return LispValue{ .Atom = Atom{ .Boolean = a.Atom.Boolean and b.Atom.Boolean } };
+}
+
+fn evalConcat(list: *List) ?LispValue {
+    if (list.len < 2) return null;
+    var total_len: usize = 0;
+
+    // First pass: calculate total length
+    for (1..list.len) |i| {
+        const val = eval(list.items[i]) orelse return null;
+        if (val != .Atom or val.Atom != .String) return null;
+        total_len += val.Atom.String.len;
+    }
+
+    // Allocate result string
+    const result = alloc(total_len) orelse return null;
+    var pos: usize = 0;
+
+    // Second pass: concatenate strings
+    for (1..list.len) |i| {
+        const val = eval(list.items[i]) orelse return null;
+        const str = val.Atom.String;
+        for (str) |ch| {
+            result[pos] = ch;
+            pos += 1;
+        }
+    }
+
+    return LispValue{ .Atom = Atom{ .String = result[0..total_len] } };
+}
+
+fn evalPrint(list: *List) ?LispValue {
+    if (list.len < 2) return null;
+    for (1..list.len) |i| {
+        if (i > 1) utils.writeStr(" ");
+        const val = eval(list.items[i]) orelse return null;
+        // For strings, print without quotes
+        if (val == .Atom and val.Atom == .String) {
+            utils.writeStr(val.Atom.String);
+        } else {
+            val.print();
+        }
+    }
+    utils.writeStr("\n");
+    return LispValue{ .Atom = Atom{ .Symbol = "ok" } };
+}
+
+fn evalDefine(list: *List) ?LispValue {
+    if (list.len != 3) return null;
+    if (list.items[1] != .Atom or list.items[1].Atom != .Symbol) return null;
+    const name = list.items[1].Atom.Symbol;
+    const val = eval(list.items[2]) orelse return null;
+    setVar(name, val);
+    return val;
+}
+
+fn evalIf(list: *List) ?LispValue {
+    if (list.len != 4) return null;
+    const cond = eval(list.items[1]) orelse return null;
+    if (cond != .Atom or cond.Atom != .Boolean) return null;
+    return if (cond.Atom.Boolean) eval(list.items[2]) else eval(list.items[3]);
+}
+
+fn evalQuote(list: *List) ?LispValue {
+    if (list.len != 2) return null;
+    return list.items[1];
 }
 
 // Evaluator
@@ -277,162 +520,24 @@ fn eval(value: LispValue) ?LispValue {
 
             const op = first.Atom.Symbol;
 
-            // Arithmetic operations
-            if (op.len == 1) {
-                const ch = op[0];
-                if (ch == '+' or ch == '-' or ch == '*' or ch == '/') {
-                    return evalArithmetic(list, ch);
-                }
-            } else if (utils.strEq(op, "=")) {
-                return evalArithmetic(list, '=');
-            } else if (utils.strEq(op, "<=")) {
-                return evalArithmetic(list, '<');
-            } else if (utils.strEq(op, ">")) {
-                return evalArithmetic(list, '>');
-            } else if (utils.strEq(op, "mod")) {
-                if (list.len != 3) return null;
-                const a = eval(list.items[1]) orelse return null;
-                const b = eval(list.items[2]) orelse return null;
-                if (a != .Atom or a.Atom != .Number or b != .Atom or b.Atom != .Number) return null;
-                if (b.Atom.Number == 0) return null;
-                return LispValue{ .Atom = Atom{ .Number = @mod(a.Atom.Number, b.Atom.Number) } };
-            } else if (utils.strEq(op, "and")) {
-                if (list.len != 3) return null;
-                const a = eval(list.items[1]) orelse return null;
-                const b = eval(list.items[2]) orelse return null;
-                if (a != .Atom or a.Atom != .Boolean or b != .Atom or b.Atom != .Boolean) return null;
-                return LispValue{ .Atom = Atom{ .Boolean = a.Atom.Boolean and b.Atom.Boolean } };
-            } else if (utils.strEq(op, "concat")) {
-                if (list.len < 2) return null;
-                var total_len: usize = 0;
-
-                // First pass: calculate total length
-                for (1..list.len) |i| {
-                    const val = eval(list.items[i]) orelse return null;
-                    if (val != .Atom or val.Atom != .String) return null;
-                    total_len += val.Atom.String.len;
-                }
-
-                // Allocate result string
-                const result = alloc(total_len) orelse return null;
-                var pos: usize = 0;
-
-                // Second pass: concatenate strings
-                for (1..list.len) |i| {
-                    const val = eval(list.items[i]) orelse return null;
-                    const str = val.Atom.String;
-                    for (str) |ch| {
-                        result[pos] = ch;
-                        pos += 1;
-                    }
-                }
-
-                return LispValue{ .Atom = Atom{ .String = result[0..total_len] } };
-            } else if (utils.strEq(op, "print")) {
-                if (list.len < 2) return null;
-                for (1..list.len) |i| {
-                    if (i > 1) utils.writeStr(" ");
-                    const val = eval(list.items[i]) orelse return null;
-                    // For strings, print without quotes
-                    if (val == .Atom and val.Atom == .String) {
-                        utils.writeStr(val.Atom.String);
-                    } else {
-                        val.print();
-                    }
-                }
-                utils.writeStr("\n");
-                return LispValue{ .Atom = Atom{ .Symbol = "ok" } };
-            } else if (utils.strEq(op, "define")) {
-                if (list.len != 3) return null;
-                if (list.items[1] != .Atom or list.items[1].Atom != .Symbol) return null;
-                const name = list.items[1].Atom.Symbol;
-                const val = eval(list.items[2]) orelse return null;
-                setVar(name, val);
-                return val;
-            } else if (utils.strEq(op, "if")) {
-                if (list.len != 4) return null;
-                const cond = eval(list.items[1]) orelse return null;
-                if (cond != .Atom or cond.Atom != .Boolean) return null;
-                return if (cond.Atom.Boolean) eval(list.items[2]) else eval(list.items[3]);
-            } else if (utils.strEq(op, "quote")) {
-                if (list.len != 2) return null;
-                return list.items[1];
-            } else if (utils.strEq(op, "syscall")) {
-                if (list.len < 2) return null;
-
-                const name_val = eval(list.items[1]) orelse return null;
-                if (name_val != .Atom or name_val.Atom != .String) return null;
-                const syscall_name = name_val.Atom.String;
-
-                if (utils.strEq(syscall_name, "write")) {
-                    if (list.len != 4) return null;
-
-                    const fd_val = eval(list.items[2]) orelse return null;
-                    if (fd_val != .Atom or fd_val.Atom != .Number) return null;
-                    const fd = fd_val.Atom.Number;
-
-                    const data_val = eval(list.items[3]) orelse return null;
-                    if (data_val != .Atom or data_val.Atom != .String) return null;
-                    const data = data_val.Atom.String;
-
-                    const result = sys.write(@intCast(fd), @ptrCast(data.ptr), data.len);
-                    return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
-                } else if (utils.strEq(syscall_name, "open")) {
-                    if (list.len != 5) return null;
-
-                    const filename_val = eval(list.items[2]) orelse return null;
-                    if (filename_val != .Atom or filename_val.Atom != .String) return null;
-                    const filename = filename_val.Atom.String;
-
-                    const flags_val = eval(list.items[3]) orelse return null;
-                    if (flags_val != .Atom or flags_val.Atom != .Number) return null;
-                    const flags = @as(u32, @intCast(flags_val.Atom.Number));
-
-                    const mode_val = eval(list.items[4]) orelse return null;
-                    if (mode_val != .Atom or mode_val.Atom != .Number) return null;
-                    const mode = @as(u32, @intCast(mode_val.Atom.Number));
-
-                    var path_buf: [256]u8 = undefined;
-                    if (filename.len >= path_buf.len) return null;
-                    @memcpy(path_buf[0..filename.len], filename);
-                    path_buf[filename.len] = 0;
-
-                    const result = sys.open(@ptrCast(&path_buf), flags, mode);
-                    return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
-                } else if (utils.strEq(syscall_name, "close")) {
-                    if (list.len != 3) return null;
-
-                    const fd_val = eval(list.items[2]) orelse return null;
-                    if (fd_val != .Atom or fd_val.Atom != .Number) return null;
-                    const fd = fd_val.Atom.Number;
-
-                    const result = sys.close(@intCast(fd));
-                    return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
-                } else if (utils.strEq(syscall_name, "read")) {
-                    if (list.len != 5) return null;
-
-                    const fd_val = eval(list.items[2]) orelse return null;
-                    if (fd_val != .Atom or fd_val.Atom != .Number) return null;
-                    const fd = fd_val.Atom.Number;
-
-                    const size_val = eval(list.items[4]) orelse return null;
-                    if (size_val != .Atom or size_val.Atom != .Number) return null;
-                    const size = @as(usize, @intCast(size_val.Atom.Number));
-
-                    const buffer = alloc(size) orelse return null;
-                    const result = sys.read(@intCast(fd), @ptrCast(buffer.ptr), size);
-
-                    if (result > 0) {
-                        return LispValue{ .Atom = Atom{ .String = buffer[0..@intCast(result)] } };
-                    } else {
-                        return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
-                    }
-                }
-
-                return null;
+            // Try arithmetic operations first
+            const arith_op = ArithOp.fromSymbol(op);
+            if (arith_op != .Unknown) {
+                return evalArithmetic(list, arith_op);
             }
 
-            return null;
+            // Try other built-in operations
+            const builtin = BuiltinOp.fromSymbol(op);
+            return switch (builtin) {
+                .And => evalAnd(list),
+                .Concat => evalConcat(list),
+                .Print => evalPrint(list),
+                .Define => evalDefine(list),
+                .If => evalIf(list),
+                .Quote => evalQuote(list),
+                .Syscall => evalSyscall(list),
+                .Unknown => null,
+            };
         },
     }
 }
