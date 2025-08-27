@@ -43,16 +43,111 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 ## System Calls
 
-| System Call | UNIX V6 | Claudia | Notes |
-|-------------|---------|---------|-------|
-| **Total Count** | ~48 | 8 implemented | Gradual implementation |
-| **fork()** | Full implementation | Simplified (no COW) | Copy-on-write planned |
-| **exec()** | Loads a.out format | ELF loader | Modern executable format |
-| **read/write** | Blocking I/O | Blocking I/O | Same semantics |
-| **open/close** | Full filesystem | Basic implementation | /dev/ramdisk supported |
-| **exit()** | Process cleanup | Basic implementation | No zombie reaping yet |
-| **wait()** | Parent-child sync | Not implemented | Planned |
-| **sbrk()** | Memory allocation | Implemented | Heap management works |
+### Summary
+
+| Category | UNIX V6 | Claudia | Implementation Rate |
+|----------|---------|---------|-------------------|
+| **Total System Calls** | ~48 | 6 fully implemented | 12.5% |
+| **Process Control** | 12 | 1 implemented | 8.3% |
+| **File Management** | 15 | 4 implemented | 26.7% |
+| **Directory Operations** | 2 | 1 implemented | 50% |
+| **Device Operations** | 6 | 0 implemented | 0% |
+| **Time Operations** | 3 | 0 implemented | 0% |
+| **Other System Operations** | 10 | 0 implemented | 0% |
+
+### Detailed System Call Implementation Status
+
+#### Process Control (1/12 implemented)
+| System Call | V6 # | Claudia Status | Notes |
+|-------------|------|----------------|-------|
+| fork | 2 | Not implemented | Simplified version planned |
+| **exit** | 1 | Implemented | Basic cleanup only |
+| wait | 2 | Not implemented | No zombie handling |
+| exec | 11 | Not implemented | ELF loader exists |
+| getpid | 20 | Not implemented | |
+| getuid | 24 | Not implemented | Single-user system |
+| setuid | 23 | Not implemented | |
+| nice | 34 | Not implemented | |
+| kill | 37 | Not implemented | No signals |
+| signal | 48 | Not implemented | |
+| alarm | 27 | Not implemented | |
+| pause | 29 | Not implemented | |
+
+#### File Management (4/15 implemented)
+| System Call | V6 # | Claudia Status | Notes |
+|-------------|------|----------------|-------|
+| **open** | 5 | Implemented | Basic file/device support |
+| **close** | 6 | Implemented | |
+| **read** | 3 | Implemented | Files and devices |
+| **write** | 4 | Implemented | Files and devices |
+| creat | 8 | Not implemented | Use open with flags |
+| link | 9 | Not implemented | |
+| unlink | 10 | Not implemented | |
+| seek | 19 | Not implemented | |
+| fstat | 28 | Not implemented | |
+| stat | 18 | Not implemented | |
+| chmod | 15 | Not implemented | |
+| chown | 16 | Not implemented | |
+| dup | 41 | Not implemented | |
+| pipe | 42 | Not implemented | |
+| access | - | Not implemented | Not in V6 |
+
+#### Directory Operations (1/2 implemented)
+| System Call | V6 # | Claudia Status | Notes |
+|-------------|------|----------------|-------|
+| chdir | 12 | Not implemented | Logic exists |
+| mknod | 14 | Not implemented | |
+| **readdir** | - | Implemented | Modern replacement for raw inode reading |
+
+#### Device Operations (0/6 implemented)
+| System Call | V6 # | Claudia Status | Notes |
+|-------------|------|----------------|-------|
+| mount | 21 | Not implemented | |
+| umount | 22 | Not implemented | |
+| sync | 36 | Not implemented | |
+| stty | 31 | Not implemented | |
+| gtty | 32 | Not implemented | |
+| ioctl | 54 | Not implemented | |
+
+#### Time Operations (0/3 implemented)
+| System Call | V6 # | Claudia Status | Notes |
+|-------------|------|----------------|-------|
+| stime | 25 | Not implemented | |
+| time | 13 | Not implemented | |
+| times | 43 | Not implemented | |
+
+#### System Operations (0/10 implemented)
+| System Call | V6 # | Claudia Status | Notes |
+|-------------|------|----------------|-------|
+| break/sbrk | 17 | Not implemented | Heap management exists |
+| prof | 44 | Not implemented | |
+| setgid | 46 | Not implemented | |
+| getgid | 47 | Not implemented | |
+| acct | 51 | Not implemented | |
+| phys | 52 | Not implemented | Not applicable to RISC-V |
+| lock | 53 | Not implemented | |
+| mpx | 56 | Not implemented | |
+| ptrace | 26 | Not implemented | |
+| umask | - | Not implemented | Not in V6 |
+
+### Implementation Priority
+
+Based on current needs for shell and Lisp interpreter:
+
+1. **Immediate Priority**
+   - `seek` - File positioning needed for editors
+   - `stat/fstat` - File information for `ls -l`
+   - `creat` - Explicit file creation
+   
+2. **High Priority**
+   - `fork/exec` - Process creation for proper shell
+   - `wait` - Process synchronization
+   - `pipe` - Inter-process communication
+   
+3. **Medium Priority**
+   - `chdir` - Directory navigation
+   - `time` - Timestamps
+   - `signal/kill` - Process control
 
 ## File System
 
@@ -150,7 +245,7 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | Aspect | UNIX V6 | Claudia |
 |--------|---------|---------|
 | **Language** | C (K&R) | Zig (100% no libc) |
-| **Lines of Code** | ~9,000 | ~10,000 (9,792 .zig + assembly) |
+| **Lines of Code** | ~9,000 | ~10,000 (+ assembly) |
 | **Build System** | make | Zig build system |
 | **Initrd Tool** | None | mkinitrd.zig |
 
