@@ -9,8 +9,10 @@ pub fn main(args: *const utils.Args) void {
     // Allocate buffer for directory entries
     var entries: [32]sys.DirEntry = undefined;
 
+
     // Read directory
     const count = sys.readdir(path, &entries);
+
     if (count < 0) {
         utils.writeStr("ls: cannot access '");
         utils.writeStr(path);
@@ -78,4 +80,15 @@ fn writeNumber(n: usize) void {
         var ch: [1]u8 = .{buffer[i]};
         utils.writeStr(&ch);
     }
+}
+
+fn writeHexByte(byte: u8) void {
+    const hex_chars = "0123456789ABCDEF";
+    var ch: [1]u8 = undefined;
+
+    ch[0] = hex_chars[(byte >> 4) & 0x0F];
+    utils.writeStr(&ch);
+
+    ch[0] = hex_chars[byte & 0x0F];
+    utils.writeStr(&ch);
 }

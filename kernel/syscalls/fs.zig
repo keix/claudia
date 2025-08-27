@@ -76,12 +76,31 @@ pub fn sys_read(fd: usize, ubuf: usize, len: usize) isize {
     const readFile = file_read orelse return defs.ENOSYS;
 
     const f = getFile(@as(i32, @intCast(fd))) orelse return defs.EBADF;
-    var tmp: [256]u8 = undefined;
-    const n = if (len > tmp.len) tmp.len else len;
-    const r = readFile(f, tmp[0..n]);
-    if (r < 0) return r;
-    _ = copy.copyout(ubuf, tmp[0..@as(usize, @intCast(r))]) catch return defs.EFAULT;
-    return r;
+
+    // Use a larger temporary buffer for reading
+    var tmp: [1024]u8 = undefined;
+    var left = len;
+    var off: usize = 0;
+    var done: usize = 0;
+
+    while (left > 0) {
+        const n = if (left > tmp.len) tmp.len else left;
+        const r = readFile(f, tmp[0..n]);
+        if (r < 0) return r;
+        if (r == 0) break; // EOF
+
+        const read_bytes = @as(usize, @intCast(r));
+        _ = copy.copyout(ubuf + off, tmp[0..read_bytes]) catch return defs.EFAULT;
+
+        done += read_bytes;
+        left -= read_bytes;
+        off += read_bytes;
+
+        // If we read less than requested, we've hit EOF
+        if (read_bytes < n) break;
+    }
+
+    return @as(isize, @intCast(done));
 }
 
 pub fn sys_close(fd: usize) isize {

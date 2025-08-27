@@ -5,9 +5,9 @@ const blockdev = @import("../driver/blockdev.zig");
 
 // Filesystem constants
 const MAGIC: u32 = 0x53494D50; // 'SIMP'
-const MAX_FILES: u32 = 16; // Increased to allow more files
-const MAX_FILENAME: u32 = 28;
-const DATA_START_BLOCK: u32 = 3; // After superblock and file table (blocks 0-2)
+const MAX_FILES: u32 = 32; // Increased to allow more files
+const MAX_FILENAME: u32 = 60; // Increased for longer filenames
+const DATA_START_BLOCK: u32 = 9; // After superblock (1) and file table (32*128=4096 bytes = 8 blocks)
 
 // On-disk structures
 pub const SuperBlock = extern struct {
@@ -23,17 +23,17 @@ pub const FLAG_EXISTS: u32 = 0x01;
 pub const FLAG_DIRECTORY: u32 = 0x02;
 
 pub const FileEntry = extern struct {
-    name: [MAX_FILENAME]u8, // 28 bytes
+    name: [MAX_FILENAME]u8, // 60 bytes
     size: u32, // 4 bytes
     start_block: u32, // 4 bytes
     blocks_used: u32, // 4 bytes
     flags: u32, // 4 bytes - bit 0: exists, bit 1: is_directory
-    reserved: [20]u8 = undefined, // Pad to 64 bytes (28+4+4+4+4+20=64)
+    reserved: [52]u8 = undefined, // Pad to 128 bytes (60+4+4+4+4+52=128)
 };
 
 comptime {
     if (@sizeOf(SuperBlock) != 512) @compileError("SuperBlock must be 512 bytes");
-    if (@sizeOf(FileEntry) != 64) @compileError("FileEntry must be 64 bytes");
+    if (@sizeOf(FileEntry) != 128) @compileError("FileEntry must be 128 bytes");
 }
 
 // Global storage for SimpleFS to avoid stack issues
@@ -60,10 +60,11 @@ pub const SimpleFS = struct {
         @memcpy(block_buf[0..@sizeOf(SuperBlock)], super_bytes);
         try device.writeBlock(0, &block_buf);
 
-        // Clear file table (blocks 1-2 for 16 files)
+        // Clear file table (blocks 1-8 for 32 files)
         @memset(&block_buf, 0);
-        try device.writeBlock(1, &block_buf);
-        try device.writeBlock(2, &block_buf);
+        for (1..9) |block| {
+            try device.writeBlock(block, &block_buf);
+        }
     }
 
     pub fn mount(device: *blockdev.BlockDevice) error{InvalidFilesystem}!*SimpleFS {
@@ -102,7 +103,7 @@ pub const SimpleFS = struct {
             }
 
             block_num += 1;
-            if (block_num > 2) break; // Only blocks 1-2 for file table
+            if (block_num > 8) break; // Only blocks 1-8 for file table (32 files * 128 bytes)
         }
 
         return &global_fs;

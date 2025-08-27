@@ -1,6 +1,4 @@
 # Claudia Kernel
-The directory layout itself reflects the kernel's architecture:
-each top-level directory corresponds directly to a kernel subsystem.
-
-Open the root — and you see the structure of Claudia.
+Open the root — and the structure of Claudia is revealed.  
+Its layout mirrors the kernel itself: each directory a subsystem, each syscall a line of truth. Nothing hidden, nothing wasted.
 
