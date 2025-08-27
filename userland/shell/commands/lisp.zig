@@ -140,12 +140,36 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
         const str = input[start..pos.*];
         pos.* += 1; // Skip closing quote
 
-        // Store string
-        const str_copy = alloc(str.len) orelse return null;
-        for (str, 0..) |ch, i| {
-            str_copy[i] = ch;
+        // Process escape sequences and store string
+        var actual_len: usize = 0;
+        var i: usize = 0;
+        while (i < str.len) : (i += 1) {
+            if (str[i] == '\\' and i + 1 < str.len) {
+                i += 1; // Skip backslash
+            }
+            actual_len += 1;
         }
-        return LispValue{ .Atom = Atom{ .String = str_copy } };
+        
+        const str_copy = alloc(actual_len) orelse return null;
+        var j: usize = 0;
+        i = 0;
+        while (i < str.len) : (i += 1) {
+            if (str[i] == '\\' and i + 1 < str.len) {
+                i += 1;
+                str_copy[j] = switch (str[i]) {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    '\\' => '\\',
+                    '"' => '"',
+                    else => str[i], // Unknown escape, keep as-is
+                };
+            } else {
+                str_copy[j] = str[i];
+            }
+            j += 1;
+        }
+        return LispValue{ .Atom = Atom{ .String = str_copy[0..actual_len] } };
     } else if (input[pos.*] == '(') {
         // Parse list
         pos.* += 1; // Skip '('
