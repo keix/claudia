@@ -9,7 +9,6 @@ pub fn main(args: *const utils.Args) void {
     // Allocate buffer for directory entries
     var entries: [32]sys.DirEntry = undefined;
 
-
     // Read directory
     const count = sys.readdir(path, &entries);
 
