@@ -149,7 +149,7 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
             }
             actual_len += 1;
         }
-        
+
         const str_copy = alloc(actual_len) orelse return null;
         var j: usize = 0;
         i = 0;

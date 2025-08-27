@@ -22,4 +22,5 @@ pub const commands = [_]CommandEntry{
     .{ .name = "cat", .func = @import("cat.zig").main },
     .{ .name = "lisp", .func = @import("lisp.zig").main },
     .{ .name = "pid", .func = @import("pid.zig").main },
+    .{ .name = "seek", .func = @import("seek.zig").main },
 };

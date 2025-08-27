@@ -47,9 +47,9 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 | Category | UNIX V6 | Claudia | Implementation Rate |
 |----------|---------|---------|-------------------|
-| **Total System Calls** | ~48 | 7 fully implemented | 14.6% |
+| **Total System Calls** | ~48 | 8 fully implemented | 16.7% |
 | **Process Control** | 12 | 2 implemented | 16.7% |
-| **File Management** | 15 | 4 implemented | 26.7% |
+| **File Management** | 15 | 5 implemented | 33.3% |
 | **Directory Operations** | 2 | 1 implemented | 50% |
 | **Device Operations** | 6 | 0 implemented | 0% |
 | **Time Operations** | 3 | 0 implemented | 0% |
@@ -73,7 +73,7 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | alarm | 27 | Not implemented | |
 | pause | 29 | Not implemented | |
 
-#### File Management (4/15 implemented)
+#### File Management (5/15 implemented)
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
 | **open** | 5 | Implemented | Basic file/device support |
@@ -83,7 +83,7 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | creat | 8 | Not implemented | Use open with flags |
 | link | 9 | Not implemented | |
 | unlink | 10 | Not implemented | |
-| seek | 19 | Not implemented | |
+| **lseek** | 19 | Implemented | Modern lseek with SEEK_SET/CUR/END |
 | fstat | 28 | Not implemented | |
 | stat | 18 | Not implemented | |
 | chmod | 15 | Not implemented | |

@@ -22,6 +22,7 @@ pub const FileOperations = struct {
     read: *const fn (*File, []u8) isize,
     write: *const fn (*File, []const u8) isize,
     close: *const fn (*File) void,
+    lseek: ?*const fn (*File, i64, u32) isize = null,
 };
 
 // File structure
@@ -74,6 +75,13 @@ pub const File = struct {
                 self.operations.close(self);
             }
         }
+    }
+
+    pub fn lseek(self: *File, offset: i64, whence: u32) isize {
+        if (self.operations.lseek) |lseek_fn| {
+            return lseek_fn(self, offset, whence);
+        }
+        return defs.ESPIPE; // Illegal seek (not seekable)
     }
 
     pub fn addRef(self: *File) void {
@@ -520,6 +528,13 @@ pub const FileTable = struct {
 
         closeFd(fd);
         return 0;
+    }
+
+    pub fn sysLseek(fd: FD, offset: i64, whence: u32) isize {
+        if (getFile(fd)) |file| {
+            return file.lseek(offset, whence);
+        }
+        return defs.EBADF;
     }
 
     pub fn sysOpen(path: []const u8, flags: u32, mode: u16) isize {

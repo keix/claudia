@@ -18,6 +18,21 @@ pub const MemFile = struct {
             .position = 0,
         };
     }
+
+    pub fn lseek(self: *MemFile, offset: i64, whence: u32) isize {
+        const new_pos = switch (whence) {
+            0 => offset, // SEEK_SET
+            1 => @as(i64, @intCast(self.position)) + offset, // SEEK_CUR
+            2 => @as(i64, @intCast(self.vnode.data_size)) + offset, // SEEK_END
+            else => return defs.EINVAL,
+        };
+
+        // Check bounds
+        if (new_pos < 0) return defs.EINVAL;
+
+        self.position = @as(usize, @intCast(new_pos));
+        return @as(isize, @intCast(self.position));
+    }
 };
 
 // Memory file operations
@@ -25,6 +40,7 @@ const MemFileOperations = FileOperations{
     .read = memRead,
     .write = memWrite,
     .close = memClose,
+    .lseek = memLseek,
 };
 
 fn memRead(file: *File, buffer: []u8) isize {
@@ -86,6 +102,13 @@ fn memClose(file: *File) void {
     mem_file.vnode.release();
     // Mark as free
     freeMemFile(mem_file);
+}
+
+fn memLseek(file: *File, offset: i64, whence: u32) isize {
+    // Get MemFile from File pointer
+    const mem_file_ptr = @intFromPtr(file) - @offsetOf(MemFile, "file");
+    const mem_file = @as(*MemFile, @ptrFromInt(mem_file_ptr));
+    return mem_file.lseek(offset, whence);
 }
 
 // Pool of memory files (simple static allocation for now)

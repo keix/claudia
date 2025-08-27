@@ -19,6 +19,25 @@ pub const BlockFile = struct {
             .pos = 0,
         };
     }
+
+    pub fn lseek(self: *BlockFile, offset: i64, whence: u32) isize {
+        const new_pos = switch (whence) {
+            0 => offset, // SEEK_SET
+            1 => @as(i64, @intCast(self.pos)) + offset, // SEEK_CUR
+            2 => blk: { // SEEK_END
+                // For block devices, use device size
+                const size = @as(i64, @intCast(self.device.total_blocks * blockdev.BLOCK_SIZE));
+                break :blk size + offset;
+            },
+            else => return defs.EINVAL,
+        };
+
+        // Check bounds
+        if (new_pos < 0) return defs.EINVAL;
+
+        self.pos = @as(u64, @intCast(new_pos));
+        return @as(isize, @intCast(self.pos));
+    }
 };
 
 // File operations for block devices
@@ -26,6 +45,7 @@ const BlockFileOps = core.FileOperations{
     .read = blockRead,
     .write = blockWrite,
     .close = blockClose,
+    .lseek = blockLseek,
 };
 
 fn blockRead(file: *core.File, buffer: []u8) isize {
@@ -111,6 +131,11 @@ fn blockClose(file: *core.File) void {
     const bf: *BlockFile = @alignCast(@fieldParentPtr("file", file));
     bf.pos = 0;
     // Note: We don't free the BlockFile here as it's statically allocated
+}
+
+fn blockLseek(file: *core.File, offset: i64, whence: u32) isize {
+    const bf: *BlockFile = @alignCast(@fieldParentPtr("file", file));
+    return bf.lseek(offset, whence);
 }
 
 // Static allocation for block device files
