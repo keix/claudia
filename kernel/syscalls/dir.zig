@@ -4,11 +4,19 @@ const copy = @import("../user/copy.zig");
 const defs = @import("abi");
 
 // Simple directory entry structure
-pub const DirEntry = struct {
+pub const DirEntry = extern struct {
     name: [256]u8,
     name_len: u8,
     node_type: u8, // 1=FILE, 2=DIRECTORY, 3=DEVICE
+    _padding: [6]u8 = undefined, // Ensure proper alignment to 264 bytes
 };
+
+comptime {
+    // Ensure DirEntry has a consistent size
+    if (@sizeOf(DirEntry) != 264) {
+        @compileError("DirEntry size must be 264 bytes");
+    }
+}
 
 // sys_getdents64 implementation (using readdir internally)
 pub fn sys_getdents64(fd: usize, dirp: usize, count: usize) isize {
@@ -26,10 +34,14 @@ pub fn sys_readdir(path_addr: usize, entries_addr: usize, max_entries: usize) is
     const path = path_buf[0..path_len];
 
     // Resolve path
-    const node = vfs.resolvePath(path) orelse return defs.ENOENT;
+    const node = vfs.resolvePath(path) orelse {
+        return defs.ENOENT;
+    };
 
     // Must be a directory
-    if (node.node_type != .DIRECTORY) return defs.ENOTDIR;
+    if (node.node_type != .DIRECTORY) {
+        return defs.ENOTDIR;
+    }
 
     // First, count entries to reverse the order (since they're added in reverse)
     var total_count: usize = 0;
@@ -70,7 +82,10 @@ pub fn sys_readdir(path_addr: usize, entries_addr: usize, max_entries: usize) is
     while (count < idx) : (count += 1) {
         const entry = &temp_entries[idx - 1 - count];
         const entry_addr = entries_addr + count * @sizeOf(DirEntry);
-        _ = copy.copyout(entry_addr, std.mem.asBytes(entry)) catch return defs.EFAULT;
+
+        _ = copy.copyout(entry_addr, std.mem.asBytes(entry)) catch {
+            return defs.EFAULT;
+        };
     }
 
     return @intCast(count);
