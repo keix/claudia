@@ -47,8 +47,8 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 | Category | UNIX V6 | Claudia | Implementation Rate |
 |----------|---------|---------|-------------------|
-| **Total System Calls** | ~48 | 11 fully implemented | 22.9% |
-| **Process Control** | 12 | 2 implemented | 16.7% |
+| **Total System Calls** | ~48 | 15 implemented | 31.3% |
+| **Process Control** | 12 | 6 implemented | 50.0% |
 | **File Management** | 15 | 6 implemented | 40.0% |
 | **Directory Operations** | 2 | 3 implemented | 150% |
 | **Device Operations** | 6 | 0 implemented | 0% |
@@ -57,13 +57,13 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 ### Detailed System Call Implementation Status
 
-#### Process Control (2/12 implemented)
+#### Process Control (6/12 implemented)
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
-| fork | 2 | - | Simplified version planned |
+| **fork** | 2 | Implemented | Simplified version (no COW) |
 | **exit** | 1 | Implemented | Basic cleanup only |
 | wait | 2 | - | No zombie handling |
-| exec | 11 | - | ELF loader exists |
+| **exec** | 11 | Implemented | Hardcoded to shell only |
 | **getpid** | 20 | Implemented | Returns current process ID |
 | getuid | 24 | - | Single-user system |
 | setuid | 23 | - | |
@@ -72,11 +72,13 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | signal | 48 | - | |
 | alarm | 27 | - | |
 | pause | 29 | - | |
+| **clone** | - | Implemented | Simplified to fork() |
+| **sched_yield** | - | Implemented | Modern addition |
 
 #### File Management (6/15 implemented)
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
-| **open** | 5 | Implemented | Basic file/device support |
+| **open** | 5 | Implemented | Via openat with AT_FDCWD |
 | **close** | 6 | Implemented | |
 | **read** | 3 | Implemented | Files and devices |
 | **write** | 4 | Implemented | Files and devices |
@@ -96,59 +98,59 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
 | **chdir** | 12 | Implemented | Changes current working directory |
-| mknod | 14 | Not implemented | |
+| mknod | 14 | - | |
 | **readdir** | - | Implemented | Modern replacement for raw inode reading |
 | **getcwd** | - | Implemented | Modern addition - not in V6 |
 
 #### Device Operations (0/6 implemented)
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
-| mount | 21 | Not implemented | |
-| umount | 22 | Not implemented | |
-| sync | 36 | Not implemented | |
-| stty | 31 | Not implemented | |
-| gtty | 32 | Not implemented | |
-| ioctl | 54 | Not implemented | |
+| mount | 21 | - | |
+| umount | 22 | - | |
+| sync | 36 | - | |
+| stty | 31 | - | |
+| gtty | 32 | - | |
+| ioctl | 54 | - | |
 
 #### Time Operations (0/3 implemented)
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
-| stime | 25 | Not implemented | |
-| time | 13 | Not implemented | |
-| times | 43 | Not implemented | |
+| stime | 25 | - | |
+| time | 13 | - | |
+| times | 43 | - | |
 
 #### System Operations (0/10 implemented)
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
-| break/sbrk | 17 | Not implemented | Heap management exists |
-| prof | 44 | Not implemented | |
-| setgid | 46 | Not implemented | |
-| getgid | 47 | Not implemented | |
-| acct | 51 | Not implemented | |
-| phys | 52 | Not implemented | Not applicable to RISC-V |
-| lock | 53 | Not implemented | |
-| mpx | 56 | Not implemented | |
-| ptrace | 26 | Not implemented | |
-| umask | - | Not implemented | Not in V6 |
+| break/sbrk | 17 | - | Heap management exists |
+| prof | 44 | - | |
+| setgid | 46 | - | |
+| getgid | 47 | - | |
+| acct | 51 | - | |
+| phys | 52 | - | Not applicable to RISC-V |
+| lock | 53 | - | |
+| mpx | 56 | - | |
+| ptrace | 26 | - | |
+| umask | - | - | Not in V6 |
 
 ### Implementation Priority
 
 Based on current needs for shell and Lisp interpreter:
 
 1. **Immediate Priority**
-   - `seek` - File positioning needed for editors
-   - `stat/fstat` - File information for `ls -l`
+   - `stat` - File information for `ls -l` (fstat done)
    - `creat` - Explicit file creation
+   - `time` - Basic timestamps
    
 2. **High Priority**
-   - `fork/exec` - Process creation for proper shell
-   - `wait` - Process synchronization
+   - `wait` - Process synchronization (fork/exec done)
    - `pipe` - Inter-process communication
+   - `dup` - File descriptor duplication
    
 3. **Medium Priority**
-   - `chdir` - Directory navigation
-   - `time` - Timestamps
    - `signal/kill` - Process control
+   - `link/unlink` - File management
+   - `chmod/chown` - Permissions
 
 ## File System
 
