@@ -12,11 +12,22 @@ pub const MemFile = struct {
     position: usize,
 
     pub fn init(vnode: *vfs.VNode) MemFile {
-        return .{
+        var mf = MemFile{
             .file = File.init(.REGULAR, &MemFileOperations),
             .vnode = vnode,
             .position = 0,
         };
+
+        // Create a pseudo-inode for the file with metadata from VNode
+        const inode = @import("core.zig").allocInode(.REGULAR, &DummyInodeOps);
+        if (inode) |i| {
+            i.size = vnode.data_size;
+            i.mode = 0o644; // Default file permissions
+            i.inum = @as(u32, @truncate(@intFromPtr(vnode))); // Use lower 32 bits of vnode address as pseudo inode number
+            mf.file.inode = i;
+        }
+
+        return mf;
     }
 
     pub fn lseek(self: *MemFile, offset: i64, whence: u32) isize {
@@ -34,6 +45,39 @@ pub const MemFile = struct {
         return @as(isize, @intCast(self.position));
     }
 };
+
+// Dummy inode operations for memory files
+// TODO: This is a temporary implementation. Currently VNode handles actual file
+// operations, while Inode exists only for metadata access (e.g., fstat).
+// When migrating to a UNIX filesystem, we'll unify VNode and Inode and implement
+// these operations properly. This will be addressed along with memory management
+// improvements for real hardware support.
+const DummyInodeOps = @import("core.zig").InodeOperations{
+    .read = dummyRead,
+    .write = dummyWrite,
+    .truncate = dummyTruncate,
+    .lookup = null,
+};
+
+fn dummyRead(inode: *@import("core.zig").Inode, buffer: []u8, offset: u64) isize {
+    _ = inode;
+    _ = buffer;
+    _ = offset;
+    return defs.ENOSYS;
+}
+
+fn dummyWrite(inode: *@import("core.zig").Inode, data: []const u8, offset: u64) isize {
+    _ = inode;
+    _ = data;
+    _ = offset;
+    return defs.ENOSYS;
+}
+
+fn dummyTruncate(inode: *@import("core.zig").Inode, size: u64) anyerror!void {
+    _ = inode;
+    _ = size;
+    return error.NotSupported;
+}
 
 // Memory file operations
 const MemFileOperations = FileOperations{
@@ -98,6 +142,11 @@ fn memClose(file: *File) void {
     // Get MemFile from File pointer
     const mem_file_ptr = @intFromPtr(file) - @offsetOf(MemFile, "file");
     const mem_file = @as(*MemFile, @ptrFromInt(mem_file_ptr));
+
+    // Free the inode if allocated
+    if (file.inode) |inode| {
+        @import("core.zig").freeInode(inode);
+    }
     // Decrement VNode reference count
     mem_file.vnode.release();
     // Mark as free

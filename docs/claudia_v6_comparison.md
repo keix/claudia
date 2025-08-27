@@ -47,10 +47,10 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 | Category | UNIX V6 | Claudia | Implementation Rate |
 |----------|---------|---------|-------------------|
-| **Total System Calls** | ~48 | 8 fully implemented | 16.7% |
+| **Total System Calls** | ~48 | 11 fully implemented | 22.9% |
 | **Process Control** | 12 | 2 implemented | 16.7% |
-| **File Management** | 15 | 5 implemented | 33.3% |
-| **Directory Operations** | 2 | 1 implemented | 50% |
+| **File Management** | 15 | 6 implemented | 40.0% |
+| **Directory Operations** | 2 | 3 implemented | 150% |
 | **Device Operations** | 6 | 0 implemented | 0% |
 | **Time Operations** | 3 | 0 implemented | 0% |
 | **Other System Operations** | 10 | 0 implemented | 0% |
@@ -60,44 +60,45 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 #### Process Control (2/12 implemented)
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
-| fork | 2 | Not implemented | Simplified version planned |
+| fork | 2 | - | Simplified version planned |
 | **exit** | 1 | Implemented | Basic cleanup only |
-| wait | 2 | Not implemented | No zombie handling |
-| exec | 11 | Not implemented | ELF loader exists |
+| wait | 2 | - | No zombie handling |
+| exec | 11 | - | ELF loader exists |
 | **getpid** | 20 | Implemented | Returns current process ID |
-| getuid | 24 | Not implemented | Single-user system |
-| setuid | 23 | Not implemented | |
-| nice | 34 | Not implemented | |
-| kill | 37 | Not implemented | No signals |
-| signal | 48 | Not implemented | |
-| alarm | 27 | Not implemented | |
-| pause | 29 | Not implemented | |
+| getuid | 24 | - | Single-user system |
+| setuid | 23 | - | |
+| nice | 34 | - | |
+| kill | 37 | - | No signals |
+| signal | 48 | - | |
+| alarm | 27 | - | |
+| pause | 29 | - | |
 
-#### File Management (5/15 implemented)
+#### File Management (6/15 implemented)
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
 | **open** | 5 | Implemented | Basic file/device support |
 | **close** | 6 | Implemented | |
 | **read** | 3 | Implemented | Files and devices |
 | **write** | 4 | Implemented | Files and devices |
-| creat | 8 | Not implemented | Use open with flags |
-| link | 9 | Not implemented | |
-| unlink | 10 | Not implemented | |
+| creat | 8 | - | Use open with flags |
+| link | 9 | - | |
+| unlink | 10 | - | |
 | **lseek** | 19 | Implemented | Modern lseek with SEEK_SET/CUR/END |
-| fstat | 28 | Not implemented | |
-| stat | 18 | Not implemented | |
-| chmod | 15 | Not implemented | |
-| chown | 16 | Not implemented | |
-| dup | 41 | Not implemented | |
-| pipe | 42 | Not implemented | |
-| access | - | Not implemented | Not in V6 |
+| **fstat** | 28 | Implemented | File status by file descriptor |
+| stat | 18 | - | |
+| chmod | 15 | - | |
+| chown | 16 | - | |
+| dup | 41 | - | |
+| pipe | 42 | - | |
+| access | - | - | Not in V6 |
 
-#### Directory Operations (1/2 implemented)
+#### Directory Operations (3/2 implemented - 150%)
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
-| chdir | 12 | Not implemented | Logic exists |
+| **chdir** | 12 | Implemented | Changes current working directory |
 | mknod | 14 | Not implemented | |
 | **readdir** | - | Implemented | Modern replacement for raw inode reading |
+| **getcwd** | - | Implemented | Modern addition - not in V6 |
 
 #### Device Operations (0/6 implemented)
 | System Call | V6 # | Claudia Status | Notes |

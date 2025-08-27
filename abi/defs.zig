@@ -52,3 +52,4 @@ pub const ENOTDIR: isize = -20; // Not a directory
 pub const EIO: isize = -5; // I/O error
 pub const ENAMETOOLONG: isize = -36; // File name too long
 pub const ESPIPE: isize = -29; // Illegal seek
+pub const ERANGE: isize = -34; // Result too large

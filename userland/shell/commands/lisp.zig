@@ -519,7 +519,16 @@ pub fn main(args: *const utils.Args) void {
             executeLisp(file_buffer[0..size]);
         } else {
             // Try reading as a regular file
-            const fd = sys.open(@ptrCast(filename.ptr), sys.abi.O_RDONLY, 0);
+            // Create null-terminated filename
+            var filename_buf: [256]u8 = undefined;
+            if (filename.len >= filename_buf.len) {
+                utils.writeStr("Error: Filename too long\n");
+                return;
+            }
+            @memcpy(filename_buf[0..filename.len], filename);
+            filename_buf[filename.len] = 0;
+
+            const fd = sys.open(@ptrCast(&filename_buf), sys.abi.O_RDONLY, 0);
             if (fd < 0) {
                 utils.writeStr("Error: Cannot open file ");
                 utils.writeStr(filename);
