@@ -54,6 +54,12 @@ pub fn sys_sched_yield() isize {
     return 0; // Always succeeds
 }
 
+// sys_getpid implementation
+pub fn sys_getpid() isize {
+    const current = proc.current_process orelse return defs.ESRCH;
+    return @intCast(current.pid);
+}
+
 // sys_exit implementation
 pub fn sys_exit(status: usize) isize {
     const exitFn = proc_exit orelse return defs.ENOSYS;
