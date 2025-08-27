@@ -47,6 +47,11 @@ pub const MemFile = struct {
 };
 
 // Dummy inode operations for memory files
+// TODO: This is a temporary implementation. Currently VNode handles actual file
+// operations, while Inode exists only for metadata access (e.g., fstat).
+// When migrating to a UNIX filesystem, we'll unify VNode and Inode and implement
+// these operations properly. This will be addressed along with memory management
+// improvements for real hardware support.
 const DummyInodeOps = @import("core.zig").InodeOperations{
     .read = dummyRead,
     .write = dummyWrite,
