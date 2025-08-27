@@ -1,10 +1,21 @@
 // Provides low-level system call wrappers for Claudia (RISC-V 64-bit)
-// Each function corresponds to a syscall with N arguments (1 to 6)
+// Each function corresponds to a syscall with N arguments (0 to 6)
 // RISC-V Linux ABI:
 // - System call number in a7
 // - Arguments in a0-a5
 // - Return value in a0
 // - ecall instruction triggers the system call
+
+pub fn syscall0(number: usize) isize {
+    var result: isize = undefined;
+    asm volatile (
+        \\ ecall
+        : [ret] "={a0}" (result),
+        : [num] "{a7}" (number),
+        : "memory"
+    );
+    return result;
+}
 
 pub fn syscall1(number: usize, arg1: usize) isize {
     var result: isize = undefined;

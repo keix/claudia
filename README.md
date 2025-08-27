@@ -60,5 +60,5 @@ How to Read Claudia: [Claudia Reading Guide — Speaks Only in Code](docs/claudi
 Claudia is built in the shadow of giants — with gratitude to Ken Thompson and Dennis Ritchie, whose creation of UNIX continues to shape everything we build.
 
 ## License
-Copyright KEI SAWAMURA 2025 All rights reserved.  
+Copyright KEI SAWAMURA 2025.  
 Claudia is licensed under the MIT License. Copying, sharing, and modifying is encouraged and appreciated.

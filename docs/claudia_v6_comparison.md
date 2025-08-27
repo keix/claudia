@@ -47,8 +47,8 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 | Category | UNIX V6 | Claudia | Implementation Rate |
 |----------|---------|---------|-------------------|
-| **Total System Calls** | ~48 | 6 fully implemented | 12.5% |
-| **Process Control** | 12 | 1 implemented | 8.3% |
+| **Total System Calls** | ~48 | 7 fully implemented | 14.6% |
+| **Process Control** | 12 | 2 implemented | 16.7% |
 | **File Management** | 15 | 4 implemented | 26.7% |
 | **Directory Operations** | 2 | 1 implemented | 50% |
 | **Device Operations** | 6 | 0 implemented | 0% |
@@ -57,14 +57,14 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 ### Detailed System Call Implementation Status
 
-#### Process Control (1/12 implemented)
+#### Process Control (2/12 implemented)
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
 | fork | 2 | Not implemented | Simplified version planned |
 | **exit** | 1 | Implemented | Basic cleanup only |
 | wait | 2 | Not implemented | No zombie handling |
 | exec | 11 | Not implemented | ELF loader exists |
-| getpid | 20 | Not implemented | |
+| **getpid** | 20 | Implemented | Returns current process ID |
 | getuid | 24 | Not implemented | Single-user system |
 | setuid | 23 | Not implemented | |
 | nice | 34 | Not implemented | |
