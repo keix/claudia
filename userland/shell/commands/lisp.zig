@@ -333,6 +333,79 @@ fn eval(value: LispValue) ?LispValue {
             } else if (utils.strEq(op, "quote")) {
                 if (list.len != 2) return null;
                 return list.items[1];
+            } else if (utils.strEq(op, "syscall")) {
+                if (list.len < 2) return null;
+
+                const name_val = eval(list.items[1]) orelse return null;
+                if (name_val != .Atom or name_val.Atom != .String) return null;
+                const syscall_name = name_val.Atom.String;
+
+                if (utils.strEq(syscall_name, "write")) {
+                    if (list.len != 4) return null;
+
+                    const fd_val = eval(list.items[2]) orelse return null;
+                    if (fd_val != .Atom or fd_val.Atom != .Number) return null;
+                    const fd = fd_val.Atom.Number;
+
+                    const data_val = eval(list.items[3]) orelse return null;
+                    if (data_val != .Atom or data_val.Atom != .String) return null;
+                    const data = data_val.Atom.String;
+
+                    const result = sys.write(@intCast(fd), @ptrCast(data.ptr), data.len);
+                    return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
+                } else if (utils.strEq(syscall_name, "open")) {
+                    if (list.len != 5) return null;
+
+                    const filename_val = eval(list.items[2]) orelse return null;
+                    if (filename_val != .Atom or filename_val.Atom != .String) return null;
+                    const filename = filename_val.Atom.String;
+
+                    const flags_val = eval(list.items[3]) orelse return null;
+                    if (flags_val != .Atom or flags_val.Atom != .Number) return null;
+                    const flags = @as(u32, @intCast(flags_val.Atom.Number));
+
+                    const mode_val = eval(list.items[4]) orelse return null;
+                    if (mode_val != .Atom or mode_val.Atom != .Number) return null;
+                    const mode = @as(u32, @intCast(mode_val.Atom.Number));
+
+                    var path_buf: [256]u8 = undefined;
+                    if (filename.len >= path_buf.len) return null;
+                    @memcpy(path_buf[0..filename.len], filename);
+                    path_buf[filename.len] = 0;
+
+                    const result = sys.open(@ptrCast(&path_buf), flags, mode);
+                    return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
+                } else if (utils.strEq(syscall_name, "close")) {
+                    if (list.len != 3) return null;
+
+                    const fd_val = eval(list.items[2]) orelse return null;
+                    if (fd_val != .Atom or fd_val.Atom != .Number) return null;
+                    const fd = fd_val.Atom.Number;
+
+                    const result = sys.close(@intCast(fd));
+                    return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
+                } else if (utils.strEq(syscall_name, "read")) {
+                    if (list.len != 5) return null;
+
+                    const fd_val = eval(list.items[2]) orelse return null;
+                    if (fd_val != .Atom or fd_val.Atom != .Number) return null;
+                    const fd = fd_val.Atom.Number;
+
+                    const size_val = eval(list.items[4]) orelse return null;
+                    if (size_val != .Atom or size_val.Atom != .Number) return null;
+                    const size = @as(usize, @intCast(size_val.Atom.Number));
+
+                    const buffer = alloc(size) orelse return null;
+                    const result = sys.read(@intCast(fd), @ptrCast(buffer.ptr), size);
+
+                    if (result > 0) {
+                        return LispValue{ .Atom = Atom{ .String = buffer[0..@intCast(result)] } };
+                    } else {
+                        return LispValue{ .Atom = Atom{ .Number = @intCast(result) } };
+                    }
+                }
+
+                return null;
             }
 
             return null;
@@ -347,9 +420,11 @@ fn executeLisp(code: []const u8) void {
 
     // Parse and evaluate each expression
     var pos: usize = 0;
+    var expr_count: usize = 0;
     while (pos < code.len) {
         skipSpace(code, &pos);
         if (pos >= code.len) break;
+        expr_count += 1;
 
         if (parse(code, &pos)) |expr| {
             if (eval(expr)) |result_val| {
@@ -362,7 +437,11 @@ fn executeLisp(code: []const u8) void {
                 break;
             }
         } else {
-            utils.writeStr("Error: parse failed\n");
+            utils.writeStr("Error: parse failed at position ");
+            utils.writeStr(utils.intToStr(@intCast(pos)));
+            utils.writeStr(" of ");
+            utils.writeStr(utils.intToStr(@intCast(code.len)));
+            utils.writeStr("\n");
             break;
         }
     }
@@ -395,7 +474,7 @@ fn readFileFromSimpleFS(filename: []const u8, buffer: []u8) ?usize {
     if (result < 0) return null;
 
     // Now read the actual file content
-    const bytes_read = sys.read(@intCast(fd), buffer.ptr, buffer.len);
+    const bytes_read = sys.read(@intCast(fd), @ptrCast(buffer.ptr), buffer.len);
     if (bytes_read > 0) {
         return @intCast(bytes_read);
     }
@@ -409,9 +488,6 @@ pub fn main(args: *const utils.Args) void {
     if (args.argc > 1) {
         // Execute file mode
         const filename = args.argv[1];
-        utils.writeStr("Executing Lisp file: ");
-        utils.writeStr(filename);
-        utils.writeStr("\n");
 
         // Try to read from SimpleFS
         var file_buffer: [4096]u8 = undefined;
@@ -426,9 +502,9 @@ pub fn main(args: *const utils.Args) void {
                 utils.writeStr("\n");
                 return;
             }
-            defer _ = sys.close(@intCast(fd));
+            const bytes_read = sys.read(@intCast(fd), @ptrCast(&file_buffer), file_buffer.len);
+            _ = sys.close(@intCast(fd)); // Close immediately after reading
 
-            const bytes_read = sys.read(@intCast(fd), &file_buffer, file_buffer.len);
             if (bytes_read < 0) {
                 utils.writeStr("Error: Cannot read file\n");
                 return;
@@ -443,8 +519,6 @@ pub fn main(args: *const utils.Args) void {
 
     // REPL mode
     utils.writeStr("Minimal Lisp REPL for Claudia\n");
-    utils.writeStr("Commands: +, -, *, /, =, <=, >, mod, and, print, concat, define, if, quote\n");
-    utils.writeStr("Strings: (print \"Hello, World!\") (concat \"Hello, \" \"World!\")\n");
     utils.writeStr("Type 'quit' to exit\n\n");
 
     var input_buffer: [256]u8 = undefined;

@@ -4,9 +4,9 @@ const std = @import("std");
 // SimpleFS constants (must match kernel/fs/simplefs.zig)
 const MAGIC: u32 = 0x53494D50; // 'SIMP'
 const MAX_FILES: u32 = 32;
-const MAX_FILENAME: u32 = 28;
+const MAX_FILENAME: u32 = 60;
 const BLOCK_SIZE: u32 = 512;
-const DATA_START_BLOCK: u32 = 5;
+const DATA_START_BLOCK: u32 = 9;
 
 // File flags
 const FLAG_EXISTS: u32 = 0x01;
@@ -27,7 +27,7 @@ const FileEntry = extern struct {
     start_block: u32,
     blocks_used: u32,
     flags: u32,
-    reserved: [20]u8 = undefined,
+    reserved: [52]u8 = undefined,
 };
 
 const FileInfo = struct {

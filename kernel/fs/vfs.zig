@@ -49,7 +49,7 @@ pub const VNode = struct {
 
     pub fn addChild(self: *VNode, child: *VNode) void {
         if (self.node_type != .DIRECTORY) return;
-        
+
         const uart = @import("../driver/uart/core.zig");
         uart.puts("[VFS] Adding child '");
         uart.puts(child.getName());
@@ -132,7 +132,7 @@ var initialized = false;
 // Initialize VFS with basic structure
 pub fn init() void {
     if (initialized) return;
-    
+
     const uart = @import("../driver/uart/core.zig");
     uart.puts("[VFS] Initializing VFS...\n");
 
