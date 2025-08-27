@@ -4,10 +4,6 @@ A BusyBox-like POSIX core in one binary, and Lisp waiting behind it as the moder
 
 I invoke when you call:
 ```
-claudia:/ # lisp
-Minimal Lisp REPL for Claudia
-Type 'quit' to exit
-
+# lisp
 > (syscall "write" 1 "Hello, Claudia!\n")
-Hello, Claudia!
 ```
