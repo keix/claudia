@@ -55,7 +55,7 @@ pub fn main(args: *const utils.Args) void {
     }
     @memcpy(filename_buf[0..filename.len], filename);
     filename_buf[filename.len] = 0;
-    
+
     // Open file
     const fd = sys.open(@ptrCast(&filename_buf), sys.abi.O_RDWR, 0);
     if (fd < 0) {

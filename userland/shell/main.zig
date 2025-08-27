@@ -14,10 +14,14 @@ fn wait_for_interrupt() void {
 pub fn main() noreturn {
     // Simple shell loop
     var buffer: [64]u8 = undefined;
+    var cwd_buf: [256]u8 = undefined;
 
     while (true) {
-        // Print prompt
-        utils.writeStr("claudia:/ # ");
+        // Print prompt with current directory
+        utils.writeStr("claudia:");
+        const cwd = sys.getcwd(&cwd_buf) catch "/";
+        utils.writeStr(cwd);
+        utils.writeStr(" # ");
 
         // Read command line (canonical mode - reads complete line)
         const result = utils.readLine(buffer[0..]);

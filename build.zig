@@ -100,6 +100,27 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "abi", .module = abi_mod },
                 },
             }) },
+            .{ .name = "syscalls/io/fstat", .module = b.createModule(.{
+                .root_source_file = b.path("userland/syscalls/io/fstat.zig"),
+                .imports = &.{
+                    .{ .name = "syscall", .module = syscall_mod },
+                    .{ .name = "abi", .module = abi_mod },
+                },
+            }) },
+            .{ .name = "syscalls/io/getcwd", .module = b.createModule(.{
+                .root_source_file = b.path("userland/syscalls/io/getcwd.zig"),
+                .imports = &.{
+                    .{ .name = "syscall", .module = syscall_mod },
+                    .{ .name = "abi", .module = abi_mod },
+                },
+            }) },
+            .{ .name = "syscalls/io/chdir", .module = b.createModule(.{
+                .root_source_file = b.path("userland/syscalls/io/chdir.zig"),
+                .imports = &.{
+                    .{ .name = "syscall", .module = syscall_mod },
+                    .{ .name = "abi", .module = abi_mod },
+                },
+            }) },
             .{ .name = "syscalls/io/readdir", .module = b.createModule(.{
                 .root_source_file = b.path("userland/syscalls/io/readdir.zig"),
                 .imports = &.{
@@ -197,6 +218,30 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const pwd_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/pwd.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
+    const cd_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/cd.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
+    const fstat_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/fstat.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
     // Create commands index module
     const commands_index_mod = b.createModule(.{
         .root_source_file = b.path("userland/shell/commands/index.zig"),
@@ -209,6 +254,9 @@ pub fn build(b: *std.Build) void {
             .{ .name = "lisp.zig", .module = lisp_mod },
             .{ .name = "pid.zig", .module = pid_mod },
             .{ .name = "seek.zig", .module = seek_mod },
+            .{ .name = "pwd.zig", .module = pwd_mod },
+            .{ .name = "cd.zig", .module = cd_mod },
+            .{ .name = "fstat.zig", .module = fstat_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });

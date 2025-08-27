@@ -540,20 +540,54 @@ pub const FileTable = struct {
     pub fn sysOpen(path: []const u8, flags: u32, mode: u16) isize {
         _ = mode; // Ignore mode for now
 
-        // Use VFS to resolve the path
-        var node = vfs.resolvePath(path);
+        // Build absolute path if needed
+        var abs_path_buf: [256]u8 = undefined;
+        var abs_path: []const u8 = undefined;
+
+        if (path.len > 0 and path[0] == '/') {
+            // Already absolute
+            abs_path = path;
+        } else {
+            // Relative path - prepend current directory
+            const process = proc.current_process orelse return defs.ESRCH;
+            const cwd_len = process.cwd_len;
+
+            // Check buffer size
+            if (cwd_len + 1 + path.len >= abs_path_buf.len) {
+                return defs.ENAMETOOLONG;
+            }
+
+            // Build absolute path
+            @memcpy(abs_path_buf[0..cwd_len], process.cwd[0..cwd_len]);
+            var pos = cwd_len;
+
+            // Add separator if needed
+            if (cwd_len > 1 and process.cwd[cwd_len - 1] != '/') {
+                abs_path_buf[pos] = '/';
+                pos += 1;
+            }
+
+            // Add relative path
+            @memcpy(abs_path_buf[pos .. pos + path.len], path);
+            pos += path.len;
+
+            abs_path = abs_path_buf[0..pos];
+        }
+
+        // Use VFS to resolve the absolute path
+        var node = vfs.resolvePath(abs_path);
 
         // Handle file creation if O_CREAT is set
         if (node == null and (flags & defs.O_CREAT) != 0) {
-            // Extract directory and filename from path
+            // Extract directory and filename from absolute path
             var last_slash: ?usize = null;
-            for (path, 0..) |ch, i| {
+            for (abs_path, 0..) |ch, i| {
                 if (ch == '/') last_slash = i;
             }
 
             if (last_slash) |slash_pos| {
-                const dir_path = if (slash_pos == 0) "/" else path[0..slash_pos];
-                const filename = path[slash_pos + 1 ..];
+                const dir_path = if (slash_pos == 0) "/" else abs_path[0..slash_pos];
+                const filename = abs_path[slash_pos + 1 ..];
 
                 // Create the file
                 if (vfs.createFile(dir_path, filename)) |new_node| {
@@ -562,8 +596,10 @@ pub const FileTable = struct {
                     return defs.ENOSPC; // No space or other error
                 }
             } else {
-                // No directory specified, use root
-                if (vfs.createFile("/", path)) |new_node| {
+                // No directory specified, use current directory
+                const process = proc.current_process orelse return defs.ESRCH;
+                const cwd = process.cwd[0..process.cwd_len];
+                if (vfs.createFile(cwd, abs_path)) |new_node| {
                     node = new_node;
                 } else {
                     return defs.ENOSPC;

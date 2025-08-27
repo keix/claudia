@@ -4,7 +4,15 @@ const utils = @import("shell/utils");
 
 pub fn main(args: *const utils.Args) void {
     // Default to current directory if no argument
-    const path = if (args.argc > 1) args.argv[1] else "/";
+    var path_buf: [256]u8 = undefined;
+    const path = if (args.argc > 1) args.argv[1] else blk: {
+        // Get current directory
+        const cwd = sys.getcwd(&path_buf) catch {
+            utils.writeStr("ls: cannot get current directory\n");
+            return;
+        };
+        break :blk cwd;
+    };
 
     // Allocate buffer for directory entries
     var entries: [32]sys.DirEntry = undefined;

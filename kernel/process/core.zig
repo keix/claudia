@@ -91,6 +91,8 @@ pub const Process = struct {
     parent: ?*Process, // Parent process
     exit_code: i32, // Exit code when zombie
     is_kernel: bool, // Kernel-only process flag
+    cwd: [256]u8, // Current working directory
+    cwd_len: usize, // Length of current working directory
 
     // Simple linked list for process queue
     next: ?*Process,
@@ -106,8 +108,14 @@ pub const Process = struct {
             .parent = null,
             .exit_code = 0,
             .is_kernel = false,
+            .cwd = std.mem.zeroes([256]u8),
+            .cwd_len = 1,
             .next = null,
         };
+
+        // Initialize with root directory
+        proc.cwd[0] = '/';
+        proc.cwd[1] = 0;
 
         // Copy name (max 15 chars + null terminator)
         const copy_len = @min(name.len, 15);

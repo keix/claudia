@@ -163,3 +163,43 @@ pub fn strFromBuf(buf: []const u8) []const u8 {
     }
     return buf[0..len];
 }
+
+// Write unsigned decimal number
+pub fn writeDec(value: u64) void {
+    var buf: [20]u8 = undefined;
+    var pos: usize = buf.len;
+    var val = value;
+
+    if (val == 0) {
+        writeStr("0");
+        return;
+    }
+
+    while (val > 0 and pos > 0) {
+        pos -= 1;
+        buf[pos] = @as(u8, '0' + @as(u8, @intCast(val % 10)));
+        val /= 10;
+    }
+
+    writeStr(buf[pos..]);
+}
+
+// Write octal number
+pub fn writeOct(value: u32) void {
+    var buf: [12]u8 = undefined;
+    var pos: usize = buf.len;
+    var val = value;
+
+    if (val == 0) {
+        writeStr("0");
+        return;
+    }
+
+    while (val > 0 and pos > 0) {
+        pos -= 1;
+        buf[pos] = @as(u8, '0' + @as(u8, @intCast(val & 7)));
+        val >>= 3;
+    }
+
+    writeStr(buf[pos..]);
+}

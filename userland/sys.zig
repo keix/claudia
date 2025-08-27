@@ -7,12 +7,18 @@
 // Re-export ABI definitions
 pub const abi = @import("abi");
 
+// Re-export stat structures
+pub const Stat = abi.Stat;
+
 // Re-export syscall wrappers with clean names
 pub const write = @import("syscalls/io/write").write;
 pub const read = @import("syscalls/io/read").read;
 pub const open = @import("syscalls/io/open").open;
 pub const close = @import("syscalls/io/close").close;
 pub const lseek = @import("syscalls/io/lseek").lseek;
+pub const fstat = @import("syscalls/io/fstat").fstat;
+pub const getcwd = @import("syscalls/io/getcwd").getcwd;
+pub const chdir = @import("syscalls/io/chdir").chdir;
 pub const exit = @import("syscalls/proc/exit").exit;
 pub const getpid = @import("syscalls/proc/getpid").getpid;
 
