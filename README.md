@@ -18,7 +18,7 @@ You deserve Lisp. And I, Zig.
 - An experimental Lisp extension
 - The core implementation of UNIX Sixth Edition  
 
-[Claudia Design Spec — v6-inspired OS in Zig on RISC-V](https://v6-unix.notion.site/25ab8ecae494815ba362d80c0a11cb83?v=25ab8ecae49481ff826a000c72a7926b4)
+[Claudia Design Spec — v6-inspired OS in Zig on RISC-V](docs/claudia_v6_comparison.md)
 
 
 ## Requirements
