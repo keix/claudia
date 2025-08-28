@@ -74,6 +74,8 @@ pub const Context = struct {
     t5: u64, // x30 - temporary
     t6: u64, // x31 - temporary
     satp: u64, // Supervisor Address Translation and Protection register
+    sepc: u64, // Supervisor Exception Program Counter
+    sstatus: u64, // Supervisor Status register
 
     pub fn zero() Context {
         return std.mem.zeroes(Context);
