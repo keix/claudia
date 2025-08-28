@@ -50,8 +50,8 @@ const List = struct {
 
 // Function structure
 const Function = struct {
-    params: *List,      // Parameter names (list of symbols)
-    body: LispValue,    // Function body expression
+    params: *List, // Parameter names (list of symbols)
+    body: LispValue, // Function body expression
 };
 
 // Lisp value
@@ -402,10 +402,10 @@ const SyscallType = enum {
 
     fn expectedArgCount(self: SyscallType) usize {
         return switch (self) {
-            .Write => 4,  // (syscall "write" fd data)
-            .Open => 5,   // (syscall "open" filename flags mode)
-            .Close => 3,  // (syscall "close" fd)
-            .Read => 5,   // (syscall "read" fd buffer size)
+            .Write => 4, // (syscall "write" fd data)
+            .Open => 5, // (syscall "open" filename flags mode)
+            .Close => 3, // (syscall "close" fd)
+            .Read => 5, // (syscall "read" fd buffer size)
             .Unknown => 0,
         };
     }
@@ -417,10 +417,10 @@ fn evalSyscall(list: *List) ?LispValue {
 
     const name_val = eval(list.items[1]) orelse return null;
     if (name_val != .Atom or name_val.Atom != .String) return null;
-    
+
     const syscall_type = SyscallType.fromString(name_val.Atom.String);
     if (syscall_type == .Unknown) return null;
-    
+
     if (list.len != syscall_type.expectedArgCount()) return null;
 
     return switch (syscall_type) {
@@ -565,33 +565,33 @@ fn evalQuote(list: *List) ?LispValue {
 
 fn evalWhile(list: *List) ?LispValue {
     if (list.len < 3) return null;
-    
+
     // (while condition body...)
     var last_result: ?LispValue = null;
     while (true) {
         const cond = eval(list.items[1]) orelse return null;
         if (cond != .Atom or cond.Atom != .Boolean) return null;
         if (!cond.Atom.Boolean) break;
-        
+
         // Execute body
         for (2..list.len) |i| {
             last_result = eval(list.items[i]);
         }
     }
-    
+
     return last_result orelse LispValue{ .Atom = Atom{ .Symbol = "nil" } };
 }
 
 fn evalCond(list: *List) ?LispValue {
     if (list.len < 2) return null;
-    
+
     // (cond (test1 expr1...) (test2 expr2...) ...)
     for (1..list.len) |i| {
         const clause = list.items[i];
         if (clause != .List or clause.List.len < 2) return null;
-        
+
         const test_val = eval(clause.List.items[0]) orelse return null;
-        
+
         // Check if test is true
         const is_true = switch (test_val) {
             .Atom => |atom| switch (atom) {
@@ -601,7 +601,7 @@ fn evalCond(list: *List) ?LispValue {
             },
             else => false,
         };
-        
+
         if (is_true) {
             // Execute the expressions in this clause
             var result: ?LispValue = null;
@@ -611,45 +611,45 @@ fn evalCond(list: *List) ?LispValue {
             return result;
         }
     }
-    
+
     return LispValue{ .Atom = Atom{ .Symbol = "nil" } };
 }
 
 fn evalSet(list: *List) ?LispValue {
     if (list.len != 3) return null;
     if (list.items[1] != .Atom or list.items[1].Atom != .Symbol) return null;
-    
+
     const name = list.items[1].Atom.Symbol;
     const value = eval(list.items[2]) orelse return null;
-    
+
     // Check if variable exists
     if (getVar(name) == null) return null;
-    
+
     setVar(name, value);
     return value;
 }
 
 fn evalLoad(list: *List) ?LispValue {
     if (list.len != 2) return null;
-    
+
     // Get filename argument
     const filename_val = eval(list.items[1]) orelse return null;
     if (filename_val != .Atom or filename_val.Atom != .String) return null;
     const filename = filename_val.Atom.String;
-    
+
     // Save filename in a local buffer since it might be in the allocator
     var filename_copy: [256]u8 = undefined;
     if (filename.len >= filename_copy.len) return null;
     @memcpy(filename_copy[0..filename.len], filename);
     const saved_filename = filename_copy[0..filename.len];
-    
+
     // Try to read from SimpleFS first
     var file_buffer: [4096]u8 = undefined;
     var size: ?usize = null;
-    
+
     // Try SimpleFS
     size = readFileFromSimpleFS(saved_filename, &file_buffer);
-    
+
     if (size == null) {
         // Try regular file system
         var filename_buf: [256]u8 = undefined;
@@ -658,31 +658,31 @@ fn evalLoad(list: *List) ?LispValue {
         }
         @memcpy(filename_buf[0..saved_filename.len], saved_filename);
         filename_buf[saved_filename.len] = 0;
-        
+
         const fd = sys.open(@ptrCast(&filename_buf), sys.abi.O_RDONLY, 0);
         if (fd < 0) {
             return null;
         }
         defer _ = sys.close(@intCast(fd));
-        
+
         const bytes_read = sys.read(@intCast(fd), @ptrCast(&file_buffer), file_buffer.len);
         if (bytes_read > 0) {
             size = @intCast(bytes_read);
         }
     }
-    
+
     if (size) |actual_size| {
         // Don't save/restore allocator position - let it grow
         // This allows multiple file loads to work
-        
+
         // Parse and evaluate the loaded code
         var pos: usize = 0;
         var last_result: ?LispValue = null;
-        
+
         while (pos < actual_size) {
             skipSpace(file_buffer[0..actual_size], &pos);
             if (pos >= actual_size) break;
-            
+
             if (parse(file_buffer[0..actual_size], &pos)) |expr| {
                 last_result = eval(expr);
                 if (last_result == null) {
@@ -694,61 +694,61 @@ fn evalLoad(list: *List) ?LispValue {
                 return null;
             }
         }
-        
+
         // Return last evaluated expression or symbol indicating success
         return last_result orelse LispValue{ .Atom = Atom{ .Symbol = "ok" } };
     }
-    
+
     return null;
 }
 
 fn evalLambda(list: *List) ?LispValue {
     if (list.len != 3) return null;
-    
+
     // (lambda (params...) body)
     const params = list.items[1];
     if (params != .List) return null;
-    
+
     // Validate all parameters are symbols
     for (0..params.List.len) |i| {
         if (params.List.items[i] != .Atom or params.List.items[i].Atom != .Symbol) {
             return null;
         }
     }
-    
+
     // Create function
     const func_ptr = allocAligned(Function) orelse return null;
     func_ptr.params = params.List;
     func_ptr.body = list.items[2];
-    
+
     return LispValue{ .Function = func_ptr };
 }
 
 fn evalDefun(list: *List) ?LispValue {
     if (list.len != 4) return null;
-    
+
     // (defun name (params...) body)
     if (list.items[1] != .Atom or list.items[1].Atom != .Symbol) return null;
     const name = list.items[1].Atom.Symbol;
-    
+
     const params = list.items[2];
     if (params != .List) return null;
-    
+
     // Validate all parameters are symbols
     for (0..params.List.len) |i| {
         if (params.List.items[i] != .Atom or params.List.items[i].Atom != .Symbol) {
             return null;
         }
     }
-    
+
     // Create function
     const func_ptr = allocAligned(Function) orelse return null;
     func_ptr.params = params.List;
     func_ptr.body = list.items[3];
-    
+
     const func_val = LispValue{ .Function = func_ptr };
     setVar(name, func_val);
-    
+
     return func_val;
 }
 
@@ -756,14 +756,14 @@ fn evalDefun(list: *List) ?LispValue {
 fn applyFunction(func: *Function, args: []LispValue) ?LispValue {
     // Check argument count
     if (args.len != func.params.len) return null;
-    
+
     // Save current variable state
     const saved_count = var_count;
     var saved_values: [MAX_VARS]LispValue = undefined;
     for (0..saved_count) |i| {
         saved_values[i] = var_values[i];
     }
-    
+
     // Bind parameters
     for (0..func.params.len) |i| {
         // Check parameter is a symbol
@@ -775,7 +775,7 @@ fn applyFunction(func: *Function, args: []LispValue) ?LispValue {
             }
             return null;
         }
-        
+
         const param_name = func.params.items[i].Atom.Symbol;
         const arg_val = eval(args[i]) orelse {
             // Restore on error
@@ -787,16 +787,16 @@ fn applyFunction(func: *Function, args: []LispValue) ?LispValue {
         };
         setVar(param_name, arg_val);
     }
-    
+
     // Evaluate function body
     const result = eval(func.body);
-    
+
     // Restore variable state
     var_count = saved_count;
     for (0..saved_count) |i| {
         var_values[i] = saved_values[i];
     }
-    
+
     return result;
 }
 
@@ -815,78 +815,78 @@ fn eval(value: LispValue) ?LispValue {
             if (list.len == 0) return null;
 
             const first = list.items[0];
-            
+
             // Check if first element is a symbol (for built-in ops and function names)
             if (first == .Atom and first.Atom == .Symbol) {
                 const op = first.Atom.Symbol;
 
-            // Try arithmetic operations first
-            const arith_op = ArithOp.fromSymbol(op);
-            if (arith_op != .Unknown) {
-                return evalArithmetic(list, arith_op);
+                // Try arithmetic operations first
+                const arith_op = ArithOp.fromSymbol(op);
+                if (arith_op != .Unknown) {
+                    return evalArithmetic(list, arith_op);
+                }
+
+                // Try other built-in operations
+                const builtin = BuiltinOp.fromSymbol(op);
+                if (builtin != .Unknown) {
+                    return switch (builtin) {
+                        .And => evalAnd(list),
+                        .Concat => evalConcat(list),
+                        .Print => evalPrint(list),
+                        .Define => evalDefine(list),
+                        .If => evalIf(list),
+                        .Quote => evalQuote(list),
+                        .Syscall => evalSyscall(list),
+                        .While => evalWhile(list),
+                        .Cond => evalCond(list),
+                        .Set => evalSet(list),
+                        .Load => evalLoad(list),
+                        .Lambda => evalLambda(list),
+                        .Defun => evalDefun(list),
+                        .Unknown => unreachable,
+                    };
+                }
+
+                // Try function application - lookup symbol as a function
+                if (getVar(op)) |func_val| {
+                    if (func_val == .Function) {
+                        // Collect arguments (skip function name)
+                        var args: [32]LispValue = undefined;
+                        const arg_count = list.len - 1;
+                        if (arg_count > args.len) return null;
+
+                        for (1..list.len) |i| {
+                            args[i - 1] = list.items[i];
+                        }
+
+                        return applyFunction(func_val.Function, args[0..arg_count]);
+                    }
+                }
+
+                return null;
             }
 
-            // Try other built-in operations
-            const builtin = BuiltinOp.fromSymbol(op);
-            if (builtin != .Unknown) {
-                return switch (builtin) {
-                    .And => evalAnd(list),
-                    .Concat => evalConcat(list),
-                    .Print => evalPrint(list),
-                    .Define => evalDefine(list),
-                    .If => evalIf(list),
-                    .Quote => evalQuote(list),
-                    .Syscall => evalSyscall(list),
-                    .While => evalWhile(list),
-                    .Cond => evalCond(list),
-                    .Set => evalSet(list),
-                    .Load => evalLoad(list),
-                    .Lambda => evalLambda(list),
-                    .Defun => evalDefun(list),
-                    .Unknown => unreachable,
-                };
-            }
-            
-            // Try function application - lookup symbol as a function
-            if (getVar(op)) |func_val| {
-                if (func_val == .Function) {
-                    // Collect arguments (skip function name)
-                    var args: [32]LispValue = undefined;
-                    const arg_count = list.len - 1;
-                    if (arg_count > args.len) return null;
-                    
-                    for (1..list.len) |i| {
-                        args[i - 1] = list.items[i];
-                    }
-                    
-                    return applyFunction(func_val.Function, args[0..arg_count]);
+            // First element is not a symbol - try to evaluate it to a function
+            const func_val = eval(first) orelse return null;
+            if (func_val == .Function) {
+                // Collect arguments
+                var args: [32]LispValue = undefined;
+                const arg_count = list.len - 1;
+                if (arg_count > args.len) return null;
+
+                for (1..list.len) |i| {
+                    args[i - 1] = list.items[i];
                 }
+
+                return applyFunction(func_val.Function, args[0..arg_count]);
             }
-            
+
             return null;
-        }
-        
-        // First element is not a symbol - try to evaluate it to a function
-        const func_val = eval(first) orelse return null;
-        if (func_val == .Function) {
-            // Collect arguments
-            var args: [32]LispValue = undefined;
-            const arg_count = list.len - 1;
-            if (arg_count > args.len) return null;
-            
-            for (1..list.len) |i| {
-                args[i - 1] = list.items[i];
-            }
-            
-            return applyFunction(func_val.Function, args[0..arg_count]);
-        }
-        
-        return null;
-    },
-    .Function => |_| {
-        // Functions evaluate to themselves
-        return value;
-    },
+        },
+        .Function => |_| {
+            // Functions evaluate to themselves
+            return value;
+        },
     }
 }
 
@@ -972,7 +972,7 @@ fn readFileFromSimpleFS(filename: []const u8, buffer: []u8) ?usize {
 pub fn main(args: *const utils.Args) void {
     // Initialize variable name storage
     initVarNames();
-    
+
     // Check if a filename was provided
     if (args.argc > 1) {
         // Execute file mode
