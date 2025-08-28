@@ -1,4 +1,4 @@
-;; POSIX-like system call wrappers in Lisp
+; Syscall wrapper functions
 (defun open (path flags mode)
   (syscall "open" path flags mode))
 
@@ -10,3 +10,12 @@
 
 (defun close (fd)
   (syscall "close" fd))
+
+; Convenience functions
+(defun stdout-write (msg)
+  (write 1 msg))
+
+(defun stderr-write (msg)
+  (write 2 msg))
+
+(print "Syscalls library loaded.")
