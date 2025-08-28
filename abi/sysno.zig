@@ -44,6 +44,7 @@ pub const sys_readv: usize = 65;
 pub const sys_writev: usize = 66;
 
 // Time
+pub const sys_time: usize = 1062; // time(2) - legacy, but simple
 pub const sys_nanosleep: usize = 101;
 pub const sys_clock_gettime: usize = 113;
 pub const sys_clock_nanosleep: usize = 115;

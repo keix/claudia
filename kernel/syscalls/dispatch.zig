@@ -8,6 +8,7 @@ const dir = @import("dir.zig");
 const io = @import("io.zig");
 const path = @import("path.zig");
 const stat = @import("stat.zig");
+const time = @import("time.zig");
 
 // Initialize the dispatcher with required function pointers
 pub fn init(
@@ -43,6 +44,9 @@ pub fn call(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) isi
         sysno.sys_getcwd => path.sys_getcwd(a0, a1),
         sysno.sys_chdir => path.sys_chdir(a0),
         sysno.sys_fstat => stat.sys_fstat(a0, a1),
+        sysno.sys_time => time.sys_time(a0),
+        sysno.sys_clock_gettime => time.sys_clock_gettime(a0, a1),
+        sysno.sys_nanosleep => time.sys_nanosleep(a0, a1),
         else => defs.ENOSYS,
     };
 }

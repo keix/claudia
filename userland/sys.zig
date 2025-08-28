@@ -25,3 +25,9 @@ pub const getpid = @import("syscalls/proc/getpid").getpid;
 // Directory operations
 pub const readdir = @import("syscalls/io/readdir").readdir;
 pub const DirEntry = @import("syscalls/io/readdir").DirEntry;
+
+// Time operations
+pub const time = @import("syscalls/time/time.zig").time;
+pub const clock_gettime = @import("syscalls/time/time.zig").clock_gettime;
+pub const nanosleep = @import("syscalls/time/time.zig").nanosleep;
+pub const timespec = @import("syscalls/time/time.zig").timespec;

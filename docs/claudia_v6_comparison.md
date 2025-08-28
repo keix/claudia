@@ -47,12 +47,12 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 | Category | UNIX V6 | Claudia | Implementation Rate |
 |----------|---------|---------|-------------------|
-| **Total System Calls** | ~48 | 15 implemented | 31.3% |
+| **Total System Calls** | ~48 | 18 implemented | 37.5% |
 | **Process Control** | 12 | 6 implemented | 50.0% |
 | **File Management** | 15 | 6 implemented | 40.0% |
 | **Directory Operations** | 2 | 3 implemented | 150% |
 | **Device Operations** | 6 | 0 implemented | 0% |
-| **Time Operations** | 3 | 0 implemented | 0% |
+| **Time Operations** | 3 | 3 implemented | 100% |
 | **Other System Operations** | 10 | 0 implemented | 0% |
 
 ### Detailed System Call Implementation Status
@@ -112,12 +112,14 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | gtty | 32 | - | |
 | ioctl | 54 | - | |
 
-#### Time Operations (0/3 implemented)
+#### Time Operations (3/3 implemented - 100%)
 | System Call | V6 # | Claudia Status | Notes |
 |-------------|------|----------------|-------|
-| stime | 25 | - | |
-| time | 13 | - | |
-| times | 43 | - | |
+| stime | 25 | - | Use clock_settime instead |
+| **time** | 13 | Implemented | Returns seconds since epoch |
+| times | 43 | - | Process times not tracked |
+| **clock_gettime** | - | Implemented | Modern high-precision time |
+| **nanosleep** | - | Implemented | Modern sleep with nanosecond precision |
 
 #### System Operations (0/10 implemented)
 | System Call | V6 # | Claudia Status | Notes |
@@ -140,7 +142,7 @@ Based on current needs for shell and Lisp interpreter:
 1. **Immediate Priority**
    - `stat` - File information for `ls -l` (fstat done)
    - `creat` - Explicit file creation
-   - `time` - Basic timestamps
+   - ~~`time`~~ - Basic timestamps (completed)
    
 2. **High Priority**
    - `wait` - Process synchronization (fork/exec done)
@@ -221,11 +223,16 @@ Based on current needs for shell and Lisp interpreter:
 | **Assembler** | as | Zig handles assembly |
 
 ### Lisp Features
-- Basic arithmetic operations (+, -, *, /, mod)
-- String literals and concatenation
-- Boolean operations and conditionals
-- Variable definitions
+- Basic arithmetic operations (+, -, *, /, mod, =, <=, >)
+- String literals with escape sequences and concatenation
+- Boolean operations and conditionals (if, and, or, cond)
+- Variable definitions (define) and mutation (set)
+- Function definitions (defun, lambda)
 - Quote and eval
+- File loading (load)
+- System calls (syscall)
+- Looping constructs (while)
+- Comments (;)
 
 ## IPC & Signals
 
@@ -261,13 +268,13 @@ Based on current needs for shell and Lisp interpreter:
 ## Current Status
 
 Claudia has achieved:
-- ✅ Basic kernel with memory management
-- ✅ Process creation and scheduling
-- ✅ Simple filesystem with initrd
-- ✅ Basic shell and utilities
-- ✅ Device abstraction layer
-- ✅ Interrupt handling
-- ✅ Educational Lisp interpreter
+- Basic kernel with memory management
+- Process creation and scheduling
+- Simple filesystem with initrd
+- Basic shell and utilities
+- Device abstraction layer
+- Interrupt handling
+- Educational Lisp interpreter with functions
 
 ## Future Plans
 
