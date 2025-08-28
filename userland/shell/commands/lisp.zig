@@ -229,6 +229,7 @@ const BuiltinOp = enum {
     While,
     Cond,
     Set,
+    Load,
     Unknown,
 
     fn fromSymbol(sym: []const u8) BuiltinOp {
@@ -242,6 +243,7 @@ const BuiltinOp = enum {
         if (utils.strEq(sym, "while")) return .While;
         if (utils.strEq(sym, "cond")) return .Cond;
         if (utils.strEq(sym, "set")) return .Set;
+        if (utils.strEq(sym, "load")) return .Load;
         return .Unknown;
     }
 };
@@ -573,6 +575,75 @@ fn evalSet(list: *List) ?LispValue {
     return value;
 }
 
+fn evalLoad(list: *List) ?LispValue {
+    if (list.len != 2) return null;
+    
+    // Get filename argument
+    const filename_val = eval(list.items[1]) orelse return null;
+    if (filename_val != .Atom or filename_val.Atom != .String) return null;
+    const filename = filename_val.Atom.String;
+    
+    // Try to read from SimpleFS first
+    var file_buffer: [4096]u8 = undefined;
+    var size: ?usize = null;
+    
+    // Try SimpleFS
+    size = readFileFromSimpleFS(filename, &file_buffer);
+    
+    if (size == null) {
+        // Try regular file system
+        var filename_buf: [256]u8 = undefined;
+        if (filename.len >= filename_buf.len) {
+            return null;
+        }
+        @memcpy(filename_buf[0..filename.len], filename);
+        filename_buf[filename.len] = 0;
+        
+        const fd = sys.open(@ptrCast(&filename_buf), sys.abi.O_RDONLY, 0);
+        if (fd < 0) {
+            return null;
+        }
+        defer _ = sys.close(@intCast(fd));
+        
+        const bytes_read = sys.read(@intCast(fd), @ptrCast(&file_buffer), file_buffer.len);
+        if (bytes_read > 0) {
+            size = @intCast(bytes_read);
+        }
+    }
+    
+    if (size) |actual_size| {
+        // Save current global position
+        const saved_pos = global_pos;
+        
+        // Parse and evaluate the loaded code
+        var pos: usize = 0;
+        var last_result: ?LispValue = null;
+        
+        while (pos < actual_size) {
+            skipSpace(file_buffer[0..actual_size], &pos);
+            if (pos >= actual_size) break;
+            
+            if (parse(file_buffer[0..actual_size], &pos)) |expr| {
+                last_result = eval(expr);
+                if (last_result == null) {
+                    // Restore allocator position on error
+                    global_pos = saved_pos;
+                    return null;
+                }
+            } else {
+                // Restore allocator position on parse error
+                global_pos = saved_pos;
+                return null;
+            }
+        }
+        
+        // Return last evaluated expression or symbol indicating success
+        return last_result orelse LispValue{ .Atom = Atom{ .Symbol = "ok" } };
+    }
+    
+    return null;
+}
+
 // Evaluator
 fn eval(value: LispValue) ?LispValue {
     switch (value) {
@@ -611,6 +682,7 @@ fn eval(value: LispValue) ?LispValue {
                 .While => evalWhile(list),
                 .Cond => evalCond(list),
                 .Set => evalSet(list),
+                .Load => evalLoad(list),
                 .Unknown => null,
             };
         },
