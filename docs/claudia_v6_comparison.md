@@ -58,82 +58,83 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 ### Detailed System Call Implementation Status
 
 #### Process Control (6/12 implemented)
-| System Call | V6 # | Claudia Status | Notes |
-|-------------|------|----------------|-------|
-| **fork** | 2 | Implemented | Simplified version (no COW) |
-| **exit** | 1 | Implemented | Basic cleanup only |
-| wait | 2 | - | No zombie handling |
-| **exec** | 11 | Implemented | Hardcoded to shell only |
-| **getpid** | 20 | Implemented | Returns current process ID |
-| getuid | 24 | - | Single-user system |
-| setuid | 23 | - | |
-| nice | 34 | - | |
-| kill | 37 | - | No signals |
-| signal | 48 | - | |
-| alarm | 27 | - | |
-| pause | 29 | - | |
-| **clone** | - | Implemented | Simplified to fork() |
-| **sched_yield** | - | Implemented | Modern addition |
+| System Call | V6 # | Claudia # | Status | Notes |
+|-------------|------|-----------|--------|-------|
+| **fork** | 2 | 220 (clone) | Implemented | Simplified version (no COW) |
+| **exit** | 1 | 93 | Implemented | Basic cleanup only |
+| wait | 2 | 260 (wait4) | - | No zombie handling |
+| **exec** | 11 | 221 (execve) | Implemented | Hardcoded to shell only |
+| **getpid** | 20 | 172 | Implemented | Returns current process ID |
+| getuid | 24 | 174 | - | Single-user system |
+| setuid | 23 | 146 | - | |
+| nice | 34 | - | - | |
+| kill | 37 | 129 | - | No signals |
+| signal | 48 | 134 (rt_sigaction) | - | |
+| alarm | 27 | - | - | |
+| pause | 29 | - | - | |
+| **clone** | - | 220 | Implemented | Simplified to fork() |
+| **sched_yield** | - | 124 | Implemented | Modern addition |
 
 #### File Management (6/15 implemented)
-| System Call | V6 # | Claudia Status | Notes |
-|-------------|------|----------------|-------|
-| **open** | 5 | Implemented | Via openat with AT_FDCWD |
-| **close** | 6 | Implemented | |
-| **read** | 3 | Implemented | Files and devices |
-| **write** | 4 | Implemented | Files and devices |
-| creat | 8 | - | Use open with flags |
-| link | 9 | - | |
-| unlink | 10 | - | |
-| **lseek** | 19 | Implemented | Modern lseek with SEEK_SET/CUR/END |
-| **fstat** | 28 | Implemented | File status by file descriptor |
-| stat | 18 | - | |
-| chmod | 15 | - | |
-| chown | 16 | - | |
-| dup | 41 | - | |
-| pipe | 42 | - | |
-| access | - | - | Not in V6 |
+| System Call | V6 # | Claudia # | Status | Notes |
+|-------------|------|-----------|--------|-------|
+| **open** | 5 | 56 (openat) | Implemented | Via openat with AT_FDCWD |
+| **close** | 6 | 57 | Implemented | |
+| **read** | 3 | 63 | Implemented | Files and devices |
+| **write** | 4 | 64 | Implemented | Files and devices |
+| creat | 8 | - | - | Use open with flags |
+| link | 9 | - | - | |
+| unlink | 10 | 35 (unlinkat) | - | |
+| **lseek** | 19 | 62 | Implemented | Modern lseek with SEEK_SET/CUR/END |
+| **fstat** | 28 | 80 | Implemented | File status by file descriptor |
+| stat | 18 | 79 (fstatat) | - | |
+| chmod | 15 | - | - | |
+| chown | 16 | - | - | |
+| dup | 41 | - | - | |
+| pipe | 42 | - | - | |
+| access | - | - | - | Not in V6 |
 
 #### Directory Operations (3/2 implemented - 150%)
-| System Call | V6 # | Claudia Status | Notes |
-|-------------|------|----------------|-------|
-| **chdir** | 12 | Implemented | Changes current working directory |
-| mknod | 14 | - | |
-| **readdir** | - | Implemented | Modern replacement for raw inode reading |
-| **getcwd** | - | Implemented | Modern addition - not in V6 |
+| System Call | V6 # | Claudia # | Status | Notes |
+|-------------|------|-----------|--------|-------|
+| **chdir** | 12 | 49 | Implemented | Changes current working directory |
+| mknod | 14 | - | - | |
+| **readdir** | - | 61 (getdents64) | Implemented | Modern replacement for raw inode reading |
+| **getcwd** | - | 17 | Implemented | Modern addition - not in V6 |
+| mkdir | - | 34 (mkdirat) | - | Modern addition |
 
 #### Device Operations (0/6 implemented)
-| System Call | V6 # | Claudia Status | Notes |
-|-------------|------|----------------|-------|
-| mount | 21 | - | |
-| umount | 22 | - | |
-| sync | 36 | - | |
-| stty | 31 | - | |
-| gtty | 32 | - | |
-| ioctl | 54 | - | |
+| System Call | V6 # | Claudia # | Status | Notes |
+|-------------|------|-----------|--------|-------|
+| mount | 21 | - | - | |
+| umount | 22 | - | - | |
+| sync | 36 | - | - | |
+| stty | 31 | - | - | |
+| gtty | 32 | - | - | |
+| ioctl | 54 | 29 | - | |
 
 #### Time Operations (3/3 implemented - 100%)
-| System Call | V6 # | Claudia Status | Notes |
-|-------------|------|----------------|-------|
-| stime | 25 | - | Use clock_settime instead |
-| **time** | 13 | Implemented | Returns seconds since epoch |
-| times | 43 | - | Process times not tracked |
-| **clock_gettime** | - | Implemented | Modern high-precision time |
-| **nanosleep** | - | Implemented | Modern sleep with nanosecond precision |
+| System Call | V6 # | Claudia # | Status | Notes |
+|-------------|------|-----------|--------|-------|
+| stime | 25 | - | - | Use clock_settime instead |
+| **time** | 13 | 1062 | Implemented | Returns seconds since epoch |
+| times | 43 | - | - | Process times not tracked |
+| **clock_gettime** | - | 113 | Implemented | Modern high-precision time |
+| **nanosleep** | - | 101 | Implemented | Modern sleep with nanosecond precision |
 
 #### System Operations (0/10 implemented)
-| System Call | V6 # | Claudia Status | Notes |
-|-------------|------|----------------|-------|
-| break/sbrk | 17 | - | Heap management exists |
-| prof | 44 | - | |
-| setgid | 46 | - | |
-| getgid | 47 | - | |
-| acct | 51 | - | |
-| phys | 52 | - | Not applicable to RISC-V |
-| lock | 53 | - | |
-| mpx | 56 | - | |
-| ptrace | 26 | - | |
-| umask | - | - | Not in V6 |
+| System Call | V6 # | Claudia # | Status | Notes |
+|-------------|------|-----------|--------|-------|
+| break/sbrk | 17 | 214 (brk) | - | Heap management exists |
+| prof | 44 | - | - | |
+| setgid | 46 | - | - | |
+| getgid | 47 | 176 | - | |
+| acct | 51 | - | - | |
+| phys | 52 | - | - | Not applicable to RISC-V |
+| lock | 53 | - | - | |
+| mpx | 56 | - | - | |
+| ptrace | 26 | - | - | |
+| umask | - | - | - | Not in V6 |
 
 ### Implementation Priority
 
@@ -142,12 +143,10 @@ Based on current needs for shell and Lisp interpreter:
 1. **Immediate Priority**
    - `stat` - File information for `ls -l` (fstat done)
    - `creat` - Explicit file creation
-   - ~~`time`~~ - Basic timestamps (completed)
    
 2. **High Priority**
    - `wait` - Process synchronization (fork/exec done)
    - `pipe` - Inter-process communication
-   - `dup` - File descriptor duplication
    
 3. **Medium Priority**
    - `signal/kill` - Process control
@@ -255,7 +254,7 @@ Based on current needs for shell and Lisp interpreter:
 | Aspect | UNIX V6 | Claudia |
 |--------|---------|---------|
 | **Language** | C (K&R) | Zig (100% no libc) |
-| **Lines of Code** | ~9,000 | ~10,000 (+ assembly) |
+| **Lines of Code** | ~9,000 | ~12,000 (+ assembly, lisp) |
 | **Build System** | make | Zig build system |
 | **Initrd Tool** | None | mkinitrd.zig |
 
