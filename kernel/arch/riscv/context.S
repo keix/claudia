@@ -35,6 +35,8 @@
 # 232: t5 (x30)
 # 240: t6 (x31)
 # 248: satp
+# 256: sepc (program counter)
+# 264: sstatus (status register)
 
 .section .text
 .global context_switch
@@ -43,6 +45,9 @@
 context_switch:
     # a0 = old context pointer
     # a1 = new context pointer
+    
+    # Disable interrupts during context switch
+    csrci sstatus, 2    # Clear SIE bit
 
     # Save all registers to old context
     sd ra,   0(a0)   # x1
@@ -79,6 +84,15 @@ context_switch:
     # Save current SATP
     csrr t0, satp       # read current satp
     sd t0, 248(a0)      # save to context
+    
+    # Save current sepc (return address for this context)
+    # For voluntary context switch, this should be the return address
+    csrr t0, sepc
+    sd t0, 256(a0)      # save sepc
+    
+    # Save current sstatus
+    csrr t0, sstatus
+    sd t0, 264(a0)      # save sstatus
     
     # Now save a0 and a1 (we can use t0 and t1 as temps)
     mv t0, a0           # save old context pointer
@@ -120,6 +134,15 @@ context_switch:
 
     # Restore new process's SATP
     ld t0, 248(a1)      # load new satp
+    
+    # Restore new process's sepc
+    ld t1, 256(a1)      # load new sepc
+    csrw sepc, t1       # set sepc
+    
+    # Restore new process's sstatus (but keep interrupts disabled for now)
+    ld t1, 264(a1)      # load new sstatus
+    andi t1, t1, ~2     # ensure SIE bit is clear
+    csrw sstatus, t1    # set sstatus
 
     # Ensure all memory operations complete before changing page table
     fence rw, rw
@@ -131,6 +154,10 @@ context_switch:
     ld a0, 72(a1)    # x10
     ld a1, 80(a1)    # x11
 
+    # Re-enable interrupts and return
+    # The caller is responsible for properly handling the return
+    csrsi sstatus, 2    # Set SIE bit
+    
     # Return to new context (ra now points to new process's continuation)
     ret
 
