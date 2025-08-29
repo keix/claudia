@@ -47,17 +47,17 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 | Category | UNIX V6 | Claudia | Implementation Rate |
 |----------|---------|---------|-------------------|
-| **Total System Calls** | ~48 | 18 implemented | 37.5% |
-| **Process Control** | 12 | 6 implemented | 50.0% |
-| **File Management** | 15 | 6 implemented | 40.0% |
+| **Total System Calls** | ~48 | 21 implemented | 43.8% |
+| **Process Control** | 12 | 8 implemented | 66.7% |
+| **File Management** | 15 | 7 implemented | 46.7% |
 | **Directory Operations** | 2 | 3 implemented | 150% |
 | **Device Operations** | 6 | 0 implemented | 0% |
 | **Time Operations** | 3 | 3 implemented | 100% |
-| **Other System Operations** | 10 | 0 implemented | 0% |
+| **Other System Operations** | 10 | 2 implemented | 20% |
 
 ### Detailed System Call Implementation Status
 
-#### Process Control (6/12 implemented)
+#### Process Control (8/12 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
 | **fork** | 2 | 220 (clone) | Implemented | Simplified version (no COW) |
@@ -65,8 +65,8 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | wait | 2 | 260 (wait4) | - | No zombie handling |
 | **exec** | 11 | 221 (execve) | Implemented | Hardcoded to shell only |
 | **getpid** | 20 | 172 | Implemented | Returns current process ID |
-| getuid | 24 | 174 | - | Single-user system |
-| setuid | 23 | 146 | - | |
+| **getuid** | 24 | 174 | Implemented | Always returns 0 (root) |
+| **setuid** | 23 | 146 | Implemented | No-op in single-user system |
 | nice | 34 | - | - | |
 | kill | 37 | 129 | - | No signals |
 | signal | 48 | 134 (rt_sigaction) | - | |
@@ -75,10 +75,10 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | **clone** | - | 220 | Implemented | Simplified to fork() |
 | **sched_yield** | - | 124 | Implemented | Modern addition |
 
-#### File Management (6/15 implemented)
+#### File Management (7/15 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
-| **open** | 5 | 56 (openat) | Implemented | Via openat with AT_FDCWD |
+| **openat** | - | 56 | Implemented | Modern open with directory support |
 | **close** | 6 | 57 | Implemented | |
 | **read** | 3 | 63 | Implemented | Files and devices |
 | **write** | 4 | 64 | Implemented | Files and devices |
@@ -122,13 +122,13 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | **clock_gettime** | - | 113 | Implemented | Modern high-precision time |
 | **nanosleep** | - | 101 | Implemented | Modern sleep with nanosecond precision |
 
-#### System Operations (0/10 implemented)
+#### System Operations (2/10 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
 | break/sbrk | 17 | 214 (brk) | - | Heap management exists |
 | prof | 44 | - | - | |
-| setgid | 46 | - | - | |
-| getgid | 47 | 176 | - | |
+| **setgid** | 46 | 144 | Implemented | No-op in single-user system |
+| **getgid** | 47 | 176 | Implemented | Always returns 0 (root) |
 | acct | 51 | - | - | |
 | phys | 52 | - | - | Not applicable to RISC-V |
 | lock | 53 | - | - | |
@@ -254,7 +254,7 @@ Based on current needs for shell and Lisp interpreter:
 | Aspect | UNIX V6 | Claudia |
 |--------|---------|---------|
 | **Language** | C (K&R) | Zig (100% no libc) |
-| **Lines of Code** | ~9,000 | ~12,000 (+ assembly, lisp) |
+| **Lines of Code** | ~9,000 | ~13,000 (kernel + userland + assembly) |
 | **Build System** | make | Zig build system |
 | **Initrd Tool** | None | mkinitrd.zig |
 
@@ -299,6 +299,6 @@ Claudia has achieved:
 
 ## Conclusion
 
-While Claudia already exceeds UNIX V6 in code size (~10,000 lines vs ~9,000), this reflects the complexity of modern hardware and the additional safety guarantees provided by Zig. The project successfully demonstrates that V6's elegant design principles can be adapted to modern 64-bit RISC-V systems while maintaining conceptual simplicity.
+While Claudia exceeds UNIX V6 in code size (~13,000 lines vs ~9,000), this reflects the complexity of modern hardware and the additional safety guarantees provided by Zig. The project successfully demonstrates that V6's elegant design principles can be adapted to modern 64-bit RISC-V systems while maintaining conceptual simplicity.
 
 The use of Zig as the implementation language provides memory safety without garbage collection, making it ideal for systems programming. The 100% libc-free implementation ensures complete control over the system's behavior and dependencies.
