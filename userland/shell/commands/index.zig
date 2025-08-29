@@ -10,6 +10,7 @@ pub const Command = enum {
     date,
     touch,
     id,
+    mkdir,
 };
 
 pub const CommandEntry = struct {
@@ -32,4 +33,5 @@ pub const commands = [_]CommandEntry{
     .{ .name = "date", .func = @import("date.zig").main },
     .{ .name = "touch", .func = @import("touch.zig").main },
     .{ .name = "id", .func = @import("id.zig").main },
+    .{ .name = "mkdir", .func = @import("mkdir.zig").main },
 };

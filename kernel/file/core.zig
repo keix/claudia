@@ -547,6 +547,10 @@ pub const FileTable = struct {
         if (path.len > 0 and path[0] == '/') {
             // Already absolute
             abs_path = path;
+        } else if (path.len == 1 and path[0] == '.') {
+            // Current directory
+            const process = proc.current_process orelse return defs.ESRCH;
+            abs_path = process.cwd[0..process.cwd_len];
         } else {
             // Relative path - prepend current directory
             const process = proc.current_process orelse return defs.ESRCH;
@@ -607,7 +611,9 @@ pub const FileTable = struct {
             }
         }
 
-        const vnode = node orelse return defs.ENOENT;
+        const vnode = node orelse {
+            return defs.ENOENT;
+        };
 
         // Handle different node types
         switch (vnode.node_type) {
@@ -654,7 +660,20 @@ pub const FileTable = struct {
                 return defs.ENOMEM; // No memory for file structure
             },
             .DIRECTORY => {
-                // TODO: Implement directory support
+                // Check if O_DIRECTORY flag is set or if opening for read-only
+                if ((flags & defs.O_DIRECTORY) != 0 or flags == defs.O_RDONLY) {
+                    // Create a directory file descriptor
+                    const dirfile = @import("dirfile.zig");
+                    if (dirfile.allocDirFile(vnode)) |df| {
+                        if (allocFd(&df.file)) |fd| {
+                            return @as(isize, @intCast(fd));
+                        }
+                        // Failed to allocate fd, free the dirfile
+                        dirfile.freeDirFile(df);
+                        return defs.EMFILE;
+                    }
+                    return defs.ENOMEM;
+                }
                 return defs.EISDIR;
             },
         }

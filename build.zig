@@ -156,6 +156,13 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "abi", .module = abi_mod },
                 },
             }) },
+            .{ .name = "syscalls/io/mkdir", .module = b.createModule(.{
+                .root_source_file = b.path("userland/syscalls/io/mkdir.zig"),
+                .imports = &.{
+                    .{ .name = "syscall", .module = syscall_mod },
+                    .{ .name = "abi", .module = abi_mod },
+                },
+            }) },
         },
     });
 
@@ -197,6 +204,8 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "sys", .module = sys_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
+            .{ .name = "abi", .module = abi_mod },
+            .{ .name = "syscall", .module = syscall_mod },
         },
     });
 
@@ -280,6 +289,15 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const mkdir_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/mkdir.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+            .{ .name = "abi", .module = abi_mod },
+        },
+    });
+
     // Create commands index module
     const commands_index_mod = b.createModule(.{
         .root_source_file = b.path("userland/shell/commands/index.zig"),
@@ -298,6 +316,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "date.zig", .module = date_mod },
             .{ .name = "touch.zig", .module = touch_mod },
             .{ .name = "id.zig", .module = id_mod },
+            .{ .name = "mkdir.zig", .module = mkdir_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });
