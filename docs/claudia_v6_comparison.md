@@ -99,9 +99,9 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 |-------------|------|-----------|--------|-------|
 | **chdir** | 12 | 49 | Implemented | Changes current working directory |
 | mknod | 14 | - | - | |
-| **readdir** | - | 61 (getdents64) | Implemented | Modern replacement for raw inode reading |
+| **getdents64** | - | 61 | Implemented | Modern Linux-style directory reading |
 | **getcwd** | - | 17 | Implemented | Modern addition - not in V6 |
-| mkdir | - | 34 (mkdirat) | - | Modern addition |
+| **mkdirat** | - | 34 | Implemented | Modern addition with AT_FDCWD support |
 
 #### Device Operations (0/6 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
@@ -216,7 +216,7 @@ Based on current needs for shell and Lisp interpreter:
 | Category | UNIX V6 | Claudia |
 |----------|---------|---------|
 | **Shell** | Bourne shell (sh) | Minimal shell |
-| **Core Utils** | ls, cat, ed, etc. | ls, cat, echo, help, exit |
+| **Core Utils** | ls, cat, ed, etc. | ls, cat, echo, help, exit, pwd, cd, mkdir, touch, date, id |
 | **Lisp Interpreter** | None | Minimal Lisp with strings |
 | **Compiler** | cc (C compiler) | Cross-compiled only |
 | **Assembler** | as | Zig handles assembly |
@@ -270,17 +270,20 @@ Claudia has achieved:
 - Basic kernel with memory management
 - Process creation and scheduling
 - Simple filesystem with initrd
-- Basic shell and utilities
+- Basic shell and utilities (ls, cat, echo, pwd, cd, mkdir, touch, date, id)
+- Directory operations (Linux-style openat + getdents64)
 - Device abstraction layer
 - Interrupt handling
 - Educational Lisp interpreter with functions
+- Time support with hardware timer (CSR readTime)
 
 ## Future Plans
 
 1. **Short Term**
-   - Implement remaining core system calls
+   - Implement stat/fstatat for file information
    - Add pipe support
-   - Improve filesystem (subdirectories, permissions)
+   - INode/VNode unification
+   - File permissions and ownership
    
 2. **Medium Term**
    - Signal system

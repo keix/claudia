@@ -37,3 +37,6 @@ pub const getuid = @import("syscalls/uid/uid.zig").getuid;
 pub const geteuid = @import("syscalls/uid/uid.zig").geteuid;
 pub const getgid = @import("syscalls/uid/uid.zig").getgid;
 pub const getegid = @import("syscalls/uid/uid.zig").getegid;
+
+// Directory operations
+pub const mkdirat = @import("syscalls/io/mkdir").mkdirat;

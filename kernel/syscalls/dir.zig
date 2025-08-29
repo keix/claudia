@@ -1,94 +1,95 @@
 // kernel/syscalls/dir.zig - Directory operations
-const vfs = @import("../fs/vfs.zig");
-const copy = @import("../user/copy.zig");
+const std = @import("std");
 const defs = @import("abi");
+const copy = @import("../user/copy.zig");
+const vfs = @import("../fs/vfs.zig");
+const simplefs = @import("../fs/simplefs.zig");
+const process = @import("../process/core.zig");
+const fs = @import("fs.zig");
+const uart = @import("../driver/uart/core.zig");
 
-// Simple directory entry structure
+// Directory entry structure for getdents64
 pub const DirEntry = extern struct {
-    name: [256]u8,
-    name_len: u8,
-    node_type: u8, // 1=FILE, 2=DIRECTORY, 3=DEVICE
-    _padding: [6]u8 = undefined, // Ensure proper alignment to 264 bytes
+    d_ino: u64, // Inode number
+    d_off: i64, // Offset to next dirent
+    d_reclen: u16, // Length of this record
+    d_type: u8, // File type
+    d_name: [256]u8, // Filename (null-terminated)
 };
 
-comptime {
-    // Ensure DirEntry has a consistent size
-    if (@sizeOf(DirEntry) != 264) {
-        @compileError("DirEntry size must be 264 bytes");
+// AT_FDCWD constant for *at syscalls
+const AT_FDCWD: isize = -100;
+
+// Create a directory
+pub fn sys_mkdirat(dirfd: usize, pathname: usize, mode: usize) isize {
+    _ = mode; // Ignore mode for now
+
+    // For now, only support AT_FDCWD (current directory)
+    const fd = @as(isize, @bitCast(dirfd));
+    if (fd != AT_FDCWD) {
+        return defs.ENOSYS; // Not implemented for directory fds
     }
-}
 
-// sys_getdents64 implementation (using readdir internally)
-pub fn sys_getdents64(fd: usize, dirp: usize, count: usize) isize {
-    // For now, we treat fd as path_addr for simplicity
-    // TODO: Properly handle file descriptors
-    return sys_readdir(fd, dirp, count);
-}
+    // Get current process
+    const current = process.Scheduler.getCurrentProcess() orelse return defs.ESRCH;
 
-// Read directory entries
-// Returns number of entries read, or negative error
-pub fn sys_readdir(path_addr: usize, entries_addr: usize, max_entries: usize) isize {
-    // Copy path from user space
+    // Copy pathname from user space
     var path_buf: [256]u8 = undefined;
-    const path_len = copy.copyinstr(&path_buf, path_addr) catch return defs.EFAULT;
+    const path_len = copy.copyinstr(&path_buf, pathname) catch return defs.EFAULT;
     const path = path_buf[0..path_len];
 
-    // Resolve path
-    const node = vfs.resolvePath(path) orelse {
-        return defs.ENOENT;
-    };
+    // Parse the path to get parent directory and new directory name
+    var parent_path: []const u8 = "/";
+    var dir_name: []const u8 = path;
 
-    // Must be a directory
-    if (node.node_type != .DIRECTORY) {
-        return defs.ENOTDIR;
+    // Find the last slash to separate parent path and directory name
+    if (std.mem.lastIndexOf(u8, path, "/")) |last_slash| {
+        if (last_slash == 0) {
+            // Creating directory in root
+            parent_path = "/";
+            dir_name = path[1..];
+        } else {
+            parent_path = path[0..last_slash];
+            dir_name = path[last_slash + 1 ..];
+        }
+    } else {
+        // No slash, create in current directory
+        parent_path = current.cwd[0..current.cwd_len];
     }
 
-    // First, count entries to reverse the order (since they're added in reverse)
-    var total_count: usize = 0;
-    var temp = node.getChildren();
-    while (temp) |_| : (temp = temp.?.next_sibling) {
-        total_count += 1;
+    // Don't allow empty directory names
+    if (dir_name.len == 0) {
+        return defs.EINVAL;
     }
 
-    // Create a temporary array to store entries in reverse order
-    var temp_entries: [32]DirEntry = undefined;
-    var current = node.getChildren();
-    var idx: usize = 0;
-
-    // Collect entries
-    while (current) |child| : (current = child.next_sibling) {
-        if (idx >= max_entries or idx >= temp_entries.len) break;
-
-        // Create directory entry
-        var entry = &temp_entries[idx];
-        entry.* = DirEntry{
-            .name = undefined,
-            .name_len = 0,
-            .node_type = @intFromEnum(child.node_type),
-        };
-
-        // Copy name
-        const name = child.getName();
-        const copy_len = @min(name.len, entry.name.len - 1);
-        @memcpy(entry.name[0..copy_len], name[0..copy_len]);
-        entry.name[copy_len] = 0;
-        entry.name_len = @intCast(copy_len);
-
-        idx += 1;
+    // Create the directory in VFS
+    if (vfs.createDirectory(parent_path, dir_name) == null) {
+        // Could be because parent doesn't exist, directory already exists, etc.
+        return defs.EEXIST;
     }
 
-    // Copy entries to user space in reverse order to show oldest first
-    var count: usize = 0;
-    while (count < idx) : (count += 1) {
-        const entry = &temp_entries[idx - 1 - count];
-        const entry_addr = entries_addr + count * @sizeOf(DirEntry);
+    // Also create in SimpleFS if it's mounted
+    // For now, we'll skip persistence to disk
+    // TODO: Integrate with SimpleFS for persistent storage
 
-        _ = copy.copyout(entry_addr, std.mem.asBytes(entry)) catch {
-            return defs.EFAULT;
-        };
-    }
-
-    return @intCast(count);
+    return 0;
 }
 
-const std = @import("std");
+pub fn sys_getdents64(fd: usize, dirp: usize, count: usize) isize {
+    // Get the file handle
+    const file_table = @import("../file/core.zig").FileTable;
+    const file = file_table.getFile(@intCast(fd)) orelse return defs.EBADF;
+
+    // Read directory entries
+    var buffer: [4096]u8 = undefined;
+    const max_read = if (count > buffer.len) buffer.len else count;
+    const result = file.read(buffer[0..max_read]);
+    if (result < 0) return result;
+
+    const bytes_read = @as(usize, @intCast(result));
+
+    // Copy to user space
+    _ = copy.copyout(dirp, buffer[0..bytes_read]) catch return defs.EFAULT;
+
+    return @intCast(bytes_read);
+}
