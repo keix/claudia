@@ -7,6 +7,8 @@ pub const Command = enum {
     ls,
     cat,
     lisp,
+    date,
+    touch,
 };
 
 pub const CommandEntry = struct {
@@ -26,4 +28,6 @@ pub const commands = [_]CommandEntry{
     .{ .name = "pwd", .func = @import("pwd.zig").main },
     .{ .name = "cd", .func = @import("cd.zig").main },
     .{ .name = "fstat", .func = @import("fstat.zig").main },
+    .{ .name = "date", .func = @import("date.zig").main },
+    .{ .name = "touch", .func = @import("touch.zig").main },
 };
