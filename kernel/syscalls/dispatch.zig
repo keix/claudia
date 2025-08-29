@@ -9,6 +9,7 @@ const io = @import("io.zig");
 const path = @import("path.zig");
 const stat = @import("stat.zig");
 const time = @import("time.zig");
+const uid = @import("uid.zig");
 
 // Initialize the dispatcher with required function pointers
 pub fn init(
@@ -47,6 +48,12 @@ pub fn call(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) isi
         sysno.sys_time => time.sys_time(a0),
         sysno.sys_clock_gettime => time.sys_clock_gettime(a0, a1),
         sysno.sys_nanosleep => time.sys_nanosleep(a0, a1),
+        sysno.sys_getuid => uid.sys_getuid(),
+        sysno.sys_geteuid => uid.sys_geteuid(),
+        sysno.sys_getgid => uid.sys_getgid(),
+        sysno.sys_getegid => uid.sys_getegid(),
+        sysno.sys_setuid => uid.sys_setuid(a0),
+        sysno.sys_setgid => uid.sys_setgid(a0),
         else => defs.ENOSYS,
     };
 }

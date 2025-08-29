@@ -31,3 +31,9 @@ pub const time = @import("syscalls/time/time.zig").time;
 pub const clock_gettime = @import("syscalls/time/time.zig").clock_gettime;
 pub const nanosleep = @import("syscalls/time/time.zig").nanosleep;
 pub const timespec = @import("syscalls/time/time.zig").timespec;
+
+// User/group ID operations
+pub const getuid = @import("syscalls/uid/uid.zig").getuid;
+pub const geteuid = @import("syscalls/uid/uid.zig").geteuid;
+pub const getgid = @import("syscalls/uid/uid.zig").getgid;
+pub const getegid = @import("syscalls/uid/uid.zig").getegid;

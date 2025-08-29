@@ -20,6 +20,7 @@ pub const sys_geteuid: usize = 175;
 pub const sys_getgid: usize = 176;
 pub const sys_getegid: usize = 177;
 pub const sys_setuid: usize = 146;
+pub const sys_setgid: usize = 144;
 
 // File I/O
 pub const sys_read: usize = 63;
