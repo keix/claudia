@@ -482,7 +482,8 @@ pub const FileTable = struct {
         for (3..MAX_FDS) |i| {
             if (file_table[i] == null) {
                 file_table[i] = file;
-                file.addRef();
+                // Don't add reference here - the file already has ref_count = 1 from creation
+                // file.addRef();
                 return @as(FD, @intCast(i));
             }
         }

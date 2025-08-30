@@ -22,7 +22,7 @@ pub const VNode = struct {
     next_sibling: ?*VNode = null,
 
     // For files - simple fixed-size buffer
-    data: [1024]u8 = undefined,
+    data: [2048]u8 = undefined,
     data_size: usize = 0,
 
     // Reference counting
@@ -82,6 +82,37 @@ pub const VNode = struct {
             self.ref_count -= 1;
         }
         // TODO: Free node when ref_count reaches 0
+    }
+
+    pub fn removeChild(self: *VNode, name: []const u8) bool {
+        if (self.node_type != .DIRECTORY) return false;
+
+        var prev: ?*VNode = null;
+        var current = self.children;
+
+        while (current) |node| {
+            if (std.mem.eql(u8, node.getName(), name)) {
+                // Don't remove if it has references (except the initial reference)
+                // Allow removal if ref_count is 1 (only the VFS itself holds a reference)
+                if (node.ref_count > 1) return false;
+
+                // Don't remove directories that have children
+                if (node.node_type == .DIRECTORY and node.children != null) return false;
+
+                // Unlink from list
+                if (prev) |p| {
+                    p.next_sibling = node.next_sibling;
+                } else {
+                    self.children = node.next_sibling;
+                }
+
+                node.parent = null;
+                return true;
+            }
+            prev = current;
+            current = node.next_sibling;
+        }
+        return false;
     }
 };
 
@@ -267,6 +298,49 @@ pub fn createFile(parent_path: []const u8, name: []const u8) ?*VNode {
 pub fn debugPrint() void {
     if (!initialized) return;
     debugPrintNode(&root_node, 0);
+}
+
+// Unlink a file or empty directory
+pub fn unlink(path: []const u8) isize {
+    if (!initialized) init();
+
+    // Can't unlink root
+    if (path.len == 0 or (path.len == 1 and path[0] == '/')) {
+        return defs.EBUSY;
+    }
+
+    // Find parent directory and filename
+    var last_slash: ?usize = null;
+    var i = path.len;
+    while (i > 0) : (i -= 1) {
+        if (path[i - 1] == '/') {
+            last_slash = i - 1;
+            break;
+        }
+    }
+
+    const parent_path = if (last_slash) |pos| path[0..pos] else "/";
+    const filename = if (last_slash) |pos| path[pos + 1 ..] else path;
+
+    // Empty filename
+    if (filename.len == 0) return defs.ENOENT;
+
+    // Get parent directory
+    const parent = resolvePath(parent_path) orelse return defs.ENOENT;
+    if (parent.node_type != .DIRECTORY) return defs.ENOTDIR;
+
+    // Check if file exists
+    const target = parent.findChild(filename) orelse return defs.ENOENT;
+
+    // Can't unlink device files
+    if (target.node_type == .DEVICE) return defs.EBUSY;
+
+    // Try to remove
+    if (!parent.removeChild(filename)) {
+        return defs.EBUSY; // File is in use or directory not empty
+    }
+
+    return 0;
 }
 
 fn debugPrintNode(node: *VNode, depth: usize) void {

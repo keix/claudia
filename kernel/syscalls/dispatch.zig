@@ -55,6 +55,7 @@ pub fn call(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) isi
         sysno.sys_setuid => uid.sys_setuid(a0),
         sysno.sys_setgid => uid.sys_setgid(a0),
         sysno.sys_mkdirat => dir.sys_mkdirat(a0, a1, a2),
+        sysno.sys_unlinkat => dir.sys_unlinkat(a0, a1, a2),
         else => defs.ENOSYS,
     };
 }

@@ -75,6 +75,49 @@ pub fn sys_mkdirat(dirfd: usize, pathname: usize, mode: usize) isize {
     return 0;
 }
 
+// Remove a file or empty directory
+pub fn sys_unlinkat(dirfd: usize, pathname: usize, flags: usize) isize {
+    _ = flags; // Ignore flags for now (AT_REMOVEDIR, etc)
+
+    // For now, only support AT_FDCWD (current directory)
+    const fd = @as(isize, @bitCast(dirfd));
+    if (fd != AT_FDCWD) {
+        return defs.ENOSYS; // Not implemented for directory fds
+    }
+
+    // Get current process
+    const current = process.Scheduler.getCurrentProcess() orelse return defs.ESRCH;
+
+    // Copy pathname from user space
+    var path_buf: [256]u8 = undefined;
+    const path_len = copy.copyinstr(&path_buf, pathname) catch return defs.EFAULT;
+    var path = path_buf[0..path_len];
+
+    // Handle relative paths
+    if (path.len > 0 and path[0] != '/') {
+        // Prepend current directory
+        var full_path: [512]u8 = undefined;
+        const cwd = current.cwd[0..current.cwd_len];
+
+        var offset: usize = 0;
+        @memcpy(full_path[offset .. offset + cwd.len], cwd);
+        offset += cwd.len;
+
+        if (cwd.len > 1) { // Not root
+            full_path[offset] = '/';
+            offset += 1;
+        }
+
+        @memcpy(full_path[offset .. offset + path.len], path);
+        offset += path.len;
+
+        path = full_path[0..offset];
+    }
+
+    // Call VFS unlink
+    return vfs.unlink(path);
+}
+
 pub fn sys_getdents64(fd: usize, dirp: usize, count: usize) isize {
     // Get the file handle
     const file_table = @import("../file/core.zig").FileTable;

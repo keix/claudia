@@ -40,3 +40,6 @@ pub const getegid = @import("syscalls/uid/uid.zig").getegid;
 
 // Directory operations
 pub const mkdirat = @import("syscalls/io/mkdir").mkdirat;
+pub const unlink = @import("syscalls/io/unlinkat").unlink;
+pub const unlinkat = @import("syscalls/io/unlinkat").unlinkat;
+pub const rmdir = @import("syscalls/io/unlinkat").rmdir;

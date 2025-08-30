@@ -1,0 +1,24 @@
+
+                            Claudia Shell Commands                             
+
+File Operations ---------------------   Directory Operations -------------------
+
+cat    Display file contents            ls      List directory contents  
+touch  Create empty files               cd      Change directory
+fstat  Show file information            pwd     Print working directory
+rm     Remove files                     mkdir   Create directories
+
+
+System Information ------------------   Shell Built-ins ------------------------
+
+date   Display date/time                echo    Print text
+id     Show user/group IDs              help    Show this help
+pid    Show process ID                  exit    Exit shell
+
+
+Development Tools -------------------   Miscellaneous --------------------------
+
+lisp   Start Lisp interpreter           seek    Test file seeking
+
+
+
