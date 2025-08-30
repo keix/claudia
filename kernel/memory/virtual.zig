@@ -84,14 +84,29 @@ pub const PageTable = struct {
     pub fn deinit(self: *Self) void {
         if (self.root_ppn == 0) return;
         
+        // Track freed pages to avoid double frees from copied entries
+        // This is necessary because buildKernelGlobalMappings() copies page table
+        // entries as a hardware workaround, creating multiple references to the same
+        // L1/L0 page tables. Without tracking, we'd try to free them multiple times.
+        var freed_pages: [256]u64 = undefined;
+        var freed_count: usize = 0;
+        
         // Walk the page table tree and free all allocated pages
-        self.freePageTableRecursive(self.root_ppn, 2);
+        self.freePageTableRecursiveWithTracking(self.root_ppn, 2, &freed_pages, &freed_count);
         self.root_ppn = 0;
     }
     
-    // Recursively free page table pages
-    fn freePageTableRecursive(self: *Self, ppn: u64, level: u32) void {
+    // Recursively free page table pages with tracking to avoid double frees
+    fn freePageTableRecursiveWithTracking(self: *Self, ppn: u64, level: u32, freed_pages: []u64, freed_count: *usize) void {
         const table_addr = ppn << PAGE_SHIFT;
+        
+        // Check if this page was already freed (due to copied entries)
+        for (0..freed_count.*) |i| {
+            if (freed_pages[i] == table_addr) {
+                return; // Already freed, skip
+            }
+        }
+        
         const table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
         
         // If not at leaf level, recursively free child tables
@@ -102,9 +117,15 @@ pub const PageTable = struct {
                     // This is a pointer to next level table
                     const child_addr = pteToAddr(pte);
                     const child_ppn = child_addr >> PAGE_SHIFT;
-                    self.freePageTableRecursive(child_ppn, level - 1);
+                    self.freePageTableRecursiveWithTracking(child_ppn, level - 1, freed_pages, freed_count);
                 }
             }
+        }
+        
+        // Track this page as freed
+        if (freed_count.* < freed_pages.len) {
+            freed_pages[freed_count.*] = table_addr;
+            freed_count.* += 1;
         }
         
         // Free this table page

@@ -32,6 +32,9 @@ var boot_stack_offset: usize = 0;
 fn allocBootStack(size: usize) []u8 {
     const aligned_size = (size + 7) & ~@as(usize, 7); // 8-byte align
     if (boot_stack_offset + aligned_size > boot_stack_memory.len) {
+        uart.puts("[ERROR] allocBootStack: Out of memory, requested ");
+        uart.putDec(size);
+        uart.puts(" bytes\n");
         return &[_]u8{}; // Out of memory
     }
 

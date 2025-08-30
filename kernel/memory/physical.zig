@@ -1,4 +1,5 @@
 const types = @import("types.zig");
+const uart = @import("../driver/uart/core.zig");
 
 // Re-export for backward compatibility
 pub const PAGE_SIZE = types.PAGE_SIZE;
@@ -66,16 +67,26 @@ pub const FrameAllocator = struct {
 
         // Validate address
         if (addr < self.base_addr or addr >= self.base_addr + (self.total_frames << PAGE_SHIFT)) {
-            return; // Invalid address
+            uart.puts("[WARN] physical.free: Invalid address 0x");
+            uart.putHex(addr);
+            uart.puts(" (out of range)\n");
+            return;
         }
         if ((addr & (PAGE_SIZE - 1)) != 0) {
-            return; // Alignment error
+            uart.puts("[WARN] physical.free: Unaligned address 0x");
+            uart.putHex(addr);
+            uart.puts("\n");
+            return;
         }
 
         const frame = self.addrToFrame(addr);
         if (self.testBit(frame)) {
             self.clearBit(frame);
             self.free_frames += 1;
+        } else {
+            uart.puts("[WARN] physical.free: Double free attempted at 0x");
+            uart.putHex(addr);
+            uart.puts("\n");
         }
     }
 

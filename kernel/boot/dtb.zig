@@ -71,7 +71,8 @@ pub fn findInitrd() ?InitrdInfo {
         return null;
     }
 
-    // Try to read first word to test access
+    // Try to read first word to test access (may page fault)
+    // TODO: Add proper exception handling for memory access
     const test_ptr = @as(*const volatile u32, @ptrFromInt(dtb_addr));
     const first_word = test_ptr.*;
 
@@ -80,6 +81,7 @@ pub fn findInitrd() ?InitrdInfo {
     uart.puts("\n");
 
     // Read FDT header
+    // WARNING: This may page fault if DTB is not mapped
     const header = @as(*const FdtHeader, @ptrFromInt(dtb_addr));
 
     // Check magic number
