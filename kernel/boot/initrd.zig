@@ -150,7 +150,7 @@ fn populateVFS(fs: *simplefs.SimpleFS) void {
                 if (createVFSPath(path_parts[0..part_count], false)) |file_node| {
                     // Load file content from SimpleFS
                     if (entry.size > 0 and entry.size <= file_node.data.len) {
-                        var buffer: [1024]u8 = undefined;
+                        var buffer: [2048]u8 = undefined;
                         const read_size = fs.readFile(name, &buffer) catch 0;
                         if (read_size > 0) {
                             @memcpy(file_node.data[0..read_size], buffer[0..read_size]);

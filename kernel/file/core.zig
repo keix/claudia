@@ -89,14 +89,19 @@ pub const File = struct {
     }
 };
 
+// Buffer size constants
+const RING_BUFFER_SIZE: usize = 256;
+const LINE_BUFFER_SIZE: usize = 256;
+const TTY_MAGIC: u32 = 0xDEADBEEF;
+
 // Line buffer for canonical mode
 const LineBuffer = struct {
-    buffer: [256]u8,
+    buffer: [LINE_BUFFER_SIZE]u8,
     len: usize,
 
     fn init() LineBuffer {
         return LineBuffer{
-            .buffer = std.mem.zeroes([256]u8),
+            .buffer = std.mem.zeroes([LINE_BUFFER_SIZE]u8),
             .len = 0,
         };
     }
@@ -127,13 +132,13 @@ const LineBuffer = struct {
 
 // TTY structure with input buffer and wait queue
 const RingBuffer = struct {
-    buffer: [256]u8,
+    buffer: [RING_BUFFER_SIZE]u8,
     head: usize,
     tail: usize,
 
     fn init() RingBuffer {
         return RingBuffer{
-            .buffer = std.mem.zeroes([256]u8),
+            .buffer = std.mem.zeroes([RING_BUFFER_SIZE]u8),
             .head = 0,
             .tail = 0,
         };
@@ -177,7 +182,7 @@ const TTY = struct {
             .canonical_mode = true, // Default to canonical mode
             .echo_enabled = true, // Default to echo enabled
             .read_wait = proc.WaitQ.init(),
-            .magic = 0xDEADBEEF,
+            .magic = TTY_MAGIC,
         };
     }
 
@@ -196,7 +201,7 @@ const TTY = struct {
         const csr = @import("../arch/riscv/csr.zig");
 
         // Validate TTY structure to detect corruption
-        if (self.magic != 0xDEADBEEF) {
+        if (self.magic != TTY_MAGIC) {
             @panic("TTY structure corrupted!");
         }
 
@@ -227,11 +232,6 @@ const TTY = struct {
 
 var console_tty = TTY.init();
 
-// Ensure console_tty is in data section and properly aligned
-comptime {
-    _ = &console_tty;
-}
-
 // UART interrupt handler to feed TTY - drain FIFO completely
 pub fn uartIsr() void {
     var chars_received = false;
@@ -259,8 +259,10 @@ pub fn uartIsr() void {
                     uart.putc(ch);
                 }
             }
+        } else {
+            // Ring buffer full - character dropped
+            // TODO: Add debug logging when available
         }
-        // If ring buffer full, drop character (could log this)
     }
 
     // Wake readers based on mode
@@ -294,7 +296,7 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 
     // Handle canonical vs raw mode
     // Validate TTY before accessing it
-    if (console_tty.magic != 0xDEADBEEF) {
+    if (console_tty.magic != TTY_MAGIC) {
         return 5; // EIO
     }
 
@@ -416,8 +418,11 @@ fn consoleClose(file: *File) void {
     // Console files don't need cleanup
 }
 
-// Standard file descriptors
+// File descriptor constants
 const MAX_FDS = 256;
+const STDIN_FD = 0;
+const STDOUT_FD = 1;
+const STDERR_FD = 2;
 var file_table: [MAX_FDS]?*File = [_]?*File{null} ** MAX_FDS;
 
 // Console file instances
@@ -457,14 +462,14 @@ pub const FileTable = struct {
 
         // Initialize standard file descriptors
         // fd 0: stdin -> console (UART input)
-        file_table[0] = &console_file;
+        file_table[STDIN_FD] = &console_file;
         console_file.addRef(); // Add reference for stdin
 
         // fd 1: stdout -> console (UART)
-        file_table[1] = &console_file;
+        file_table[STDOUT_FD] = &console_file;
 
         // fd 2: stderr -> console (UART)
-        file_table[2] = &console_file;
+        file_table[STDERR_FD] = &console_file;
         console_file.addRef(); // Add reference for stdout
         console_file.addRef(); // Add reference for stderr
 
@@ -482,7 +487,8 @@ pub const FileTable = struct {
         for (3..MAX_FDS) |i| {
             if (file_table[i] == null) {
                 file_table[i] = file;
-                file.addRef();
+                // Don't add reference here - the file already has ref_count = 1 from creation
+                // file.addRef();
                 return @as(FD, @intCast(i));
             }
         }
@@ -522,7 +528,7 @@ pub const FileTable = struct {
         }
 
         // Don't allow closing standard descriptors
-        if (fd <= 2) {
+        if (fd <= STDERR_FD) {
             return defs.EBUSY;
         }
 
@@ -683,12 +689,3 @@ pub const FileTable = struct {
 // Inode management API
 pub const allocInode = inode.alloc;
 pub const freeInode = inode.free;
-
-// Integrated file creation
-pub fn createFile(file_type: types.FileType, inode_ops: *const InodeOperations, file_ops: *const FileOperations) ?*File {
-    _ = file_ops; // TODO: Use this parameter
-    const new_inode = allocInode(file_type, inode_ops) orelse return null;
-    _ = new_inode; // TODO: Use this to create actual file
-    // This would need integration with FileTable for actual file creation
-    return null; // Placeholder - would return allocated File
-}

@@ -3,10 +3,11 @@ const types = @import("types.zig");
 const allocator = @import("allocator.zig");
 const csr = @import("../arch/riscv/csr.zig");
 const uart = @import("../driver/uart/core.zig");
+const config = @import("../config.zig");
 
 const PAGE_SIZE = types.PAGE_SIZE;
 const PAGE_SHIFT = types.PAGE_SHIFT;
-const PAGE_ENTRIES: usize = 512; // 2^9 entries per page table
+const PAGE_ENTRIES = config.PageTable.ENTRIES_PER_TABLE; // Entries per page table
 
 // Virtual address breakdown for Sv39
 const VA_VPN2_SHIFT: u6 = 30;
@@ -81,10 +82,54 @@ pub const PageTable = struct {
 
     // Deinitialize page table and free all allocated pages
     pub fn deinit(self: *Self) void {
-        // TODO: Walk the page table tree and free all L2, L1, L0 pages
-        // For now, just free the root page
-        allocator.freeFrame(self.root_ppn << PAGE_SHIFT);
+        if (self.root_ppn == 0) return;
+
+        // Track freed pages to avoid double frees from copied entries
+        // This is necessary because buildKernelGlobalMappings() copies page table
+        // entries as a hardware workaround, creating multiple references to the same
+        // L1/L0 page tables. Without tracking, we'd try to free them multiple times.
+        var freed_pages: [256]u64 = undefined;
+        var freed_count: usize = 0;
+
+        // Walk the page table tree and free all allocated pages
+        self.freePageTableRecursiveWithTracking(self.root_ppn, 2, &freed_pages, &freed_count);
         self.root_ppn = 0;
+    }
+
+    // Recursively free page table pages with tracking to avoid double frees
+    fn freePageTableRecursiveWithTracking(self: *Self, ppn: u64, level: u32, freed_pages: []u64, freed_count: *usize) void {
+        const table_addr = ppn << PAGE_SHIFT;
+
+        // Check if this page was already freed (due to copied entries)
+        for (0..freed_count.*) |i| {
+            if (freed_pages[i] == table_addr) {
+                return; // Already freed, skip
+            }
+        }
+
+        const table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
+
+        // If not at leaf level, recursively free child tables
+        if (level > 0) {
+            for (0..PAGE_ENTRIES) |i| {
+                const pte = table[i];
+                if ((pte & PTE_V) != 0 and (pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+                    // This is a pointer to next level table
+                    const child_addr = pteToAddr(pte);
+                    const child_ppn = child_addr >> PAGE_SHIFT;
+                    self.freePageTableRecursiveWithTracking(child_ppn, level - 1, freed_pages, freed_count);
+                }
+            }
+        }
+
+        // Track this page as freed
+        if (freed_count.* < freed_pages.len) {
+            freed_pages[freed_count.*] = table_addr;
+            freed_count.* += 1;
+        }
+
+        // Free this table page
+        allocator.freeFrame(table_addr);
     }
 
     // Map a virtual address to physical address
@@ -112,8 +157,8 @@ pub const PageTable = struct {
                 return error.OutOfMemory;
             };
 
-            // Defensive check: ensure we're not allocating 0x802bf000
-            if (new_page == 0x802bf000) {
+            // Defensive check: ensure we're not allocating kernel init start
+            if (new_page == config.MemoryLayout.KERNEL_INIT_START) {
                 // Don't use this page
                 allocator.freeFrame(new_page);
                 return error.OutOfMemory;
@@ -124,8 +169,8 @@ pub const PageTable = struct {
             // Clear new table
             const new_table = @as([*]volatile PageTableEntry, @ptrFromInt(new_page));
 
-            // Check if this is 0x802cf000 - it might already have data!
-            if (new_page == 0x802cf000) {
+            // Check if this is kernel init end - it might already have data!
+            if (new_page == config.MemoryLayout.KERNEL_INIT_END) {
                 var has_data = false;
                 for (0..PAGE_ENTRIES) |i| {
                     if (new_table[i] != 0) {
@@ -156,8 +201,8 @@ pub const PageTable = struct {
             // Allocate new page table
             const new_page = allocator.allocFrame() orelse return error.OutOfMemory;
 
-            // Defensive check: ensure we're not allocating 0x802bf000
-            if (new_page == 0x802bf000) {
+            // Defensive check: ensure we're not allocating kernel init start
+            if (new_page == config.MemoryLayout.KERNEL_INIT_START) {
                 // Don't use this page
                 allocator.freeFrame(new_page);
                 return error.OutOfMemory;
@@ -168,8 +213,8 @@ pub const PageTable = struct {
             // Clear new table
             const new_table = @as([*]volatile PageTableEntry, @ptrFromInt(new_page));
 
-            // Check if this is 0x802cf000 - it might already have data!
-            if (new_page == 0x802cf000) {
+            // Check if this is kernel init end - it might already have data!
+            if (new_page == config.MemoryLayout.KERNEL_INIT_END) {
                 var has_data = false;
                 for (0..PAGE_ENTRIES) |i| {
                     if (new_table[i] != 0) {
@@ -315,7 +360,7 @@ pub fn setupKernelPageTable() !void {
     // Map region after kernel for initrd - QEMU loads initrd after kernel
     // Map 16MB region after kernel to cover various initrd placements
     var initrd_scan_addr = (types.KERNEL_END + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    const initrd_scan_end = initrd_scan_addr + (16 * 1024 * 1024); // 16MB
+    const initrd_scan_end = initrd_scan_addr + config.MemoryLayout.INITRD_MAX_SCAN_SIZE;
     while (initrd_scan_addr < initrd_scan_end) : (initrd_scan_addr += PAGE_SIZE) {
         kernel_page_table.map(initrd_scan_addr, initrd_scan_addr, PTE_R | PTE_W | PTE_G) catch {
             // Ignore mapping errors - memory might not exist at this address
@@ -326,13 +371,13 @@ pub fn setupKernelPageTable() !void {
     // Map DTB region - QEMU passes DTB at various addresses
     // Common DTB locations on QEMU virt
     const dtb_candidates = [_]usize{
-        0x8fe00000, // Common on 256MB config
-        0x9fe00000, // Common on 512MB config
+        config.MemoryLayout.DTB_CANDIDATE_1, // Common on 256MB config
+        config.MemoryLayout.DTB_CANDIDATE_2, // Common on 512MB config
     };
     for (dtb_candidates) |dtb_base| {
         // Map 1MB for DTB (way more than needed, but safe)
         var dtb_addr = dtb_base;
-        const dtb_end = dtb_base + (1024 * 1024);
+        const dtb_end = dtb_base + config.MemoryLayout.DTB_MAP_SIZE;
         while (dtb_addr < dtb_end) : (dtb_addr += PAGE_SIZE) {
             kernel_page_table.map(dtb_addr, dtb_addr, PTE_R | PTE_G) catch {
                 break;
@@ -405,7 +450,7 @@ pub fn buildKernelGlobalMappings(page_table: *PageTable) !void {
     // Map region after kernel for initrd - QEMU loads initrd after kernel
     // Map 16MB region after kernel to cover various initrd placements
     var initrd_scan_addr = (types.KERNEL_END + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    const initrd_scan_end = initrd_scan_addr + (16 * 1024 * 1024); // 16MB
+    const initrd_scan_end = initrd_scan_addr + config.MemoryLayout.INITRD_MAX_SCAN_SIZE;
     while (initrd_scan_addr < initrd_scan_end) : (initrd_scan_addr += PAGE_SIZE) {
         page_table.map(initrd_scan_addr, initrd_scan_addr, PTE_R | PTE_W | PTE_G) catch {
             // Ignore mapping errors - memory might not exist at this address

@@ -34,4 +34,6 @@ pub const commands = [_]CommandEntry{
     .{ .name = "touch", .func = @import("touch.zig").main },
     .{ .name = "id", .func = @import("id.zig").main },
     .{ .name = "mkdir", .func = @import("mkdir.zig").main },
+    .{ .name = "rm", .func = @import("rm.zig").main },
+    .{ .name = "sleep", .func = @import("sleep.zig").main },
 };

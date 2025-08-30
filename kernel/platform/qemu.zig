@@ -31,25 +31,3 @@ pub fn init() void {
     // QEMU virt machine doesn't need special platform initialization
     // Hardware is already set up by QEMU
 }
-
-// Platform-specific shutdown
-pub fn shutdown() noreturn {
-    const test_device = @as(*volatile u32, @ptrFromInt(MemoryLayout.TEST_DEVICE_BASE));
-    test_device.* = MemoryLayout.TEST_SHUTDOWN_VALUE;
-
-    // If shutdown didn't work, hang
-    while (true) {
-        asm volatile ("wfi");
-    }
-}
-
-// Platform-specific reboot
-pub fn reboot() noreturn {
-    const test_device = @as(*volatile u32, @ptrFromInt(MemoryLayout.TEST_DEVICE_BASE));
-    test_device.* = MemoryLayout.TEST_REBOOT_VALUE;
-
-    // If reboot didn't work, hang
-    while (true) {
-        asm volatile ("wfi");
-    }
-}
