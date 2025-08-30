@@ -82,10 +82,33 @@ pub const PageTable = struct {
 
     // Deinitialize page table and free all allocated pages
     pub fn deinit(self: *Self) void {
-        // TODO: Walk the page table tree and free all L2, L1, L0 pages
-        // For now, just free the root page
-        allocator.freeFrame(self.root_ppn << PAGE_SHIFT);
+        if (self.root_ppn == 0) return;
+        
+        // Walk the page table tree and free all allocated pages
+        self.freePageTableRecursive(self.root_ppn, 2);
         self.root_ppn = 0;
+    }
+    
+    // Recursively free page table pages
+    fn freePageTableRecursive(self: *Self, ppn: u64, level: u32) void {
+        const table_addr = ppn << PAGE_SHIFT;
+        const table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
+        
+        // If not at leaf level, recursively free child tables
+        if (level > 0) {
+            for (0..PAGE_ENTRIES) |i| {
+                const pte = table[i];
+                if ((pte & PTE_V) != 0 and (pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+                    // This is a pointer to next level table
+                    const child_addr = pteToAddr(pte);
+                    const child_ppn = child_addr >> PAGE_SHIFT;
+                    self.freePageTableRecursive(child_ppn, level - 1);
+                }
+            }
+        }
+        
+        // Free this table page
+        allocator.freeFrame(table_addr);
     }
 
     // Map a virtual address to physical address

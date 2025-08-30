@@ -89,6 +89,7 @@ pub const Process = struct {
     is_kernel: bool, // Kernel-only process flag
     cwd: [256]u8, // Current working directory
     cwd_len: usize, // Length of current working directory
+    page_table_ppn: u64, // Physical page number of page table root (0 = kernel PT)
 
     // Simple linked list for process queue
     next: ?*Process,
@@ -106,6 +107,7 @@ pub const Process = struct {
             .is_kernel = false,
             .cwd = std.mem.zeroes([256]u8),
             .cwd_len = 1,
+            .page_table_ppn = 0, // Default to kernel page table
             .next = null,
         };
 
@@ -292,6 +294,17 @@ pub const Scheduler = struct {
                 if (proc.user_frame) |frame| {
                     freeChildTrapFrame(frame);
                 }
+            }
+            
+            // Free page table if process has its own (not kernel PT)
+            if (proc.page_table_ppn != 0) {
+                const virtual = @import("../memory/virtual.zig");
+                var page_table = virtual.PageTable{
+                    .root_ppn = proc.page_table_ppn,
+                    .debug_watchdog_active = false,
+                };
+                page_table.deinit();
+                proc.page_table_ppn = 0;
             }
 
             current_process = null;
