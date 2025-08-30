@@ -4,6 +4,7 @@ const abi = @import("abi");
 const process = @import("../process/core.zig");
 const copy = @import("../user/copy.zig");
 const csr = @import("../arch/riscv/csr.zig");
+const config = @import("../config.zig");
 
 // Simple time counter - seconds since boot
 // In a real system, this would be backed by RTC or network time
@@ -23,7 +24,7 @@ pub fn sys_time(tloc: usize) isize {
 
     // Assume 10MHz timer frequency (QEMU default)
     // Convert cycles to seconds
-    const elapsed_seconds = @divTrunc(elapsed_cycles, 10_000_000);
+    const elapsed_seconds = @divTrunc(elapsed_cycles, config.Timer.FREQUENCY_HZ);
     const current_time = boot_time + @as(i64, @intCast(elapsed_seconds));
 
     // If tloc is provided, write the time to user memory
@@ -55,9 +56,9 @@ pub fn sys_clock_gettime(clockid: usize, tp: usize) isize {
     const elapsed_cycles = current_cycles - boot_cycles;
 
     // Calculate seconds and nanoseconds
-    const elapsed_seconds = @divTrunc(elapsed_cycles, 10_000_000);
-    const remaining_cycles = @mod(elapsed_cycles, 10_000_000);
-    const nanoseconds = remaining_cycles * 100; // Convert to nanoseconds (10MHz = 100ns per cycle)
+    const elapsed_seconds = @divTrunc(elapsed_cycles, config.Timer.FREQUENCY_HZ);
+    const remaining_cycles = @mod(elapsed_cycles, config.Timer.FREQUENCY_HZ);
+    const nanoseconds = remaining_cycles * config.Timer.NANOSECONDS_PER_CYCLE; // Convert to nanoseconds
 
     const timespec = packed struct {
         tv_sec: i64,

@@ -2,6 +2,7 @@
 // Coordinates initialization of all kernel subsystems
 
 const std = @import("std");
+const config = @import("config.zig");
 
 // Architecture specific
 const csr = @import("arch/riscv/csr.zig");
@@ -25,7 +26,7 @@ const initrd = @import("boot/initrd.zig");
 // Boot-time memory allocation
 // Simple stack allocator for initial kernel processes
 // This is used before the heap is fully initialized
-var boot_stack_memory: [4096]u8 = undefined;  // Only need 4KB for init process
+var boot_stack_memory: [config.MemoryLayout.BOOT_STACK_SIZE]u8 = undefined;  // Boot stack for init process
 var boot_stack_offset: usize = 0;
 
 fn allocBootStack(size: usize) []u8 {
@@ -116,7 +117,7 @@ fn initInterrupts() void {
     csr.enableInterrupts();
 
     // Enable external interrupts in SIE
-    csr.csrs(csr.CSR.sie, 1 << 9); // SEIE bit
+    csr.csrs(csr.CSR.sie, config.Interrupt.SEIE_BIT); // External interrupt enable
 
     // Initialize PLIC for external interrupts
     plic.init();

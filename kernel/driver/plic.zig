@@ -2,6 +2,7 @@
 // Manages external interrupts for RISC-V systems
 
 const std = @import("std");
+const config = @import("../config.zig");
 
 // PLIC memory-mapped addresses for QEMU virt machine
 const PLIC_BASE: u64 = 0x0c000000;
@@ -34,7 +35,7 @@ pub fn enableInterrupt(irq: u32, priority: u8) void {
     priority_addr.* = priority;
 
     // Enable interrupt for hart 0, context 1 (supervisor mode)
-    const enable_offset = 0x80; // Hart 0, context 1
+    const enable_offset = config.Interrupt.PLIC_HART0_S_MODE_OFFSET;
     const enable_addr = @as(*volatile u32, @ptrFromInt(PLIC_ENABLE + enable_offset));
     enable_addr.* |= @as(u32, 1) << @intCast(irq);
 }
@@ -42,21 +43,21 @@ pub fn enableInterrupt(irq: u32, priority: u8) void {
 // Set priority threshold for a hart/context
 pub fn setThreshold(hart: u32, context: u32, threshold: u32) void {
     // Calculate offset: each hart has 2 contexts (M-mode=0, S-mode=1)
-    const offset = (hart * 2 + context) * 0x1000;
+    const offset = (hart * 2 + context) * config.Interrupt.PLIC_CONTEXT_STRIDE;
     const threshold_addr = @as(*volatile u32, @ptrFromInt(PLIC_THRESHOLD + offset));
     threshold_addr.* = threshold;
 }
 
 // Claim an interrupt (returns IRQ number)
 pub fn claim(hart: u32, context: u32) u32 {
-    const offset = (hart * 2 + context) * 0x1000 + 4; // +4 for claim register
+    const offset = (hart * 2 + context) * config.Interrupt.PLIC_CONTEXT_STRIDE + 4; // +4 for claim register
     const claim_addr = @as(*volatile u32, @ptrFromInt(PLIC_CLAIM + offset));
     return claim_addr.*;
 }
 
 // Complete interrupt handling
 pub fn complete(hart: u32, context: u32, irq: u32) void {
-    const offset = (hart * 2 + context) * 0x1000 + 4; // +4 for complete register
+    const offset = (hart * 2 + context) * config.Interrupt.PLIC_CONTEXT_STRIDE + 4; // +4 for complete register
     const complete_addr = @as(*volatile u32, @ptrFromInt(PLIC_CLAIM + offset));
     complete_addr.* = irq;
 }

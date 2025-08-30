@@ -74,12 +74,3 @@ pub fn kdestroy(ptr: anytype) void {
     // TODO: Implement when we have proper free
 }
 
-// Get heap statistics
-pub fn getHeapStats() struct { used: usize, total: usize } {
-    if (!initialized) return .{ .used = 0, .total = 0 };
-
-    return .{
-        .used = heap_current - heap_start,
-        .total = heap_end - heap_start,
-    };
-}

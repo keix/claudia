@@ -249,24 +249,6 @@ pub inline fn ebreak() void {
     asm volatile ("ebreak");
 }
 
-// Make SBI (Supervisor Binary Interface) call
-pub fn sbiCall(eid: u64, fid: u64, arg0: u64, arg1: u64, arg2: u64) u64 {
-    return asm volatile (
-        \\ecall
-        : [ret] "={x10}" (-> u64),
-        : [eid] "{x17}" (eid),
-          [fid] "{x16}" (fid),
-          [a0] "{x10}" (arg0),
-          [a1] "{x11}" (arg1),
-          [a2] "{x12}" (arg2),
-        : "memory"
-    );
-}
-
-// SBI console putchar
-pub fn sbiConsolePutchar(c: u8) void {
-    _ = sbiCall(0x01, 0, c, 0, 0);
-}
 
 // Read general purpose registers
 pub inline fn readSp() u64 {

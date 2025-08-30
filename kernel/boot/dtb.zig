@@ -2,6 +2,7 @@
 // Minimal implementation to extract initrd location
 const std = @import("std");
 const uart = @import("../driver/uart/core.zig");
+const config = @import("../config.zig");
 
 // Boot parameters from assembly
 extern var boot_dtb_ptr: usize;
@@ -65,7 +66,7 @@ pub fn findInitrd() ?InitrdInfo {
     uart.puts("\n");
 
     // Validate DTB address is in mapped range
-    if (dtb_addr < 0x80000000 or dtb_addr > 0xa0000000) {
+    if (dtb_addr < config.MemoryLayout.DTB_MIN_ADDR or dtb_addr > config.MemoryLayout.DTB_MAX_ADDR) {
         uart.puts("DTB address out of range\n");
         return null;
     }

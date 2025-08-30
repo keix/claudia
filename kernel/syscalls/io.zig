@@ -7,7 +7,7 @@ const file = @import("../file/core.zig");
 pub fn sys_lseek(fd: usize, offset: usize, whence: usize) isize {
     // Convert whence to u32, validate it
     const whence_u32 = @as(u32, @intCast(whence));
-    if (whence_u32 > 2) return defs.EINVAL; // SEEK_SET=0, SEEK_CUR=1, SEEK_END=2
+    if (whence_u32 > defs.consts.FileSystem.SEEK_MAX) return defs.EINVAL;
 
     // Cast offset to signed for proper seeking
     const offset_i64 = @as(i64, @bitCast(offset));
