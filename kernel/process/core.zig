@@ -7,6 +7,7 @@ const uart = @import("../driver/uart/core.zig");
 const trap = @import("../trap/core.zig");
 const user = @import("../user/core.zig");
 const defs = @import("abi");
+const timer = @import("../time/timer.zig");
 
 // Process ID type
 pub const PID = u32;
@@ -279,6 +280,44 @@ pub const Scheduler = struct {
         return null;
     }
 
+    // Schedule next process without making current runnable (for sleeping)
+    pub fn scheduleNext() void {
+        const proc = current_process orelse return;
+
+        // Find next runnable process
+        if (dequeueRunnable()) |next| {
+            next.state = .RUNNING;
+            current_process = next;
+
+            // Context switch to next process
+            context_switch(&proc.context, &next.context);
+            // When we return here, this process has been rescheduled
+        } else {
+            // No runnable process - wait in a loop checking timers
+            // Keep checking until this process or another becomes runnable
+            while (proc.state == .SLEEPING and ready_queue_head == null) {
+                csr.enableInterrupts();
+
+                // Check timer periodically
+                timer.tick();
+
+                // Brief wait
+                csr.wfi();
+            }
+
+            // Either this process was woken or another became runnable
+            if (proc.state != .SLEEPING) {
+                // This process was woken up, return to it
+                return;
+            }
+
+            // Another process became runnable, schedule it
+            if (ready_queue_head != null) {
+                _ = schedule();
+            }
+        }
+    }
+
     // Exit current process
     pub fn exit(exit_code: i32) void {
         if (current_process) |proc| {
@@ -295,7 +334,7 @@ pub const Scheduler = struct {
                     freeChildTrapFrame(frame);
                 }
             }
-            
+
             // Free page table if process has its own (not kernel PT)
             if (proc.page_table_ppn != 0) {
                 const virtual = @import("../memory/virtual.zig");
@@ -352,9 +391,18 @@ pub const Scheduler = struct {
         // For now, just wait with interrupts enabled
         // Don't switch page tables - stay with current process's page table
         while (proc.state == .SLEEPING) {
-
             // Enable interrupts
             csr.enableInterrupts();
+
+            // Check timers periodically
+            timer.tick();
+
+            // Check if any process became runnable
+            if (ready_queue_head != null) {
+                // Resume normal scheduling
+                _ = schedule();
+                return;
+            }
 
             // Wait for interrupt
             csr.wfi();
@@ -391,6 +439,19 @@ pub const Scheduler = struct {
         // No processes to run - just idle
         while (true) {
             csr.enableInterrupts();
+
+            // Check timer periodically
+            timer.tick();
+
+            // Check if any process became runnable
+            if (ready_queue_head != null) {
+                if (dequeueRunnable()) |proc| {
+                    proc.state = .RUNNING;
+                    current_process = proc;
+                    processEntryPointWithProc(proc);
+                }
+            }
+
             csr.wfi();
         }
     }

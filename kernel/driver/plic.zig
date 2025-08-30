@@ -7,7 +7,7 @@ const uart = @import("uart/core.zig");
 
 // PLIC limits
 const MAX_IRQS: u32 = 1024; // Typical PLIC supports up to 1024 interrupts
-const MAX_HARTS: u32 = 8;   // Maximum number of HARTs
+const MAX_HARTS: u32 = 8; // Maximum number of HARTs
 const MAX_CONTEXTS: u32 = 2; // M-mode and S-mode
 
 // PLIC memory-mapped addresses for QEMU virt machine
@@ -43,7 +43,7 @@ pub fn enableInterrupt(irq: u32, priority: u8) void {
         uart.puts("\n");
         return;
     }
-    
+
     // Set interrupt priority (non-zero enables it)
     const priority_addr = @as(*volatile u32, @ptrFromInt(PLIC_PRIORITY + irq * 4));
     priority_addr.* = priority;
@@ -69,7 +69,7 @@ pub fn setThreshold(hart: u32, context: u32, threshold: u32) void {
         uart.puts("\n");
         return;
     }
-    
+
     // Calculate offset: each hart has 2 contexts (M-mode=0, S-mode=1)
     const offset = (hart * 2 + context) * config.Interrupt.PLIC_CONTEXT_STRIDE;
     const threshold_addr = @as(*volatile u32, @ptrFromInt(PLIC_THRESHOLD + offset));
@@ -83,7 +83,7 @@ pub fn claim(hart: u32, context: u32) u32 {
         uart.puts("[ERROR] PLIC.claim: Invalid hart/context\n");
         return 0; // No interrupt
     }
-    
+
     const offset = (hart * 2 + context) * config.Interrupt.PLIC_CONTEXT_STRIDE + 4; // +4 for claim register
     const claim_addr = @as(*volatile u32, @ptrFromInt(PLIC_CLAIM + offset));
     return claim_addr.*;

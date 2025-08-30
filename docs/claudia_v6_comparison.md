@@ -47,10 +47,10 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 | Category | UNIX V6 | Claudia | Implementation Rate |
 |----------|---------|---------|-------------------|
-| **Total System Calls** | ~48 | 21 implemented | 43.8% |
+| **Total System Calls** | ~48 | 25 implemented | 52.1% |
 | **Process Control** | 12 | 8 implemented | 66.7% |
-| **File Management** | 15 | 7 implemented | 46.7% |
-| **Directory Operations** | 2 | 3 implemented | 150% |
+| **File Management** | 15 | 8 implemented | 53.3% |
+| **Directory Operations** | 2 | 4 implemented | 200% |
 | **Device Operations** | 6 | 0 implemented | 0% |
 | **Time Operations** | 3 | 3 implemented | 100% |
 | **Other System Operations** | 10 | 2 implemented | 20% |
@@ -75,7 +75,7 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | **clone** | - | 220 | Implemented | Simplified to fork() |
 | **sched_yield** | - | 124 | Implemented | Modern addition |
 
-#### File Management (7/15 implemented)
+#### File Management (8/15 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
 | **openat** | - | 56 | Implemented | Modern open with directory support |
@@ -84,7 +84,7 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | **write** | 4 | 64 | Implemented | Files and devices |
 | creat | 8 | - | - | Use open with flags |
 | link | 9 | - | - | |
-| unlink | 10 | 35 (unlinkat) | - | |
+| **unlink** | 10 | 35 (unlinkat) | Implemented | Modern unlinkat with AT_FDCWD |
 | **lseek** | 19 | 62 | Implemented | Modern lseek with SEEK_SET/CUR/END |
 | **fstat** | 28 | 80 | Implemented | File status by file descriptor |
 | stat | 18 | 79 (fstatat) | - | |
@@ -94,7 +94,7 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | pipe | 42 | - | - | |
 | access | - | - | - | Not in V6 |
 
-#### Directory Operations (3/2 implemented - 150%)
+#### Directory Operations (4/2 implemented - 200%)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
 | **chdir** | 12 | 49 | Implemented | Changes current working directory |
@@ -102,6 +102,7 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | **getdents64** | - | 61 | Implemented | Modern Linux-style directory reading |
 | **getcwd** | - | 17 | Implemented | Modern addition - not in V6 |
 | **mkdirat** | - | 34 | Implemented | Modern addition with AT_FDCWD support |
+| **unlinkat** | - | 35 | Implemented | Modern addition for file/directory removal |
 
 #### Device Operations (0/6 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
@@ -150,7 +151,7 @@ Based on current needs for shell and Lisp interpreter:
    
 3. **Medium Priority**
    - `signal/kill` - Process control
-   - `link/unlink` - File management
+   - `link` - Hard links (unlink done)
    - `chmod/chown` - Permissions
 
 ## File System
@@ -216,7 +217,7 @@ Based on current needs for shell and Lisp interpreter:
 | Category | UNIX V6 | Claudia |
 |----------|---------|---------|
 | **Shell** | Bourne shell (sh) | Minimal shell |
-| **Core Utils** | ls, cat, ed, etc. | ls, cat, echo, help, exit, pwd, cd, mkdir, touch, date, id |
+| **Core Utils** | ls, cat, ed, etc. | ls, cat, echo, help, exit, pwd, cd, mkdir, rm, touch, date, id, sleep |
 | **Lisp Interpreter** | None | Minimal Lisp with strings |
 | **Compiler** | cc (C compiler) | Cross-compiled only |
 | **Assembler** | as | Zig handles assembly |
@@ -270,12 +271,14 @@ Claudia has achieved:
 - Basic kernel with memory management
 - Process creation and scheduling
 - Simple filesystem with initrd
-- Basic shell and utilities (ls, cat, echo, pwd, cd, mkdir, touch, date, id)
+- Basic shell and utilities (ls, cat, echo, pwd, cd, mkdir, rm, touch, date, id, sleep)
 - Directory operations (Linux-style openat + getdents64)
+- File removal (unlinkat system call)
 - Device abstraction layer
 - Interrupt handling
 - Educational Lisp interpreter with functions
 - Time support with hardware timer (CSR readTime)
+- Sleep functionality with nanosleep system call
 
 ## Future Plans
 

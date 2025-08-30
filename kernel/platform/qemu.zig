@@ -31,4 +31,3 @@ pub fn init() void {
     // QEMU virt machine doesn't need special platform initialization
     // Hardware is already set up by QEMU
 }
-

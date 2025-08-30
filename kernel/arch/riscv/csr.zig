@@ -249,7 +249,6 @@ pub inline fn ebreak() void {
     asm volatile ("ebreak");
 }
 
-
 // Read general purpose registers
 pub inline fn readSp() u64 {
     return asm volatile ("mv %[ret], sp"

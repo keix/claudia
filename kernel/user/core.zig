@@ -166,7 +166,7 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
     if (proc.Scheduler.getCurrentProcess()) |current| {
         const old_satp = current.context.satp;
         current.context.satp = satp_value;
-        
+
         // Free old page table if process had one (exec replaces address space)
         if (current.page_table_ppn != 0) {
             var old_page_table = virtual.PageTable{
@@ -175,7 +175,7 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
             };
             old_page_table.deinit();
         }
-        
+
         // Store the new page table PPN for cleanup on exit
         current.page_table_ppn = user_ppn;
 

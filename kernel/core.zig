@@ -19,6 +19,7 @@ const vfs = @import("fs/vfs.zig");
 const uart = @import("driver/uart/core.zig");
 const plic = @import("driver/plic.zig");
 const ramdisk = @import("driver/ramdisk.zig");
+const timer = @import("time/timer.zig");
 
 // Boot
 const initrd = @import("boot/initrd.zig");
@@ -26,7 +27,7 @@ const initrd = @import("boot/initrd.zig");
 // Boot-time memory allocation
 // Simple stack allocator for initial kernel processes
 // This is used before the heap is fully initialized
-var boot_stack_memory: [config.MemoryLayout.BOOT_STACK_SIZE]u8 = undefined;  // Boot stack for init process
+var boot_stack_memory: [config.MemoryLayout.BOOT_STACK_SIZE]u8 = undefined; // Boot stack for init process
 var boot_stack_offset: usize = 0;
 
 fn allocBootStack(size: usize) []u8 {
@@ -108,6 +109,9 @@ fn initCoreSubsystems() void {
     // Initialize interrupt system
     initInterrupts();
 
+    // Initialize timer system
+    timer.init();
+
     // Initialize user subsystem
     user.init();
 
@@ -119,8 +123,9 @@ fn initInterrupts() void {
     // Enable supervisor external interrupts for UART
     csr.enableInterrupts();
 
-    // Enable external interrupts in SIE
+    // Enable external and timer interrupts in SIE
     csr.csrs(csr.CSR.sie, config.Interrupt.SEIE_BIT); // External interrupt enable
+    csr.csrs(csr.CSR.sie, config.Interrupt.STIE_BIT); // Timer interrupt enable
 
     // Initialize PLIC for external interrupts
     plic.init();

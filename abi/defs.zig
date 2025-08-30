@@ -54,3 +54,4 @@ pub const ENAMETOOLONG: isize = -36; // File name too long
 pub const ESPIPE: isize = -29; // Illegal seek
 pub const ERANGE: isize = -34; // Result too large
 pub const EEXIST: isize = -17; // File exists
+pub const EINTR: isize = -4; // Interrupted system call

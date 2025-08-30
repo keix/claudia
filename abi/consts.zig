@@ -10,10 +10,10 @@ pub const FileSystem = struct {
     pub const SEEK_CUR: u32 = 1;
     pub const SEEK_END: u32 = 2;
     pub const SEEK_MAX: u32 = 2;
-    
+
     // Maximum path length
     pub const PATH_MAX: usize = 256;
-    
+
     // Maximum filename length
     pub const NAME_MAX: usize = 255;
 };
@@ -22,7 +22,7 @@ pub const FileSystem = struct {
 pub const Time = struct {
     // Nanoseconds per second
     pub const NSEC_PER_SEC: u64 = 1_000_000_000;
-    
+
     // Clock types (for clock_gettime)
     pub const CLOCK_REALTIME: u32 = 0;
     pub const CLOCK_MONOTONIC: u32 = 1;
@@ -34,7 +34,7 @@ pub const Process = struct {
     pub const STDIN_FD: i32 = 0;
     pub const STDOUT_FD: i32 = 1;
     pub const STDERR_FD: i32 = 2;
-    
+
     // Maximum number of file descriptors per process
     pub const MAX_FDS: usize = 256;
 };
@@ -43,7 +43,7 @@ pub const Process = struct {
 pub const Memory = struct {
     // Page size (must match hardware)
     pub const PAGE_SIZE: usize = 4096;
-    
+
     // Stack size for user processes
     pub const USER_STACK_SIZE: usize = 4096; // 1 page
 };

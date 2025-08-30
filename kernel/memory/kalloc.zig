@@ -73,4 +73,3 @@ pub fn kdestroy(ptr: anytype) void {
     _ = ptr;
     // TODO: Implement when we have proper free
 }
-
