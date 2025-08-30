@@ -25,7 +25,7 @@ const initrd = @import("boot/initrd.zig");
 // Boot-time memory allocation
 // Simple stack allocator for initial kernel processes
 // This is used before the heap is fully initialized
-var boot_stack_memory: [4096 * 4]u8 = undefined;
+var boot_stack_memory: [4096]u8 = undefined;  // Only need 4KB for init process
 var boot_stack_offset: usize = 0;
 
 fn allocBootStack(size: usize) []u8 {
@@ -147,20 +147,12 @@ fn createInitProcess() void {
 
     // Create the init process
     if (proc.Scheduler.allocProcess("init", kernel_stack)) |init_proc| {
-        // Set up process to run user mode shell
-        setupUserProcess(init_proc);
-
         // Make the process runnable
+        // User mode setup happens when the process runs
         proc.Scheduler.makeRunnable(init_proc);
     } else {
         halt("Failed to create init process");
     }
-}
-
-fn setupUserProcess(process: *proc.Process) void {
-    // Mark process for user mode execution
-    // The actual user mode setup happens when the process runs
-    _ = process;
 }
 
 // Idle process support

@@ -23,7 +23,9 @@ pub const MemFile = struct {
         if (inode) |i| {
             i.size = vnode.data_size;
             i.mode = 0o644; // Default file permissions
-            i.inum = @as(u32, @truncate(@intFromPtr(vnode))); // Use lower 32 bits of vnode address as pseudo inode number
+            // Generate a pseudo inode number based on file position in VFS
+            // TODO: Implement proper inode number generation to avoid collisions
+            i.inum = @as(u32, @truncate(@intFromPtr(vnode)));
             mf.file.inode = i;
         }
 
@@ -47,11 +49,9 @@ pub const MemFile = struct {
 };
 
 // Dummy inode operations for memory files
-// TODO: This is a temporary implementation. Currently VNode handles actual file
-// operations, while Inode exists only for metadata access (e.g., fstat).
-// When migrating to a UNIX filesystem, we'll unify VNode and Inode and implement
-// these operations properly. This will be addressed along with memory management
-// improvements for real hardware support.
+// VNode currently handles actual file operations, while Inode exists only
+// for metadata access (e.g., fstat). These dummy operations ensure the interface
+// is satisfied but delegate actual I/O to VNode through MemFile operations.
 const DummyInodeOps = @import("core.zig").InodeOperations{
     .read = dummyRead,
     .write = dummyWrite,
@@ -160,9 +160,12 @@ fn memLseek(file: *File, offset: i64, whence: u32) isize {
     return mem_file.lseek(offset, whence);
 }
 
+// Memory file pool constants
+const MAX_MEMFILES = 32;
+
 // Pool of memory files (simple static allocation for now)
-var mem_file_pool: [32]MemFile = undefined;
-var mem_file_used: [32]bool = [_]bool{false} ** 32;
+var mem_file_pool: [MAX_MEMFILES]MemFile = undefined;
+var mem_file_used: [MAX_MEMFILES]bool = [_]bool{false} ** MAX_MEMFILES;
 
 pub fn allocMemFile(vnode: *vfs.VNode) ?*MemFile {
     for (&mem_file_pool, 0..) |*mf, i| {

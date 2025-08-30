@@ -21,7 +21,7 @@ pub const Inode = struct {
     ctime: i64, // Change time
 
     // Data blocks (simple direct blocks for now)
-    direct: [12]u32, // Direct block pointers
+    direct: [DIRECT_BLOCKS]u32, // Direct block pointers
     indirect: u32, // Single indirect
     double_indirect: u32, // Double indirect
 
@@ -41,7 +41,7 @@ pub const Inode = struct {
             .atime = 0,
             .mtime = 0,
             .ctime = 0,
-            .direct = [_]u32{0} ** 12,
+            .direct = [_]u32{0} ** DIRECT_BLOCKS,
             .indirect = 0,
             .double_indirect = 0,
             .ops = ops,
@@ -71,15 +71,19 @@ pub const InodeOperations = struct {
     lookup: ?*const fn (*Inode, []const u8) ?*Inode, // For directories
 };
 
+// Inode table constants
+const MAX_INODES = 64;
+const DIRECT_BLOCKS = 12;
+
 // Simple inode table (in-memory for now)
 const InodeTable = struct {
-    inodes: [64]?*Inode, // Pointer array for stable references
-    free_list: [64]bool, // Free slot management
+    inodes: [MAX_INODES]?*Inode, // Pointer array for stable references
+    free_list: [MAX_INODES]bool, // Free slot management
     next_inum: u32,
 
     var instance: InodeTable = .{
-        .inodes = [_]?*Inode{null} ** 64,
-        .free_list = [_]bool{true} ** 64,
+        .inodes = [_]?*Inode{null} ** MAX_INODES,
+        .free_list = [_]bool{true} ** MAX_INODES,
         .next_inum = 1,
     };
 
@@ -119,19 +123,6 @@ const InodeTable = struct {
     // Public free should only decrement ref_count
     pub fn free(inode: *Inode) void {
         inode.unref();
-    }
-
-    // Get inode by inode number
-    pub fn get(inum: u32) ?*Inode {
-        for (instance.inodes) |inode_ptr| {
-            if (inode_ptr) |inode| {
-                if (inode.inum == inum) {
-                    inode.ref(); // Increment ref_count when returning
-                    return inode;
-                }
-            }
-        }
-        return null;
     }
 };
 

@@ -14,12 +14,6 @@ pub const PID = u32;
 // External assembly function for context switching
 extern fn context_switch(old_context: *Context, new_context: *Context) void;
 
-// Return point for scheduler when no previous context exists
-fn schedulerReturn() noreturn {
-    // This should never be called - it's just a dummy return address
-    @panic("schedulerReturn called - this should never happen");
-}
-
 // Process states
 pub const ProcessState = enum {
     UNUSED, // Slot not in use
@@ -147,16 +141,6 @@ pub var current_process: ?*Process = null;
 var ready_queue_head: ?*Process = null;
 var ready_queue_tail: ?*Process = null;
 
-// Debug counters for infinite loop detection
-var idle_count: u32 = 0;
-var loop_count: u32 = 0;
-
-// Global state for cooperative scheduling
-var in_idle_mode: bool = false;
-
-// Debug: exec sequence counter for tracking double exec calls
-var exec_sequence: u32 = 0;
-
 // Simple stack allocator for child processes
 var child_stack_pool: [8][4096]u8 = undefined;
 var child_stack_used: [8]bool = [_]bool{false} ** 8;
@@ -193,6 +177,9 @@ pub const Scheduler = struct {
 
                 // Re-initialize context with correct process pointer
                 initProcessContext(proc);
+
+                // Process is now ready to be made runnable
+                proc.state = .EMBRYO;
 
                 return proc;
             }
@@ -295,6 +282,18 @@ pub const Scheduler = struct {
         if (current_process) |proc| {
             proc.state = .ZOMBIE;
             proc.exit_code = exit_code;
+
+            // Free resources if this is a forked child
+            if (proc.parent != null) {
+                // Free child's stack
+                freeChildStack(proc.stack);
+
+                // Free child's trap frame
+                if (proc.user_frame) |frame| {
+                    freeChildTrapFrame(frame);
+                }
+            }
+
             current_process = null;
             _ = schedule(); // Find next process to run
             unreachable; // Normally never returns here
@@ -399,66 +398,15 @@ pub const Scheduler = struct {
         }
     }
 
-    // Allocate a process slot from the process table
-    fn allocateProcess() ?*Process {
+    // Clean up zombie processes (should be called periodically)
+    pub fn reapZombies() void {
         for (&process_table) |*proc| {
-            if (proc.state == .UNUSED) {
-                return proc;
+            if (proc.state == .ZOMBIE) {
+                // Mark as unused so it can be reused
+                proc.state = .UNUSED;
+                proc.pid = 0;
             }
         }
-        return null;
-    }
-
-    // Create a kernel-only process (no user mappings)
-    pub fn createKernelProcess() ?*Process {
-        const proc = allocateProcess() orelse return null;
-
-        // Set up as kernel process
-        proc.pid = next_pid;
-        next_pid += 1;
-        proc.state = .EMBRYO;
-        proc.is_kernel = true;
-
-        // Initialize context for kernel thread
-        // Get current SATP (kernel page table)
-        const kernel_satp = csr.csrr(csr.CSR.satp);
-
-        proc.context = Context{
-            .ra = 0, // Will be set by caller
-            .sp = 0, // No stack needed initially
-            .gp = 0,
-            .tp = 0,
-            .t0 = 0,
-            .t1 = 0,
-            .t2 = 0,
-            .s0 = 0,
-            .s1 = 0,
-            .a0 = 0,
-            .a1 = 0,
-            .a2 = 0,
-            .a3 = 0,
-            .a4 = 0,
-            .a5 = 0,
-            .a6 = 0,
-            .a7 = 0,
-            .s2 = 0,
-            .s3 = 0,
-            .s4 = 0,
-            .s5 = 0,
-            .s6 = 0,
-            .s7 = 0,
-            .s8 = 0,
-            .s9 = 0,
-            .s10 = 0,
-            .s11 = 0,
-            .t3 = 0,
-            .t4 = 0,
-            .t5 = 0,
-            .t6 = 0,
-            .satp = kernel_satp, // Use kernel page table
-        };
-
-        return proc;
     }
 
     // Fork current process (simplified implementation)
@@ -716,8 +664,6 @@ fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
 
 // Execute shell program (replace process image with shell) - noreturn on success
 fn execShell(_: *Process) noreturn {
-    exec_sequence += 1;
-
     // Get the shell program code
     const _user_shell_start = @extern([*]const u8, .{ .name = "_user_shell_start" });
     const _user_shell_end = @extern([*]const u8, .{ .name = "_user_shell_end" });

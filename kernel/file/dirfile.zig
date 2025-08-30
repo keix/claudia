@@ -20,17 +20,23 @@ const DirOperations = FileOperations{
     .close = dirClose,
 };
 
+// Directory constants
+const MAX_FILENAME_LEN = 256;
+const MAX_DIRFILES = 16;
+
 // Directory entry structure for getdents64
 pub const DirEntry = extern struct {
     d_ino: u64, // Inode number
     d_off: i64, // Offset to next dirent
     d_reclen: u16, // Length of this record
     d_type: u8, // File type
-    d_name: [256]u8, // Filename (null-terminated)
+    d_name: [MAX_FILENAME_LEN]u8, // Filename (null-terminated)
 };
 
 fn dirRead(file: *File, buffer: []u8) isize {
-    const dir_file: *DirFile = @fieldParentPtr("file", file);
+    // Get DirFile from File pointer using offset calculation
+    const dir_file_ptr = @intFromPtr(file) - @offsetOf(DirFile, "file");
+    const dir_file = @as(*DirFile, @ptrFromInt(dir_file_ptr));
 
     // Verify it's a directory
     if (dir_file.vnode.node_type != .DIRECTORY) {
@@ -49,7 +55,7 @@ fn dirRead(file: *File, buffer: []u8) isize {
         entry.d_name[0] = '.';
         entry.d_name[1] = 0;
         const name_len: usize = 1;
-        entry.d_reclen = @intCast(@sizeOf(DirEntry) - 256 + name_len + 1);
+        entry.d_reclen = @intCast(@sizeOf(DirEntry) - MAX_FILENAME_LEN + name_len + 1);
         entry.d_off = @intCast(offset + entry.d_reclen);
 
         const entry_size = entry.d_reclen;
@@ -74,7 +80,7 @@ fn dirRead(file: *File, buffer: []u8) isize {
         entry.d_name[1] = '.';
         entry.d_name[2] = 0;
         const name_len: usize = 2;
-        entry.d_reclen = @intCast(@sizeOf(DirEntry) - 256 + name_len + 1);
+        entry.d_reclen = @intCast(@sizeOf(DirEntry) - MAX_FILENAME_LEN + name_len + 1);
         entry.d_off = @intCast(offset + entry.d_reclen);
 
         const entry_size = entry.d_reclen;
@@ -117,7 +123,7 @@ fn dirRead(file: *File, buffer: []u8) isize {
         entry.d_name[name.len] = 0;
 
         const name_len = name.len;
-        entry.d_reclen = @intCast(@sizeOf(DirEntry) - 256 + name_len + 1);
+        entry.d_reclen = @intCast(@sizeOf(DirEntry) - MAX_FILENAME_LEN + name_len + 1);
         entry.d_off = @intCast(offset + entry.d_reclen);
 
         const entry_size = entry.d_reclen;
@@ -145,14 +151,16 @@ fn dirWrite(file: *File, data: []const u8) isize {
 }
 
 fn dirClose(file: *File) void {
-    const dir_file: *DirFile = @fieldParentPtr("file", file);
+    // Get DirFile from File pointer using offset calculation
+    const dir_file_ptr = @intFromPtr(file) - @offsetOf(DirFile, "file");
+    const dir_file = @as(*DirFile, @ptrFromInt(dir_file_ptr));
     // Free the directory file structure
     freeDirFile(dir_file);
 }
 
 // Directory file pool (simple static allocation)
-var dirfile_pool: [16]DirFile = undefined;
-var dirfile_used: [16]bool = [_]bool{false} ** 16;
+var dirfile_pool: [MAX_DIRFILES]DirFile = undefined;
+var dirfile_used: [MAX_DIRFILES]bool = [_]bool{false} ** MAX_DIRFILES;
 
 pub fn allocDirFile(vnode: *vfs.VNode) ?*DirFile {
     for (&dirfile_pool, &dirfile_used, 0..) |*df, *used, i| {
