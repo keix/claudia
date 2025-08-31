@@ -6,6 +6,7 @@ const uart = @import("../driver/uart/core.zig");
 const defs = @import("abi");
 const proc = @import("../process/core.zig");
 const vfs = @import("../fs/vfs.zig");
+const config = @import("../config.zig");
 
 // Import submodules
 pub const types = @import("types.zig");
@@ -89,10 +90,10 @@ pub const File = struct {
     }
 };
 
-// Buffer size constants
-const RING_BUFFER_SIZE: usize = 256;
-const LINE_BUFFER_SIZE: usize = 256;
-const TTY_MAGIC: u32 = 0xDEADBEEF;
+// Buffer size constants from config
+const RING_BUFFER_SIZE: usize = config.Console.RING_BUFFER_SIZE;
+const LINE_BUFFER_SIZE: usize = config.Console.LINE_BUFFER_SIZE;
+const TTY_MAGIC: u32 = config.Console.TTY_MAGIC;
 
 // Line buffer for canonical mode
 const LineBuffer = struct {
@@ -189,15 +190,12 @@ const TTY = struct {
     fn getCharAtomic(self: *TTY) ?u8 {
         const csr = @import("../arch/riscv/csr.zig");
 
-        // Validate TTY structure to detect corruption
         if (self.magic != TTY_MAGIC) {
             @panic("TTY structure corrupted!");
         }
 
-        // Save current interrupt state and disable interrupts
         const saved_sstatus = csr.csrrc(csr.CSR.sstatus, csr.SSTATUS.SIE);
         defer {
-            // Restore interrupts if they were previously enabled
             if ((saved_sstatus & csr.SSTATUS.SIE) != 0) {
                 csr.enableInterrupts();
             }
@@ -207,10 +205,8 @@ const TTY = struct {
 
     fn putCharAtomic(self: *TTY, ch: u8) bool {
         const csr = @import("../arch/riscv/csr.zig");
-        // Save current interrupt state and disable interrupts
         const saved_sstatus = csr.csrrc(csr.CSR.sstatus, csr.SSTATUS.SIE);
         defer {
-            // Restore interrupts if they were previously enabled
             if ((saved_sstatus & csr.SSTATUS.SIE) != 0) {
                 csr.enableInterrupts();
             }
@@ -221,15 +217,12 @@ const TTY = struct {
 
 var console_tty = TTY.init();
 
-// UART interrupt handler to feed TTY - drain FIFO completely
 pub fn uartIsr() void {
     var chars_received = false;
     var char_count: u32 = 0;
     var has_newline = false;
 
-    // Drain RX FIFO completely - critical for preventing lost chars
-    while (uart.getc()) |ch| {
-        // Feed directly to TTY ring buffer with atomic access
+    while (uart.getc()) |ch| { // Drain RX FIFO completely
         if (console_tty.putCharAtomic(ch)) {
             chars_received = true;
             char_count += 1;
@@ -237,8 +230,7 @@ pub fn uartIsr() void {
                 has_newline = true;
             }
 
-            // Echo immediately if echo is enabled and in canonical mode
-            if (console_tty.echo_enabled and console_tty.canonical_mode) {
+            if (console_tty.echo_enabled and console_tty.canonical_mode) { // Echo immediately
                 if (ch == '\n' or ch == '\r') {
                     uart.putc('\n');
                 } else if (ch == 0x08 or ch == 0x7F) { // Backspace or DEL
@@ -250,20 +242,12 @@ pub fn uartIsr() void {
             }
         } else {
             // Ring buffer full - character dropped
-            // TODO: Add debug logging when available
         }
     }
 
-    // Wake readers based on mode
     if (chars_received) {
-        if (!console_tty.canonical_mode) {
-            // Raw mode: wake on any character
-            proc.Scheduler.wakeAll(&console_tty.read_wait);
-        } else {
-            // Canonical mode: wake on every character to process echo/backspace
-            // This ensures immediate response for line editing
-            proc.Scheduler.wakeAll(&console_tty.read_wait);
-        }
+        // Wake readers in both modes (canonical needs immediate response for line editing)
+        proc.Scheduler.wakeAll(&console_tty.read_wait);
     }
 }
 

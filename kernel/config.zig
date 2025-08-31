@@ -22,6 +22,15 @@ pub const MemoryLayout = struct {
     pub const DTB_CANDIDATE_2: u64 = 0x9fe00000;
     pub const DTB_MIN_ADDR: u64 = 0x80000000;
     pub const DTB_MAX_ADDR: u64 = 0xa0000000;
+
+    // Memory boundaries
+    pub const USER_KERNEL_BOUNDARY: u64 = 0x80000000;
+    pub const KERNEL_END_BOUNDARY: u64 = 0x90000000;
+
+    // Page table debug markers
+    pub const PAGE_TABLE_DEBUG_MARKER: u64 = 0xDEADBEEF00000000;
+    pub const PAGE_TABLE_DEBUG_WATCHDOG_1: u64 = 0x802bf;
+    pub const PAGE_TABLE_DEBUG_WATCHDOG_2: u64 = 0x802cf;
 };
 
 // Hardware timer configuration
@@ -41,6 +50,9 @@ pub const PageTable = struct {
 
     // Maximum number of page tables to allocate
     pub const MAX_PAGE_TABLES: usize = 256;
+
+    // TLB retry configuration
+    pub const MAX_TLB_RETRY_ATTEMPTS: u32 = 3;
 };
 
 // Interrupt configuration
@@ -87,16 +99,22 @@ pub const Console = struct {
 pub const Process = struct {
     // Maximum number of processes
     pub const MAX_PROCESSES: usize = 64;
-    
+
     // Child process resource pools
     pub const CHILD_POOL_SIZE: usize = 8;
     pub const CHILD_STACK_SIZE: usize = 4096;
-    
+
     // Process name length
     pub const NAME_LENGTH: usize = 16;
-    
+
     // Current working directory length
     pub const CWD_LENGTH: usize = 256;
+
+    // Shell size limit
+    pub const MAX_SHELL_SIZE: usize = 2 * 1024 * 1024; // 2MB
+
+    // Stack alignment requirement (RISC-V ABI)
+    pub const STACK_ALIGNMENT: usize = 16;
 };
 
 // Debug configuration
