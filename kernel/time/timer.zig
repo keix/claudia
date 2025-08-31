@@ -1,5 +1,4 @@
 // Timer management for sleep and scheduling
-const std = @import("std");
 const csr = @import("../arch/riscv/csr.zig");
 const proc = @import("../process/core.zig");
 const config = @import("../config.zig");
@@ -64,25 +63,7 @@ pub fn checkSleepers() void {
 }
 
 // Called periodically from scheduler or trap handler
-var tick_count: u64 = 0;
 pub fn tick() void {
-    tick_count += 1;
-
-    // Print every 10000 ticks to avoid spam
-    // Disabled to avoid circular imports
-
     checkSleepers();
     // Could also handle other periodic tasks here
-}
-
-// Remove a process from sleep list (for early wakeup)
-pub fn removeSleeper(process: *proc.Process) void {
-    for (&sleep_list) |*entry| {
-        if (entry.*) |sleep_entry| {
-            if (sleep_entry.process == process) {
-                entry.* = null;
-                return;
-            }
-        }
-    }
 }

@@ -1,17 +1,14 @@
 // Trap handling for RISC-V
 // Manages system calls and exceptions from user mode
 
-const std = @import("std");
 const csr = @import("../arch/riscv/csr.zig");
-const uart = @import("../driver/uart/core.zig");
 const proc = @import("../process/core.zig");
 const file = @import("../file/core.zig");
 const abi = @import("abi");
 const defs = abi;
-const sysno = abi.sysno;
-const copy = @import("../user/copy.zig");
 const dispatch = @import("../syscalls/dispatch.zig");
 const memory = @import("../memory/core.zig");
+const config = @import("../config.zig");
 
 // Import trap vector from assembly
 extern const trap_vector: u8;
@@ -72,9 +69,41 @@ const ExceptionCause = enum(u64) {
     StorePageFault = 15,
 };
 
-// Track TLB retry attempts to prevent infinite loops
-var tlb_retry_count: u32 = 0;
-var last_fault_addr: u64 = 0;
+// TLB retry state for handling stale entries
+const TlbRetryState = struct {
+    retry_count: u32 = 0,
+    last_fault_addr: u64 = 0,
+
+    fn shouldRetry(self: *TlbRetryState, fault_addr: u64) bool {
+        if (fault_addr == self.last_fault_addr) {
+            self.retry_count += 1;
+        } else {
+            // New fault address, reset counter
+            self.retry_count = 1;
+            self.last_fault_addr = fault_addr;
+        }
+
+        return self.retry_count <= config.PageTable.MAX_TLB_RETRY_ATTEMPTS;
+    }
+
+    fn performTlbFlush(fault_addr: u64) void {
+        // Flush entire TLB
+        csr.sfence_vma();
+
+        // Also try flushing just this specific address
+        asm volatile ("sfence.vma %[addr], zero"
+            :
+            : [addr] "r" (fault_addr),
+            : "memory"
+        );
+
+        // Add memory barriers
+        asm volatile ("fence.i" ::: "memory");
+        asm volatile ("fence rw, rw" ::: "memory");
+    }
+};
+
+var tlb_retry_state = TlbRetryState{};
 
 // Initialize trap handling
 pub fn init() void {
@@ -152,38 +181,29 @@ pub export fn trapHandler(frame: *TrapFrame) void {
         exceptionHandler(frame, exception_code);
     }
 
-    // CRITICAL: Verify current SATP has kernel mappings before returning
     const final_satp = csr.readSatp();
     const final_ppn = final_satp & 0xFFFFFFFFFFF;
 
-    // Check if this is a user page table that might lack kernel mappings
     if (final_ppn != memory.kernel_page_table.root_ppn and final_ppn != 0) {
-        // This is a user page table - verify it has kernel code mapped
         const root_addr = final_ppn << 12;
         const root_table = @as([*]const volatile u64, @ptrFromInt(root_addr));
-        const vpn2_for_kernel = (0x80200000 >> 30) & 0x1FF; // Check kernel code start
+        const vpn2_for_kernel = (0x80200000 >> 30) & 0x1FF;
         const l2_pte = root_table[vpn2_for_kernel];
 
         if (l2_pte == 0) {
-            // Switch to kernel page table as emergency measure
             const kernel_satp = csr.SATP_SV39 | memory.kernel_page_table.root_ppn;
             csr.writeSatp(kernel_satp);
             csr.sfence_vma();
 
-            // Update process context too
             if (proc.Scheduler.getCurrentProcess()) |current| {
                 current.context.satp = kernel_satp;
             }
         }
     }
 
-    // CRITICAL FIX: Check if we're about to return to kernel code with user privilege
-    // This happens when a syscall sleeps and then wakes up
     const final_sstatus = csr.readSstatus();
     const final_spp = (final_sstatus >> 8) & 1;
-    if (final_spp == 0 and frame.sepc >= 0x80000000) {
-        // About to return to kernel code with user privilege - fix it!
-        // Set SPP=1 to return to supervisor mode
+    if (final_spp == 0 and frame.sepc >= config.MemoryLayout.USER_KERNEL_BOUNDARY) {
         const fixed_sstatus = final_sstatus | (1 << 8);
         csr.writeSstatus(fixed_sstatus);
     }
@@ -193,17 +213,13 @@ fn interruptHandler(frame: *TrapFrame, code: u64) void {
     _ = frame;
     switch (code) {
         csr.Interrupt.SupervisorTimer => {
-            // Handle timer interrupt
             const timer = @import("../time/timer.zig");
             timer.checkSleepers();
         },
         csr.Interrupt.SupervisorExternal => {
-            // Handle external interrupt via PLIC
             handlePLICInterrupt();
         },
-        else => {
-            // Unknown interrupt - ignore
-        },
+        else => {},
     }
 }
 
@@ -225,71 +241,24 @@ fn handlePLICInterrupt() void {
 
 fn handlePageFault(frame: *TrapFrame, code: u64) void {
     const fault_addr = frame.stval;
-
-    // Determine if this is a kernel or user address
-    const is_kernel_addr = fault_addr >= 0x80000000;
-
-    // Get satp register value to debug page table issues
+    const is_kernel_addr = fault_addr >= config.MemoryLayout.USER_KERNEL_BOUNDARY;
     const satp = csr.readSatp();
     const ppn = satp & 0xFFFFFFFFFFF;
-
-    if (memory.kernel_page_table.translate(fault_addr)) |phys_addr| {
-        _ = phys_addr;
-
-        const vpn2 = (fault_addr >> 30) & 0x1FF;
-        const vpn1 = (fault_addr >> 21) & 0x1FF;
-        const vpn0 = (fault_addr >> 12) & 0x1FF;
-
-        // Walk the page table to check permissions
-        var table_addr = ppn << 12;
-
-        // Level 2 (root)
-        var pte_addr = table_addr + @as(usize, vpn2) * 8;
-        var pte_ptr = @as(*const volatile u64, @ptrFromInt(pte_addr));
-        var pte = pte_ptr.*;
-
-        if ((pte & 1) != 0) {
-            // Level 1
-            table_addr = ((pte >> 10) & 0xFFFFFFFFFFF) << 12;
-            pte_addr = table_addr + @as(usize, vpn1) * 8;
-            pte_ptr = @as(*const volatile u64, @ptrFromInt(pte_addr));
-            pte = pte_ptr.*;
-
-            if ((pte & 1) != 0) {
-                // Check if leaf or need L0
-                if ((pte & 0xE) == 0) {
-                    // Non-leaf, go to L0
-                    table_addr = ((pte >> 10) & 0xFFFFFFFFFFF) << 12;
-                    pte_addr = table_addr + @as(usize, vpn0) * 8;
-                    pte_ptr = @as(*const volatile u64, @ptrFromInt(pte_addr));
-                    pte = pte_ptr.*;
-                }
-            }
-        }
-    }
-
-    // Calculate VPNs for later use
     const fault_vpn2 = (fault_addr >> 30) & 0x1FF;
     const fault_vpn1 = (fault_addr >> 21) & 0x1FF;
     const fault_vpn0 = (fault_addr >> 12) & 0x1FF;
-
-    // Check if this is a kernel code fault with user page table
     const is_instruction_fault = (code == @intFromEnum(ExceptionCause.InstructionPageFault));
 
-    // CRITICAL: Check if we found valid mappings in the page walk
     var found_valid_mapping = false;
     if (ppn != 0) {
-        // We did a page walk - check if we found a valid executable PTE
         const root_addr = ppn << 12;
         const root_table = @as([*]const volatile u64, @ptrFromInt(root_addr));
         const l2_pte = root_table[fault_vpn2];
         if ((l2_pte & 1) != 0) {
-            // L2 is valid, check deeper
             const l1_addr = ((l2_pte >> 10) & 0xFFFFFFFFFFF) << 12;
             const l1_table = @as([*]const volatile u64, @ptrFromInt(l1_addr));
             const l1_pte = l1_table[fault_vpn1];
             if ((l1_pte & 1) != 0) {
-                // L1 is valid, check L0
                 const l0_addr = ((l1_pte >> 10) & 0xFFFFFFFFFFF) << 12;
                 const l0_table = @as([*]const volatile u64, @ptrFromInt(l0_addr));
                 const l0_pte = l0_table[fault_vpn0];
@@ -300,50 +269,16 @@ fn handlePageFault(frame: *TrapFrame, code: u64) void {
         }
     }
 
-    // Check current privilege mode
-    const sstatus = csr.readSstatus();
-    const spp_bit = (sstatus >> 8) & 1; // SPP bit indicates previous privilege
+    const sstatus2 = csr.readSstatus();
+    const spp_bit = (sstatus2 >> 8) & 1;
 
-    // Check if we're trying to execute supervisor code from user mode
     if (found_valid_mapping and is_kernel_addr and is_instruction_fault and spp_bit == 0) {
-        // This is a fundamental issue - we can't fix it with TLB flushes
-        // The context switch restored the wrong privilege level
-        // Don't retry - this won't help
-    } else if (found_valid_mapping) {
-        // Check if this is the same fault address
-        if (fault_addr == last_fault_addr) {
-            tlb_retry_count += 1;
-        } else {
-            // New fault address, reset counter
-            tlb_retry_count = 1;
-            last_fault_addr = fault_addr;
-        }
-
-        // Limit retries to prevent infinite loops
-        if (tlb_retry_count > 3) {
-            // Fall through to halt
-        } else {
-
-            // Flush entire TLB
-            csr.sfence_vma();
-
-            // Also try flushing just this specific address
-            asm volatile ("sfence.vma %[addr], zero"
-                :
-                : [addr] "r" (fault_addr),
-                : "memory"
-            );
-
-            // Add memory barrier
-            asm volatile ("fence.i" ::: "memory");
-            asm volatile ("fence rw, rw" ::: "memory");
-
-            // Return without incrementing sepc to retry the same instruction
-            return;
-        }
+        // Fundamental issue - context switch restored wrong privilege level
+    } else if (found_valid_mapping and tlb_retry_state.shouldRetry(fault_addr)) {
+        TlbRetryState.performTlbFlush(fault_addr);
+        return; // Retry same instruction
     }
 
-    // Halt the system after printing debug info
     while (true) {
         csr.wfi();
     }
@@ -360,7 +295,6 @@ fn exceptionHandler(frame: *TrapFrame, code: u64) void {
             handlePageFault(frame, code);
         },
         else => {
-            // Stop infinite loop - halt system
             while (true) {
                 csr.wfi();
             }
@@ -372,9 +306,7 @@ fn exceptionHandler(frame: *TrapFrame, code: u64) void {
 fn syscallHandler(frame: *TrapFrame) void {
     const syscall_num = frame.a7;
 
-    // Get and validate current process
     const current = proc.Scheduler.getCurrentProcess() orelse {
-        // No current process - return error without debug output
         frame.a0 = @bitCast(@as(isize, defs.ESRCH));
         return;
     };
@@ -382,8 +314,6 @@ fn syscallHandler(frame: *TrapFrame) void {
     // Associate trap frame with current process
     current.user_frame = frame;
 
-    // CRITICAL: Update process's kernel context SATP to match current SATP
-    // This ensures context switches preserve the correct page table
     const current_satp = csr.readSatp();
     if (current.context.satp != current_satp) {
         current.context.satp = current_satp;

@@ -9,13 +9,11 @@ const PAGE_SIZE = types.PAGE_SIZE;
 const PAGE_SHIFT = types.PAGE_SHIFT;
 const PAGE_ENTRIES = config.PageTable.ENTRIES_PER_TABLE; // Entries per page table
 
-// Virtual address breakdown for Sv39
 const VA_VPN2_SHIFT: u6 = 30;
 const VA_VPN1_SHIFT: u6 = 21;
 const VA_VPN0_SHIFT: u6 = 12;
-const VA_VPN_MASK: u64 = 0x1FF; // 9 bits
+const VA_VPN_MASK: u64 = 0x1FF;
 
-// Re-export PTE flags from types
 pub const PTE_V = types.PTE_V;
 pub const PTE_R = types.PTE_R;
 pub const PTE_W = types.PTE_W;
@@ -25,7 +23,6 @@ pub const PTE_G = types.PTE_G;
 pub const PTE_A = types.PTE_A;
 pub const PTE_D = types.PTE_D;
 
-// Page table entry type
 pub const PageTableEntry = u64;
 
 // Extract PPN from PTE
@@ -45,6 +42,33 @@ pub const PageTable = struct {
 
     const Self = @This();
 
+    // Helper function to safely clear a page table
+    fn clearPageTable(table_addr: usize) void {
+        const table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
+
+        // Check if this is kernel init end - it might already have data!
+        if (table_addr == config.MemoryLayout.KERNEL_INIT_END) {
+            var has_data = false;
+            for (0..PAGE_ENTRIES) |i| {
+                if (table[i] != 0) {
+                    has_data = true;
+                    break;
+                }
+            }
+            if (!has_data) {
+                for (0..PAGE_ENTRIES) |i| {
+                    @atomicStore(u64, &table[i], 0, .monotonic);
+                }
+            }
+        } else {
+            // Normal clear
+            for (0..PAGE_ENTRIES) |i| {
+                @atomicStore(u64, &table[i], 0, .monotonic);
+            }
+        }
+        asm volatile ("fence rw, rw" ::: "memory");
+    }
+
     // Initialize a new page table
     pub fn init(self: *Self) !void {
         // Initialize fields
@@ -54,30 +78,25 @@ pub const PageTable = struct {
         const root_page = allocator.allocFrame() orelse return error.OutOfMemory;
         self.root_ppn = root_page >> PAGE_SHIFT;
 
-        // Clear the page table
-        const root_table = @as([*]volatile PageTableEntry, @ptrFromInt(root_page));
-
         // SAFETY CHECK: Ensure we're not clearing beyond the page
         if (PAGE_ENTRIES * @sizeOf(PageTableEntry) > PAGE_SIZE) {
             return error.PageTableTooBig;
         }
 
-        // Clear exactly one page (512 entries * 8 bytes = 4096 bytes)
-        for (0..PAGE_ENTRIES) |i| {
-            @atomicStore(u64, &root_table[i], 0, .monotonic);
-        }
-
-        // Memory barrier to ensure all clears complete
-        asm volatile ("fence rw, rw" ::: "memory");
+        // Clear the page table
+        clearPageTable(root_page);
 
         // Enable watchdog for debugging problematic page tables
-        if (self.root_ppn == 0x802bf or self.root_ppn == 0x802cf) {
+        if (self.root_ppn == config.MemoryLayout.PAGE_TABLE_DEBUG_WATCHDOG_1 or
+            self.root_ppn == config.MemoryLayout.PAGE_TABLE_DEBUG_WATCHDOG_2)
+        {
             self.debug_watchdog_active = true;
         }
 
         // Write a marker to verify this page table
+        const root_table = @as([*]volatile PageTableEntry, @ptrFromInt(root_page));
         const marker_offset = PAGE_ENTRIES - 1; // Last entry
-        root_table[marker_offset] = 0xDEADBEEF00000000; // Special marker
+        root_table[marker_offset] = config.MemoryLayout.PAGE_TABLE_DEBUG_MARKER;
     }
 
     // Deinitialize page table and free all allocated pages
@@ -157,9 +176,7 @@ pub const PageTable = struct {
                 return error.OutOfMemory;
             };
 
-            // Defensive check: ensure we're not allocating kernel init start
             if (new_page == config.MemoryLayout.KERNEL_INIT_START) {
-                // Don't use this page
                 allocator.freeFrame(new_page);
                 return error.OutOfMemory;
             }
@@ -167,29 +184,7 @@ pub const PageTable = struct {
             pte.* = addrToPte(new_page, PTE_V);
 
             // Clear new table
-            const new_table = @as([*]volatile PageTableEntry, @ptrFromInt(new_page));
-
-            // Check if this is kernel init end - it might already have data!
-            if (new_page == config.MemoryLayout.KERNEL_INIT_END) {
-                var has_data = false;
-                for (0..PAGE_ENTRIES) |i| {
-                    if (new_table[i] != 0) {
-                        has_data = true;
-                        break;
-                    }
-                }
-                if (!has_data) {
-                    for (0..PAGE_ENTRIES) |i| {
-                        @atomicStore(u64, &new_table[i], 0, .monotonic);
-                    }
-                }
-            } else {
-                // Normal clear
-                for (0..PAGE_ENTRIES) |i| {
-                    @atomicStore(u64, &new_table[i], 0, .monotonic);
-                }
-            }
-            asm volatile ("fence rw, rw" ::: "memory");
+            clearPageTable(new_page);
         }
 
         // Level 1
@@ -201,39 +196,14 @@ pub const PageTable = struct {
             // Allocate new page table
             const new_page = allocator.allocFrame() orelse return error.OutOfMemory;
 
-            // Defensive check: ensure we're not allocating kernel init start
             if (new_page == config.MemoryLayout.KERNEL_INIT_START) {
-                // Don't use this page
                 allocator.freeFrame(new_page);
                 return error.OutOfMemory;
             }
 
             pte.* = addrToPte(new_page, PTE_V);
 
-            // Clear new table
-            const new_table = @as([*]volatile PageTableEntry, @ptrFromInt(new_page));
-
-            // Check if this is kernel init end - it might already have data!
-            if (new_page == config.MemoryLayout.KERNEL_INIT_END) {
-                var has_data = false;
-                for (0..PAGE_ENTRIES) |i| {
-                    if (new_table[i] != 0) {
-                        has_data = true;
-                        break;
-                    }
-                }
-                if (!has_data) {
-                    for (0..PAGE_ENTRIES) |i| {
-                        @atomicStore(u64, &new_table[i], 0, .monotonic);
-                    }
-                }
-            } else {
-                // Normal clear
-                for (0..PAGE_ENTRIES) |i| {
-                    @atomicStore(u64, &new_table[i], 0, .monotonic);
-                }
-            }
-            asm volatile ("fence rw, rw" ::: "memory");
+            clearPageTable(new_page);
         }
 
         // Level 0 (leaf)
@@ -244,17 +214,12 @@ pub const PageTable = struct {
         // Set the mapping
         const new_pte = addrToPte(paddr, flags | PTE_V);
 
-        // Protect against clearing kernel mappings in user page tables
         const old_pte = @atomicLoad(u64, pte, .seq_cst);
-        if (old_pte != 0 and new_pte == 0 and vaddr >= 0x80000000) {
-            // Trying to clear a kernel mapping!
-            return; // Don't clear it
+        if (old_pte != 0 and new_pte == 0 and vaddr >= config.MemoryLayout.USER_KERNEL_BOUNDARY) {
+            return; // Don't clear kernel mapping
         }
 
-        // Force atomic write with memory barrier
         @atomicStore(u64, pte, new_pte, .seq_cst);
-
-        // Ensure TLB consistency for this specific virtual address
         asm volatile ("sfence.vma %[addr], zero"
             :
             : [addr] "r" (vaddr),

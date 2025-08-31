@@ -9,6 +9,9 @@ _start:
     # RISC-V stack grows downward, set to end of RAM
     la sp, _stack_top
     
+    # Clear GP to prevent GP-relative addressing issues
+    li gp, 0
+    
     # Save boot parameters from OpenSBI
     # a0 = hartid, a1 = dtb pointer, a2 = initrd address (if provided)
     la t0, boot_hartid

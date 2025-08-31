@@ -106,9 +106,6 @@ fn initCoreSubsystems() void {
     // Initialize trap handling
     trap.init();
 
-    // Initialize interrupt system
-    initInterrupts();
-
     // Initialize timer system
     timer.init();
 
@@ -117,6 +114,11 @@ fn initCoreSubsystems() void {
 
     // Initialize process scheduler
     proc.Scheduler.init();
+
+    // Initialize interrupt system (after scheduler is ready)
+    uart.puts("Core: Initializing interrupts...\n");
+    initInterrupts();
+    uart.puts("Core: Interrupts initialized\n");
 }
 
 fn initInterrupts() void {
@@ -129,6 +131,11 @@ fn initInterrupts() void {
 
     // Initialize PLIC for external interrupts
     plic.init();
+
+    // Initialize timer for process scheduling
+    // TODO: Debug timer interrupt issue
+    // const timer = @import("driver/timer.zig");
+    // timer.init();
 }
 
 fn createInitialProcesses() void {
