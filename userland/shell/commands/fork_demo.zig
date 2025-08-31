@@ -41,11 +41,6 @@ pub fn main(args: *const utils.Args) void {
         return;
     };
 
-    // Debug: show what fork returned
-    utils.writeStr("Fork returned: ");
-    var retbuf: [32]u8 = undefined;
-    utils.writeStr(numberToStr(@as(u64, @intCast(pid)), &retbuf));
-    utils.writeStr("\n");
 
     if (pid == 0) {
         // Child process

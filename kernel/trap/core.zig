@@ -140,12 +140,6 @@ fn fileOpen(path: []const u8, flags: u32, mode: u16) isize {
 
 // Main trap handler called from assembly
 pub export fn trapHandler(frame: *TrapFrame) void {
-    // DEBUG: Mark traps from child
-    // if (proc.Scheduler.getCurrentProcess()) |current| {
-    //     if (current.pid == 2) {
-    //         uart.puts("[TRAP] Child PID 2 trapped\n");
-    //     }
-    // }
     
     const cause = frame.scause;
     const is_interrupt = (cause & (1 << 63)) != 0;
@@ -428,16 +422,6 @@ fn syscallHandler(frame: *TrapFrame) void {
         return;
     };
     
-    // DEBUG: Mark syscalls from child
-    if (current.pid == 2) {
-        uart.puts("[SYSCALL] Child PID 2 syscall ");
-        uart.putDec(syscall_num);
-        uart.puts(" a0=0x");
-        uart.putHex(frame.a0);
-        uart.puts(" sepc=0x");
-        uart.putHex(frame.sepc);
-        uart.puts("\n");
-    }
 
     // Associate trap frame with current process
     current.user_frame = frame;
@@ -453,12 +437,4 @@ fn syscallHandler(frame: *TrapFrame) void {
     const result = dispatch.call(syscall_num, frame.a0, frame.a1, frame.a2, frame.a3, frame.a4);
     frame.a0 = @bitCast(result);
     
-    // DEBUG: Log fork results
-    if (syscall_num == defs.sysno.sys_fork and current.pid == 1) {
-        uart.puts("[SYSCALL] Parent fork returning pid=");
-        uart.putDec(@as(u64, @intCast(@as(isize, @bitCast(result)))));
-        uart.puts(" to sepc=0x");
-        uart.putHex(frame.sepc + 4);
-        uart.puts("\n");
-    }
 }

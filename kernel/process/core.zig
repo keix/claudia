@@ -245,10 +245,6 @@ pub const Scheduler = struct {
         
         debugPrint("makeRunnable: adding PID {} to queue\n", .{proc.pid});
         
-        // DEBUG: Print when adding to queue
-        uart.puts("[QUEUE] Adding PID ");
-        uart.putDec(proc.pid);
-        uart.puts(" to ready queue\n");
         
         if (ready_queue_tail) |tail| {
             tail.next = proc;
@@ -398,11 +394,6 @@ pub const Scheduler = struct {
     // Exit current process
     pub fn exit(exit_code: i32) void {
         if (current_process) |proc| {
-            uart.puts("[EXIT] PID ");
-            uart.putDec(proc.pid);
-            uart.puts(" exiting with code ");
-            uart.putDec(@as(u64, @intCast(exit_code)));
-            uart.puts("\n");
             
             proc.state = .ZOMBIE;
             proc.exit_code = exit_code;
@@ -429,7 +420,6 @@ pub const Scheduler = struct {
                 proc.page_table_ppn = 0;
             }
 
-            uart.puts("[EXIT] Scheduling next process\n");
             
             // Don't set current_process to null before calling sched()
             // sched() needs it for context switching
@@ -554,10 +544,6 @@ pub const Scheduler = struct {
     pub fn yield() void {
         const proc = current_process orelse return;
         
-        // DEBUG: Simple yield trace
-        uart.puts("[YIELD] PID ");
-        uart.putDec(proc.pid);
-        uart.puts(" yielding\n");
         
         debugPrint("yield: PID {} ({})\n", .{ proc.pid, proc.getName() });
         
@@ -592,12 +578,6 @@ pub const Scheduler = struct {
             
             debugPrint("yield: switching {} -> {}\n", .{ proc.pid, next.pid });
             
-            // DEBUG: Print context switch
-            uart.puts("[SWITCH] ");
-            uart.putDec(proc.pid);
-            uart.puts(" -> ");
-            uart.putDec(next.pid);
-            uart.puts("\n");
             
             next.state = .RUNNING;
             current_process = next;
@@ -646,10 +626,6 @@ pub const Scheduler = struct {
         // This is a simplified fork - proper fork would copy the page table
         // The child MUST call exec() to get its own page table with kernel mappings
         
-        // DEBUG: Print parent's SATP
-        uart.puts("[FORK] Parent SATP=0x");
-        uart.putHex(parent.context.satp);
-        uart.puts("\n");
 
         // Copy user mode trap frame if it exists
         if (parent.user_frame) |parent_frame| {
@@ -666,10 +642,6 @@ pub const Scheduler = struct {
             
             child.user_frame = child_frame;
             
-            // DEBUG: Print parent frame GP
-            uart.puts("[FORK] Parent GP=0x");
-            uart.putHex(parent_frame.gp);
-            uart.puts("\n");
 
             // Set up child context - start fresh
             child.context = Context.zero();
@@ -689,8 +661,10 @@ pub const Scheduler = struct {
             // the user program mapped. The child needs the same mappings.
             child.context.satp = parent.context.satp;
             
-            // Child inherits parent's user page table for later use
-            child.page_table_ppn = parent.page_table_ppn;
+            // IMPORTANT: Child shares parent's page table but doesn't own it
+            // Set to 0 to prevent double-free on exit
+            // TODO: Implement copy-on-write or separate page tables
+            child.page_table_ppn = 0;
         } else {
             // No user frame - this shouldn't happen for forked processes
             return -1;
@@ -823,59 +797,14 @@ fn forkedChildReturn() noreturn {
         }
     };
 
-    uart.puts("[forkedChildReturn] Child PID: ");
-    uart.putDec(child_proc.pid);
-    uart.puts(" Process ptr: 0x");
-    uart.putHex(@intFromPtr(child_proc));
-    if (child_proc.user_frame) |uf| {
-        uart.puts(" user_frame ptr: 0x");
-        uart.putHex(@intFromPtr(uf));
-    } else {
-        uart.puts(" user_frame: null");
-    }
-    uart.puts("\n");
 
     // Get the child's trap frame
-    uart.puts("[forkedChildReturn] About to access user_frame field\n");
     const frame = child_proc.user_frame orelse {
         uart.puts("[forkedChildReturn] ERROR: No user frame!\n");
         while (true) {
             csr.wfi();
         }
     };
-    
-    uart.puts("[forkedChildReturn] Got frame, checking contents\n");
-    
-    // DEBUG: Print some key values from the frame
-    uart.puts("[forkedChildReturn] frame.sepc=0x");
-    uart.putHex(frame.sepc);
-    uart.puts(" frame.sp=0x");
-    uart.putHex(frame.sp);
-    uart.puts(" frame.gp=0x");
-    uart.putHex(frame.gp);
-    uart.puts("\n");
-    uart.puts("[forkedChildReturn] frame.s0=0x");
-    uart.putHex(frame.s0);
-    uart.puts(" frame.s1=0x");
-    uart.putHex(frame.s1);
-    uart.puts(" frame.tp=0x");
-    uart.putHex(frame.tp);
-    uart.puts("\n");
-    
-    // Check if any values look suspicious
-    if (frame.gp != 0) {
-        uart.puts("[WARNING] Child frame has non-zero GP!\n");
-    }
-    
-    // DEBUG: Print exact register values before return
-    uart.puts("[forkedChildReturn] Before return: a0=0x");
-    uart.putHex(frame.a0);
-    uart.puts(" a7=0x");
-    uart.putHex(frame.a7);
-    uart.puts("\n");
-    
-    // Use pure assembly implementation to avoid GP issues
-    uart.puts("[forkedChildReturn] Calling assembly return function\n");
     
     // External assembly function
     const child_return_to_user = @extern(*const fn(*trap.TrapFrame) callconv(.C) noreturn, .{ .name = "child_return_to_user" });
