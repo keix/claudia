@@ -9,8 +9,22 @@ const user = @import("../user/core.zig");
 const defs = @import("abi");
 const timer = @import("../time/timer.zig");
 
+// Debug flag for process scheduling
+const DEBUG_SCHEDULER = false;
+
 // Process ID type
 pub const PID = u32;
+
+// Debug print helper
+fn debugPrint(comptime fmt: []const u8, args: anytype) void {
+    _ = fmt;
+    _ = args;
+    if (DEBUG_SCHEDULER) {
+        // Simple debug output without printf for now
+        uart.puts("[SCHED] ");
+        // TODO: Add proper formatting when needed
+    }
+}
 
 // External assembly function for context switching
 extern fn context_switch(old_context: *Context, new_context: *Context) void;
@@ -152,6 +166,10 @@ var child_stack_used: [8]bool = [_]bool{false} ** 8;
 var child_frame_pool: [8]trap.TrapFrame = undefined;
 var child_frame_used: [8]bool = [_]bool{false} ** 8;
 
+// Idle process resources
+var idle_process: Process = undefined;
+var idle_stack: [4096]u8 align(16) = undefined;
+
 // Process scheduler
 pub const Scheduler = struct {
     // Initialize the process system
@@ -168,6 +186,12 @@ pub const Scheduler = struct {
         ready_queue_head = null;
         ready_queue_tail = null;
         next_pid = 1;
+        
+        // Initialize idle process
+        idle_process = Process.init(0, "idle", &idle_stack);
+        idle_process.state = .EMBRYO;
+        idle_process.is_kernel = true;
+        initIdleContext(&idle_process);
     }
 
     // Allocate a new process
@@ -192,17 +216,40 @@ pub const Scheduler = struct {
 
     pub fn makeRunnable(proc: *Process) void {
         // Already runnable, avoid duplicate queue entry
-        if (proc.state == .RUNNABLE) return;
+        if (proc.state == .RUNNABLE) {
+            debugPrint("makeRunnable: PID {} already RUNNABLE\n", .{proc.pid});
+            return;
+        }
 
         // Not eligible for scheduling (terminated or unused)
-        if (proc.state == .ZOMBIE or proc.state == .UNUSED) return;
+        if (proc.state == .ZOMBIE or proc.state == .UNUSED) {
+            debugPrint("makeRunnable: PID {} not eligible ({})\n", .{proc.pid, @tagName(proc.state)});
+            return;
+        }
 
         // Critical section - protect ready queue manipulation
         csr.disableInterrupts();
         defer csr.enableInterrupts();
+        
+        // Double-check not already in queue
+        var p = ready_queue_head;
+        while (p) |current| : (p = current.next) {
+            if (current == proc) {
+                debugPrint("makeRunnable: PID {} already in queue!\n", .{proc.pid});
+                return;
+            }
+        }
 
         proc.state = .RUNNABLE;
         proc.next = null;
+        
+        debugPrint("makeRunnable: adding PID {} to queue\n", .{proc.pid});
+        
+        // DEBUG: Print when adding to queue
+        uart.puts("[QUEUE] Adding PID ");
+        uart.putDec(proc.pid);
+        uart.puts(" to ready queue\n");
+        
         if (ready_queue_tail) |tail| {
             tail.next = proc;
             ready_queue_tail = proc;
@@ -219,6 +266,7 @@ pub const Scheduler = struct {
         defer csr.enableInterrupts();
 
         if (ready_queue_head) |head| {
+            debugPrint("dequeueRunnable: removing PID {} from queue\n", .{head.pid});
             ready_queue_head = head.next;
             if (ready_queue_head == null) {
                 ready_queue_tail = null;
@@ -226,6 +274,8 @@ pub const Scheduler = struct {
             head.next = null;
             return head;
         }
+        
+        debugPrint("dequeueRunnable: queue empty\n", .{});
         return null;
     }
 
@@ -243,22 +293,35 @@ pub const Scheduler = struct {
             context_switch(&proc.context, &next.context);
             // When we return here, this process has been rescheduled
         } else {
-            // No runnable process - need to go to scheduler idle
-            // Clear current process
-            current_process = null;
-
-            // Save context and jump to scheduler idle
-            // This is tricky - we need to save context then jump to idle loop
-            // For now, panic to see if we reach here
-            @panic("No runnable process in sched()");
+            // No runnable process - switch to idle process
+            debugPrint("sched: no runnable process, switching to idle\n", .{});
+            
+            // DEBUG: Check idle process setup
+            uart.puts("[SCHED] Switching to idle, context.ra=0x");
+            uart.putHex(idle_process.context.ra);
+            uart.puts(" context.sstatus=0x");
+            uart.putHex(idle_process.context.sstatus);
+            uart.puts("\n");
+            
+            idle_process.state = .RUNNING;
+            current_process = &idle_process;
+            
+            // Context switch to idle process
+            context_switch(&proc.context, &idle_process.context);
+            // When we return here, this process has been rescheduled
         }
     }
 
     pub fn schedule() ?*Process {
-        // If we have a current, try to rotate it out and switch from it
+        // Save current process state before switching
         if (current_process) |proc| {
-            // Only make runnable if still RUNNING (not SLEEPING or ZOMBIE)
-            if (proc.state == .RUNNING) {
+            // Don't reschedule idle process unless something is runnable
+            if (proc == &idle_process and ready_queue_head == null) {
+                return proc;
+            }
+            
+            // Only make runnable if still RUNNING (not SLEEPING or ZOMBIE) and not idle
+            if (proc.state == .RUNNING and proc != &idle_process) {
                 makeRunnable(proc);
             }
 
@@ -270,14 +333,28 @@ pub const Scheduler = struct {
                 context_switch(&proc.context, &next.context);
 
                 return next;
+            } else {
+                // No other runnable process - switch to idle
+                debugPrint("schedule: no runnable process, switching to idle\n", .{});
+                idle_process.state = .RUNNING;
+                current_process = &idle_process;
+                
+                context_switch(&proc.context, &idle_process.context);
+                return &idle_process;
             }
-
-            return null;
         }
 
-        // No current: shouldn't happen in normal operation
-        // This would only happen if schedule() is called without a current process
-        return null;
+        // No current process - try to find one to run
+        if (dequeueRunnable()) |next| {
+            next.state = .RUNNING;
+            current_process = next;
+            return next;
+        }
+        
+        // Nothing runnable - use idle process
+        idle_process.state = .RUNNING;
+        current_process = &idle_process;
+        return &idle_process;
     }
 
     // Schedule next process without making current runnable (for sleeping)
@@ -321,6 +398,12 @@ pub const Scheduler = struct {
     // Exit current process
     pub fn exit(exit_code: i32) void {
         if (current_process) |proc| {
+            uart.puts("[EXIT] PID ");
+            uart.putDec(proc.pid);
+            uart.puts(" exiting with code ");
+            uart.putDec(@as(u64, @intCast(exit_code)));
+            uart.puts("\n");
+            
             proc.state = .ZOMBIE;
             proc.exit_code = exit_code;
 
@@ -346,9 +429,15 @@ pub const Scheduler = struct {
                 proc.page_table_ppn = 0;
             }
 
-            current_process = null;
-            _ = schedule(); // Find next process to run
-            unreachable; // Normally never returns here
+            uart.puts("[EXIT] Scheduling next process\n");
+            
+            // Don't set current_process to null before calling sched()
+            // sched() needs it for context switching
+            sched(); // This will switch to another process and never return
+            
+            // This should never be reached
+            uart.puts("[EXIT] ERROR: sched() returned!\n");
+            unreachable;
         }
     }
 
@@ -463,12 +552,68 @@ pub const Scheduler = struct {
 
     // Request scheduler to run (e.g., from timer interrupt)
     pub fn yield() void {
-        if (current_process) |proc| {
-            // makeRunnable will set state to RUNNABLE and add to queue
-            makeRunnable(proc);
-
-            // Schedule next process
-            _ = schedule();
+        const proc = current_process orelse return;
+        
+        // DEBUG: Simple yield trace
+        uart.puts("[YIELD] PID ");
+        uart.putDec(proc.pid);
+        uart.puts(" yielding\n");
+        
+        debugPrint("yield: PID {} ({})\n", .{ proc.pid, proc.getName() });
+        
+        // Only yield if currently running
+        if (proc.state != .RUNNING) {
+            debugPrint("yield: process not RUNNING, state={}\n", .{@tagName(proc.state)});
+            return;
+        }
+        
+        // Special handling for idle process
+        if (proc == &idle_process) {
+            // Idle process only yields if there's something to run
+            if (ready_queue_head != null) {
+                debugPrint("yield: idle process yielding to runnable process\n", .{});
+                _ = schedule();
+            }
+            return;
+        }
+        
+        // Mark as runnable and add to queue
+        makeRunnable(proc);
+        
+        // Find next process to run
+        if (dequeueRunnable()) |next| {
+            // Check if we just dequeued ourselves (only process in system)
+            if (next == proc) {
+                debugPrint("yield: only process in system\n", .{});
+                next.state = .RUNNING;
+                current_process = next;
+                return;
+            }
+            
+            debugPrint("yield: switching {} -> {}\n", .{ proc.pid, next.pid });
+            
+            // DEBUG: Print context switch
+            uart.puts("[SWITCH] ");
+            uart.putDec(proc.pid);
+            uart.puts(" -> ");
+            uart.putDec(next.pid);
+            uart.puts("\n");
+            
+            next.state = .RUNNING;
+            current_process = next;
+            
+            // Perform context switch
+            context_switch(&proc.context, &next.context);
+            
+            // We return here when this process runs again
+            debugPrint("yield: resumed PID {}\n", .{proc.pid});
+        } else {
+            // No runnable process - switch to idle
+            debugPrint("yield: no runnable process, switching to idle\n", .{});
+            idle_process.state = .RUNNING;
+            current_process = &idle_process;
+            
+            context_switch(&proc.context, &idle_process.context);
         }
     }
 
@@ -500,6 +645,11 @@ pub const Scheduler = struct {
         // CRITICAL: For now, child shares parent's page table
         // This is a simplified fork - proper fork would copy the page table
         // The child MUST call exec() to get its own page table with kernel mappings
+        
+        // DEBUG: Print parent's SATP
+        uart.puts("[FORK] Parent SATP=0x");
+        uart.putHex(parent.context.satp);
+        uart.puts("\n");
 
         // Copy user mode trap frame if it exists
         if (parent.user_frame) |parent_frame| {
@@ -507,15 +657,40 @@ pub const Scheduler = struct {
             const child_frame = allocateChildTrapFrame() orelse return -1;
             child_frame.* = parent_frame.*;
             child_frame.a0 = 0; // Child returns 0 from fork
+            child_frame.gp = 0; // Ensure GP is 0 to prevent GP-relative addressing
+            
+            // CRITICAL: Adjust sepc to skip the ecall instruction
+            // The parent's sepc will be incremented by the trap handler
+            // but the child needs to return to the instruction after ecall
+            child_frame.sepc = parent_frame.sepc + 4;
+            
             child.user_frame = child_frame;
+            
+            // DEBUG: Print parent frame GP
+            uart.puts("[FORK] Parent GP=0x");
+            uart.putHex(parent_frame.gp);
+            uart.puts("\n");
 
-            // Set up child context - fix critical s0/sp for child
-            child.context = parent.context; // Base copy is OK
+            // Set up child context - start fresh
+            child.context = Context.zero();
+            
+            // Set up critical registers for child
             child.context.ra = @intFromPtr(&forkedChildReturn);
-            child.context.s0 = @intFromPtr(child); // ★ Child's Process*
-            child.context.sp = @intFromPtr(child.stack.ptr) + child.stack.len - 16; // ★ Child's kernel stack
-
-            // Child inherits parent's SATP
+            child.context.sp = @intFromPtr(child.stack.ptr) + child.stack.len - 16;
+            child.context.s0 = @intFromPtr(child); // Process pointer in s0
+            child.context.a0 = 0; // Return value for fork (child returns 0)
+            
+            // CRITICAL: Set supervisor mode in context for proper return
+            // SPP=1 (supervisor), SPIE=1 (interrupts enabled after sret)
+            child.context.sstatus = (1 << 8) | (1 << 5); // SPP | SPIE
+            
+            // CRITICAL: Child must use parent's page table, not kernel's!
+            // The parent is already running with a user page table that has
+            // the user program mapped. The child needs the same mappings.
+            child.context.satp = parent.context.satp;
+            
+            // Child inherits parent's user page table for later use
+            child.page_table_ppn = parent.page_table_ppn;
         } else {
             // No user frame - this shouldn't happen for forked processes
             return -1;
@@ -555,6 +730,21 @@ fn processEntryPointWithProc(proc: *Process) noreturn {
     } else if (std.mem.eql(u8, name, "child")) {
         // The trap frame should already be set up to return to the correct location
         if (proc.user_frame) |frame| {
+            // DEBUG: Check frame pointer before using it
+            uart.puts("[CHILD] Frame pointer: 0x");
+            uart.putHex(@intFromPtr(frame));
+            uart.puts(" SP in frame: 0x");
+            uart.putHex(frame.sp);
+            uart.puts("\n");
+            
+            // Verify frame is in kernel space
+            if (@intFromPtr(frame) < 0x80000000) {
+                uart.puts("[CHILD] ERROR: Frame pointer in user space!\n");
+                while (true) {
+                    csr.wfi();
+                }
+            }
+            
             // Return to user mode by pretending we came from a trap
             // This is a bit of a hack, but it should work for basic fork
             returnToUserMode(frame);
@@ -565,8 +755,7 @@ fn processEntryPointWithProc(proc: *Process) noreturn {
             unreachable;
         }
     } else if (std.mem.eql(u8, name, "idle")) {
-        // Idle process - jump to idle loop
-        const idleLoop = @import("../core.zig").idleLoop;
+        // Idle process - jump to our own idle loop
         idleLoop();
     } else {
         // Generic process - just exit
@@ -612,6 +801,15 @@ fn processEntryPoint() noreturn {
         : [proc] "=r" (-> *Process),
     );
 
+    // DEBUG: Verify process pointer
+    uart.puts("[processEntryPoint] Process ptr: 0x");
+    uart.putHex(@intFromPtr(proc));
+    uart.puts(" PID: ");
+    uart.putDec(proc.pid);
+    uart.puts(" Name: ");
+    uart.puts(proc.getName());
+    uart.puts("\n");
+    
     // Delegate to common entry point
     processEntryPointWithProc(proc);
 }
@@ -619,19 +817,70 @@ fn processEntryPoint() noreturn {
 // Entry point for forked child processes - return directly to user mode
 fn forkedChildReturn() noreturn {
     const child_proc = current_process orelse {
+        uart.puts("[forkedChildReturn] ERROR: No current process!\n");
         while (true) {
             csr.wfi();
         }
     };
 
-    // Get the child's trap frame and return to user mode
+    uart.puts("[forkedChildReturn] Child PID: ");
+    uart.putDec(child_proc.pid);
+    uart.puts(" Process ptr: 0x");
+    uart.putHex(@intFromPtr(child_proc));
+    if (child_proc.user_frame) |uf| {
+        uart.puts(" user_frame ptr: 0x");
+        uart.putHex(@intFromPtr(uf));
+    } else {
+        uart.puts(" user_frame: null");
+    }
+    uart.puts("\n");
+
+    // Get the child's trap frame
+    uart.puts("[forkedChildReturn] About to access user_frame field\n");
     const frame = child_proc.user_frame orelse {
+        uart.puts("[forkedChildReturn] ERROR: No user frame!\n");
         while (true) {
             csr.wfi();
         }
     };
-
-    returnToUserMode(frame);
+    
+    uart.puts("[forkedChildReturn] Got frame, checking contents\n");
+    
+    // DEBUG: Print some key values from the frame
+    uart.puts("[forkedChildReturn] frame.sepc=0x");
+    uart.putHex(frame.sepc);
+    uart.puts(" frame.sp=0x");
+    uart.putHex(frame.sp);
+    uart.puts(" frame.gp=0x");
+    uart.putHex(frame.gp);
+    uart.puts("\n");
+    uart.puts("[forkedChildReturn] frame.s0=0x");
+    uart.putHex(frame.s0);
+    uart.puts(" frame.s1=0x");
+    uart.putHex(frame.s1);
+    uart.puts(" frame.tp=0x");
+    uart.putHex(frame.tp);
+    uart.puts("\n");
+    
+    // Check if any values look suspicious
+    if (frame.gp != 0) {
+        uart.puts("[WARNING] Child frame has non-zero GP!\n");
+    }
+    
+    // DEBUG: Print exact register values before return
+    uart.puts("[forkedChildReturn] Before return: a0=0x");
+    uart.putHex(frame.a0);
+    uart.puts(" a7=0x");
+    uart.putHex(frame.a7);
+    uart.puts("\n");
+    
+    // Use pure assembly implementation to avoid GP issues
+    uart.puts("[forkedChildReturn] Calling assembly return function\n");
+    
+    // External assembly function
+    const child_return_to_user = @extern(*const fn(*trap.TrapFrame) callconv(.C) noreturn, .{ .name = "child_return_to_user" });
+    
+    child_return_to_user(frame);
 }
 
 // Allocate stack for child process
@@ -676,16 +925,90 @@ fn freeChildTrapFrame(frame: *trap.TrapFrame) void {
     }
 }
 
+// Initialize idle process context
+fn initIdleContext(proc: *Process) void {
+    // Set up stack pointer to top of allocated stack (grows downward)
+    proc.context.sp = @intFromPtr(proc.stack.ptr) + proc.stack.len - 16;
+    
+    // Set return address to idle loop
+    proc.context.ra = @intFromPtr(&idleLoop);
+    
+    // Initialize all callee-saved registers to zero
+    proc.context.s0 = 0;
+    proc.context.s1 = 0;
+    proc.context.s2 = 0;
+    proc.context.s3 = 0;
+    proc.context.s4 = 0;
+    proc.context.s5 = 0;
+    proc.context.s6 = 0;
+    proc.context.s7 = 0;
+    proc.context.s8 = 0;
+    proc.context.s9 = 0;
+    proc.context.s10 = 0;
+    proc.context.s11 = 0;
+    
+    // Store process pointer in s0
+    proc.context.s0 = @intFromPtr(proc);
+    
+    // Set SATP to kernel page table
+    const memory = @import("../memory/core.zig");
+    proc.context.satp = csr.SATP_SV39 | memory.kernel_page_table.root_ppn;
+    
+    // Set sstatus for supervisor mode (SPP=1)
+    proc.context.sstatus = (1 << 8) | (1 << 5); // SPP | SPIE
+}
+
+// Idle loop - runs when no other process is runnable
+fn idleLoop() noreturn {
+    debugPrint("Entering idle loop\n", .{});
+    
+    // Ensure we're in supervisor mode
+    const sstatus = csr.readSstatus();
+    if ((sstatus & (1 << 8)) == 0) {
+        uart.puts("[IDLE] ERROR: Not in supervisor mode!\n");
+    }
+    
+    while (true) {
+        // Enable interrupts to receive timer/device interrupts
+        csr.enableInterrupts();
+        
+        // Check timers that might wake sleeping processes
+        timer.tick();
+        
+        // Check if any process became runnable
+        if (ready_queue_head != null) {
+            debugPrint("Idle: found runnable process, yielding\n", .{});
+            // Something is runnable, yield to scheduler
+            Scheduler.yield();
+        }
+        
+        // Wait for interrupt
+        csr.wfi();
+    }
+}
+
 // Return to user mode with given trap frame
-fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
+noinline fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
+    // CRITICAL: Ensure GP is 0 before accessing anything
+    asm volatile ("li gp, 0");
+    
+    // Double-check frame pointer is in kernel space
+    if (@intFromPtr(frame) < 0x80000000) {
+        uart.puts("[ERROR] Frame pointer in user space!\n");
+        while (true) { csr.wfi(); }
+    }
+    
+    uart.puts("[returnToUserMode] Starting CSR setup\n");
+    
     // Set up RISC-V CSRs for return to user mode
     // SSTATUS: Use RMW to only modify SPP=0, SPIE=1, preserve other flags
     const cur_sstatus = csr.readSstatus();
     const cleared_spp = cur_sstatus & ~(@as(u64, 1) << 8); // SPP=0
     const sstatus_val = cleared_spp | (@as(u64, 1) << 5); // SPIE=1
-
+    
+    // Just use the simple assembly version
     asm volatile (
-    // Set up CSRs
+        // Set up CSRs
         \\csrw sepc, %[pc]
         \\csrw sscratch, %[user_sp]
         \\csrw sstatus, %[sstatus]
@@ -724,6 +1047,8 @@ fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
 
         // Switch to user stack and return
         \\csrrw sp, sscratch, sp
+        \\fence.i
+        \\sfence.vma zero, zero
         \\sret
         :
         : [frame] "r" (frame),

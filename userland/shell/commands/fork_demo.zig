@@ -30,7 +30,7 @@ pub fn main(args: *const utils.Args) void {
     _ = args;
 
     const my_pid = sys.getpid();
-    
+
     utils.writeStr("Process ");
     var pidbuf: [32]u8 = undefined;
     utils.writeStr(numberToStr(@as(u64, @intCast(my_pid)), &pidbuf));
@@ -41,18 +41,15 @@ pub fn main(args: *const utils.Args) void {
         return;
     };
 
+    // Debug: show what fork returned
+    utils.writeStr("Fork returned: ");
+    var retbuf: [32]u8 = undefined;
+    utils.writeStr(numberToStr(@as(u64, @intCast(pid)), &retbuf));
+    utils.writeStr("\n");
+
     if (pid == 0) {
         // Child process
-        for (0..5) |i| {
-            utils.writeStr("  Child: message ");
-            var numbuf: [32]u8 = undefined;
-            utils.writeStr(numberToStr(i + 1, &numbuf));
-            utils.writeStr("\n");
-            
-            // Yield to allow parent to run
-            _ = sys.sched_yield();
-        }
-        utils.writeStr("  Child: done!\n");
+        utils.writeStr("C");  // Simple marker
         sys.exit(0);
     } else {
         // Parent process
@@ -61,7 +58,7 @@ pub fn main(args: *const utils.Args) void {
             var numbuf: [32]u8 = undefined;
             utils.writeStr(numberToStr(i + 1, &numbuf));
             utils.writeStr("\n");
-            
+
             // Yield to allow child to run
             _ = sys.sched_yield();
         }

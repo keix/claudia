@@ -140,6 +140,13 @@ fn fileOpen(path: []const u8, flags: u32, mode: u16) isize {
 
 // Main trap handler called from assembly
 pub export fn trapHandler(frame: *TrapFrame) void {
+    // DEBUG: Mark traps from child
+    // if (proc.Scheduler.getCurrentProcess()) |current| {
+    //     if (current.pid == 2) {
+    //         uart.puts("[TRAP] Child PID 2 trapped\n");
+    //     }
+    // }
+    
     const cause = frame.scause;
     const is_interrupt = (cause & (1 << 63)) != 0;
     const exception_code = cause & 0x7FFFFFFFFFFFFFFF;
@@ -225,6 +232,37 @@ fn handlePLICInterrupt() void {
 
 fn handlePageFault(frame: *TrapFrame, code: u64) void {
     const fault_addr = frame.stval;
+    
+    // DEBUG: Print page fault details
+    uart.puts("[PAGEFAULT] type=");
+    if (code == @intFromEnum(ExceptionCause.InstructionPageFault)) {
+        uart.puts("instruction");
+    } else if (code == @intFromEnum(ExceptionCause.LoadPageFault)) {
+        uart.puts("load");
+    } else {
+        uart.puts("store");
+    }
+    uart.puts(" addr=0x");
+    uart.putHex(fault_addr);
+    uart.puts(" from PC=0x");
+    uart.putHex(frame.sepc);
+    
+    // Check if we're in user or kernel mode
+    const sstatus = csr.readSstatus();
+    const spp = (sstatus >> 8) & 1;
+    if (spp == 0) {
+        uart.puts(" (USER MODE)");
+    } else {
+        uart.puts(" (KERNEL MODE)");
+    }
+    
+    // Check which process
+    if (proc.Scheduler.getCurrentProcess()) |current| {
+        uart.puts(" PID=");
+        uart.putDec(current.pid);
+    }
+    
+    uart.puts("\n");
 
     // Determine if this is a kernel or user address
     const is_kernel_addr = fault_addr >= 0x80000000;
@@ -301,8 +339,8 @@ fn handlePageFault(frame: *TrapFrame, code: u64) void {
     }
 
     // Check current privilege mode
-    const sstatus = csr.readSstatus();
-    const spp_bit = (sstatus >> 8) & 1; // SPP bit indicates previous privilege
+    const sstatus2 = csr.readSstatus();
+    const spp_bit = (sstatus2 >> 8) & 1; // SPP bit indicates previous privilege
 
     // Check if we're trying to execute supervisor code from user mode
     if (found_valid_mapping and is_kernel_addr and is_instruction_fault and spp_bit == 0) {
@@ -343,6 +381,9 @@ fn handlePageFault(frame: *TrapFrame, code: u64) void {
         }
     }
 
+    // DEBUG: Page fault not resolved
+    uart.puts("[PAGEFAULT] Unresolved page fault, halting\n");
+    
     // Halt the system after printing debug info
     while (true) {
         csr.wfi();
@@ -360,6 +401,14 @@ fn exceptionHandler(frame: *TrapFrame, code: u64) void {
             handlePageFault(frame, code);
         },
         else => {
+            // DEBUG: Unknown exception
+            uart.puts("[EXCEPTION] Unknown exception code=");
+            uart.putDec(code);
+            uart.puts(" at pc=0x");
+            uart.putHex(frame.sepc);
+            uart.puts(" stval=0x");
+            uart.putHex(frame.stval);
+            uart.puts("\n");
             // Stop infinite loop - halt system
             while (true) {
                 csr.wfi();
@@ -378,6 +427,17 @@ fn syscallHandler(frame: *TrapFrame) void {
         frame.a0 = @bitCast(@as(isize, defs.ESRCH));
         return;
     };
+    
+    // DEBUG: Mark syscalls from child
+    if (current.pid == 2) {
+        uart.puts("[SYSCALL] Child PID 2 syscall ");
+        uart.putDec(syscall_num);
+        uart.puts(" a0=0x");
+        uart.putHex(frame.a0);
+        uart.puts(" sepc=0x");
+        uart.putHex(frame.sepc);
+        uart.puts("\n");
+    }
 
     // Associate trap frame with current process
     current.user_frame = frame;
@@ -392,4 +452,13 @@ fn syscallHandler(frame: *TrapFrame) void {
     // Use full dispatcher
     const result = dispatch.call(syscall_num, frame.a0, frame.a1, frame.a2, frame.a3, frame.a4);
     frame.a0 = @bitCast(result);
+    
+    // DEBUG: Log fork results
+    if (syscall_num == defs.sysno.sys_fork and current.pid == 1) {
+        uart.puts("[SYSCALL] Parent fork returning pid=");
+        uart.putDec(@as(u64, @intCast(@as(isize, @bitCast(result)))));
+        uart.puts(" to sepc=0x");
+        uart.putHex(frame.sepc + 4);
+        uart.puts("\n");
+    }
 }

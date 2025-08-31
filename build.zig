@@ -412,6 +412,7 @@ pub fn build(b: *std.Build) void {
     kernel.addAssemblyFile(b.path("kernel/arch/riscv/context.S"));
     kernel.addAssemblyFile(b.path("kernel/arch/riscv/trap.S"));
     kernel.addAssemblyFile(b.path("kernel/arch/riscv/umode.S"));
+    kernel.addAssemblyFile(b.path("kernel/arch/riscv/child_return.S"));
 
     // Create assembly wrappers to embed userland binaries
     const init_asm = b.addWriteFiles();
@@ -444,6 +445,9 @@ pub fn build(b: *std.Build) void {
 
     // RISC-V specific: use medany code model
     kernel.root_module.code_model = .medium;
+    
+    // Disable GP relaxation to prevent GP-relative addressing issues
+    kernel.root_module.addCMacro("__riscv_no_relax", "1");
 
     const install_kernel = b.addInstallArtifact(kernel, .{});
 

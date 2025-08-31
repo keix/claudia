@@ -84,6 +84,10 @@ sp_saved:
     sd t1, 256(sp)  # cause
     sd t2, 264(sp)  # tval
 
+    # CRITICAL: Set GP to zero to prevent GP-relative addressing issues
+    # Since we don't use GP optimization in kernel, set it to 0
+    li gp, 0
+
     # Call C trap handler
     mv a0, sp  # Pass trap frame pointer
     call trapHandler

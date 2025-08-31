@@ -24,7 +24,7 @@ fn sbi_set_timer(stime_value: u64) void {
         \\li a6, 0           # SBI_EXT_TIME_SET_TIMER
         \\ecall
         :
-        : [val] "r" (stime_value)
+        : [val] "r" (stime_value),
         : "a0", "a6", "a7"
     );
 }
@@ -32,7 +32,7 @@ fn sbi_set_timer(stime_value: u64) void {
 // Read machine time (through rdtime instruction)
 pub fn readTime() u64 {
     return asm volatile ("rdtime %[ret]"
-        : [ret] "=r" (-> u64)
+        : [ret] "=r" (-> u64),
     );
 }
 
@@ -40,16 +40,16 @@ pub fn readTime() u64 {
 pub fn init() void {
     const uart = @import("../driver/uart/core.zig");
     uart.puts("Timer: Initializing...\n");
-    
+
     // Set first timer interrupt
     const current_time = readTime();
     const next_time = current_time + TIMER_INTERVAL_CYCLES;
     sbi_set_timer(next_time);
-    
+
     // Enable supervisor timer interrupts
     const sie = csr.csrr(csr.CSR.sie);
     csr.csrw(csr.CSR.sie, sie | (1 << 5)); // STIE bit
-    
+
     uart.puts("Timer: Initialized\n");
 }
 
@@ -64,12 +64,12 @@ pub fn handleInterrupt() void {
         uart.puts("Timer interrupt!\n");
         interrupt_count += 1;
     }
-    
+
     // Set next timer interrupt
     const current_time = readTime();
     const next_time = current_time + TIMER_INTERVAL_CYCLES;
     sbi_set_timer(next_time);
-    
+
     // Trigger process scheduling
     const proc = @import("../process/core.zig");
     proc.Scheduler.yield();
