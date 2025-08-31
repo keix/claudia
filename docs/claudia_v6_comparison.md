@@ -32,14 +32,16 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | Feature | UNIX V6 | Claudia |
 |---------|---------|---------|
 | **Max Processes** | 50 | 64 (configurable) |
-| **Scheduling** | Round-robin | Simple round-robin |
+| **Scheduling** | Round-robin | Round-robin with idle process |
 | **Context Switch** | Assembly routines | RISC-V context switch |
 | **Process States** | SSLEEP, SRUN, etc. | SLEEPING, RUNNABLE, etc. |
 
 ### Implementation Status
-- Basic process creation and switching works
-- No copy-on-write for fork() yet
-- Simple scheduler without priorities
+- Process creation with fork() and exec() working
+- Context switching with proper privilege mode handling
+- Idle process prevents scheduler panic
+- No copy-on-write for fork() yet (shares parent page table)
+- Simple round-robin scheduler without priorities
 
 ## System Calls
 
@@ -60,7 +62,7 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 #### Process Control (8/12 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
-| **fork** | 2 | 220 (clone) | Implemented | Simplified version (no COW) |
+| **fork** | 2 | 220 (clone) | Implemented | Working with shared page table |
 | **exit** | 1 | 93 | Implemented | Basic cleanup only |
 | wait | 2 | 260 (wait4) | - | No zombie handling |
 | **exec** | 11 | 221 (execve) | Implemented | Hardcoded to shell only |
@@ -217,7 +219,7 @@ Based on current needs for shell and Lisp interpreter:
 | Category | UNIX V6 | Claudia |
 |----------|---------|---------|
 | **Shell** | Bourne shell (sh) | Minimal shell |
-| **Core Utils** | ls, cat, ed, etc. | ls, cat, echo, help, exit, pwd, cd, mkdir, rm, touch, date, id, sleep |
+| **Core Utils** | ls, cat, ed, etc. | [Claudia commands utilities](docs/claudia_commands_utilities.md) |
 | **Lisp Interpreter** | None | Minimal Lisp with strings |
 | **Compiler** | cc (C compiler) | Cross-compiled only |
 | **Assembler** | as | Zig handles assembly |
@@ -255,7 +257,7 @@ Based on current needs for shell and Lisp interpreter:
 | Aspect | UNIX V6 | Claudia |
 |--------|---------|---------|
 | **Language** | C (K&R) | Zig (100% no libc) |
-| **Lines of Code** | ~9,000 | ~13,000 (kernel + userland + assembly) |
+| **Lines of Code** | ~9,000 | ~14,000 (kernel + userland + assembly) |
 | **Build System** | make | Zig build system |
 | **Initrd Tool** | None | mkinitrd.zig |
 
@@ -268,21 +270,24 @@ Based on current needs for shell and Lisp interpreter:
 ## Current Status
 
 Claudia has achieved:
-- Basic kernel with memory management
-- Process creation and scheduling
+- Kernel with paging-based memory management (Sv39)
+- Working multiprocess support with fork() and exec()
+- Context switching with proper privilege mode transitions
+- Idle process prevents scheduler deadlock
 - Simple filesystem with initrd
-- Basic shell and utilities (ls, cat, echo, pwd, cd, mkdir, rm, touch, date, id, sleep)
+- Basic shell and utilities (ls, cat, echo, pwd, cd, mkdir, rm, touch, date, id, sleep, fork_demo)
 - Directory operations (Linux-style openat + getdents64)
 - File removal (unlinkat system call)
 - Device abstraction layer
-- Interrupt handling
+- UART interrupt handling with PLIC
 - Educational Lisp interpreter with functions
-- Time support with hardware timer (CSR readTime)
+- High-precision time support (10MHz timer)
 - Sleep functionality with nanosleep system call
 
 ## Future Plans
 
 1. **Short Term**
+   - Independent page tables for child processes
    - Implement stat/fstatat for file information
    - Add pipe support
    - INode/VNode unification
@@ -291,6 +296,7 @@ Claudia has achieved:
 2. **Medium Term**
    - Signal system
    - Copy-on-write fork
+   - wait() system call for process synchronization
    - Network stack
    - More userland tools
    
@@ -302,6 +308,6 @@ Claudia has achieved:
 
 ## Conclusion
 
-While Claudia exceeds UNIX V6 in code size (~13,000 lines vs ~9,000), this reflects the complexity of modern hardware and the additional safety guarantees provided by Zig. The project successfully demonstrates that V6's elegant design principles can be adapted to modern 64-bit RISC-V systems while maintaining conceptual simplicity.
+While Claudia exceeds UNIX V6 in code size (~14,000 lines vs ~9,000), this reflects the complexity of modern hardware and the additional safety guarantees provided by Zig. The project successfully demonstrates that V6's elegant design principles can be adapted to modern 64-bit RISC-V systems while maintaining conceptual simplicity.
 
 The use of Zig as the implementation language provides memory safety without garbage collection, making it ideal for systems programming. The 100% libc-free implementation ensures complete control over the system's behavior and dependencies.

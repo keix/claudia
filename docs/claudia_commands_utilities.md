@@ -2,6 +2,8 @@
 A shell is but a whisper to the kernel.  
 Each command, a small spell, shaping the machine.
 
+This document describes the commands available in Claudia's shell environment. All commands are implemented as part of the shell binary and executed within the same process (no fork/exec for built-in commands yet).
+
 ## Available Commands
 
 | Command | Description | Usage | Notes |
@@ -14,11 +16,14 @@ Each command, a small spell, shaping the machine.
 | `fstat` | Show file information | `fstat <file>` | Shows type, size, permissions |
 | `help` | List available commands | `help` | Shows command list |
 | `id` | Show user/group IDs | `id` | Always shows root (uid=0 gid=0) |
+| `lisp` | Run Lisp interpreter | `lisp [file]` | Interactive REPL or run file |
 | `ls` | List directory contents | `ls [directory]` | Color support, shows file types |
 | `mkdir` | Create directory | `mkdir <directory>...` | Creates in VFS |
 | `pid` | Show current process ID | `pid` | Shows current PID |
 | `pwd` | Print working directory | `pwd` | Shows absolute path |
-| `seek` | Test file seeking | `seek` | File seek demonstration |
+| `rm` | Remove files or directories | `rm <file>...` | Removes from VFS |
+| `seek` | Demonstrate file seeking | `seek` | Shows lseek functionality |
+| `sleep` | Delay for specified seconds | `sleep <seconds>` | Uses nanosleep system call |
 | `touch` | Create files or update timestamps | `touch <file>...` | Creates empty files |
 
 ## Command Details
@@ -27,6 +32,7 @@ Each command, a small spell, shaping the machine.
 - **cat**: Reads and displays file contents to stdout
 - **touch**: Creates empty files in VFS, updates timestamps if exists
 - **fstat**: Shows file metadata (type, size, permissions)
+- **rm**: Removes files or empty directories from VFS
 
 ### Directory Operations  
 - **ls**: Lists directory contents with color coding
@@ -43,20 +49,31 @@ Each command, a small spell, shaping the machine.
 - **id**: Shows user and group IDs (always root in single-user system)
 - **pid**: Displays current process ID
 
+### Process Management
+- **sleep**: Suspends execution for specified number of seconds
+
+### Programming
+- **lisp**: Launches the Lisp interpreter
+  - Without arguments: Interactive REPL mode
+  - With filename: Executes Lisp script
+
 ### Shell Built-ins
 - **echo**: Prints arguments to stdout
 - **help**: Lists all available commands
 - **exit**: Exits the shell and returns to init
+- **seek**: Demonstrates file seeking operations
 
 ## Planned Commands
 
 | Command | Description | Priority |
 |---------|-------------|----------|
 | `cp` | Copy files | High |
-| `rm` | Remove files | High |
 | `mv` | Move/rename files | Medium |
 | `ps` | List processes | Medium |
+| `wait` | Wait for child process | Medium |
 | `kill` | Send signals to processes | Low |
 | `head` | Display first lines | Low |
 | `tail` | Display last lines | Low |
 | `wc` | Count lines/words/chars | Low |
+| `chmod` | Change file permissions | Low |
+| `ln` | Create links | Low |
