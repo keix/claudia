@@ -167,6 +167,18 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
         const old_satp = current.context.satp;
         current.context.satp = satp_value;
 
+        // Free old page table if process had one (exec replaces address space)
+        if (current.page_table_ppn != 0) {
+            var old_page_table = virtual.PageTable{
+                .root_ppn = current.page_table_ppn,
+                .debug_watchdog_active = false,
+            };
+            old_page_table.deinit();
+        }
+
+        // Store the new page table PPN for cleanup on exit
+        current.page_table_ppn = user_ppn;
+
         // Also update the current CPU's SATP immediately if we're running on this process
         const current_cpu_satp = csr.readSatp();
         if (current_cpu_satp == old_satp) {

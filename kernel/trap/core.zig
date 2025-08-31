@@ -192,6 +192,11 @@ pub export fn trapHandler(frame: *TrapFrame) void {
 fn interruptHandler(frame: *TrapFrame, code: u64) void {
     _ = frame;
     switch (code) {
+        csr.Interrupt.SupervisorTimer => {
+            // Handle timer interrupt
+            const timer = @import("../time/timer.zig");
+            timer.checkSleepers();
+        },
         csr.Interrupt.SupervisorExternal => {
             // Handle external interrupt via PLIC
             handlePLICInterrupt();

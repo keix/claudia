@@ -2,12 +2,13 @@
 // Very basic implementation with fixed-size file table
 const std = @import("std");
 const blockdev = @import("../driver/blockdev.zig");
+const config = @import("../config.zig");
 
 // Filesystem constants
 const MAGIC: u32 = 0x53494D50; // 'SIMP'
 const MAX_FILES: u32 = 32; // Increased to allow more files
 const MAX_FILENAME: u32 = 60; // Increased for longer filenames
-const DATA_START_BLOCK: u32 = 9; // After superblock (1) and file table (32*128=4096 bytes = 8 blocks)
+const DATA_START_BLOCK: u32 = config.FileSystem.SIMPLEFS_DATA_START_BLOCK; // After superblock and bitmap blocks
 
 // On-disk structures
 pub const SuperBlock = extern struct {

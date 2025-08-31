@@ -1,7 +1,5 @@
 // Block device interface for Claudia
 const std = @import("std");
-const file = @import("../file/core.zig");
-const vfs = @import("../fs/vfs.zig");
 
 // Block device constants
 pub const BLOCK_SIZE: usize = 512; // Standard sector size
@@ -50,31 +48,3 @@ pub const BlockDevice = struct {
         return self.ops.get_size(self);
     }
 };
-
-// File operations wrapper for block devices
-pub const BlockFileOps = file.types.FileOperations{
-    .read = blockRead,
-    .write = blockWrite,
-    .close = blockClose,
-};
-
-var block_file_pos: u64 = 0; // Simple position tracking
-
-fn blockRead(f: *file.types.File, buffer: []u8) isize {
-    _ = f;
-    _ = buffer;
-    // TODO: Implement block-aligned reads
-    return 0;
-}
-
-fn blockWrite(f: *file.types.File, data: []const u8) isize {
-    _ = f;
-    _ = data;
-    // TODO: Implement block-aligned writes
-    return 0;
-}
-
-fn blockClose(f: *file.types.File) void {
-    _ = f;
-    block_file_pos = 0;
-}

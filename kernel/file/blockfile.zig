@@ -49,7 +49,9 @@ const BlockFileOps = core.FileOperations{
 };
 
 fn blockRead(file: *core.File, buffer: []u8) isize {
-    const bf: *BlockFile = @alignCast(@fieldParentPtr("file", file));
+    // Get BlockFile from File pointer using offset calculation
+    const bf_ptr = @intFromPtr(file) - @offsetOf(BlockFile, "file");
+    const bf: *BlockFile = @alignCast(@as(*BlockFile, @ptrFromInt(bf_ptr)));
 
     // Check if this is a SimpleFS file read
     const simplefs_ops = @import("../fs/simplefs_ops.zig");
@@ -79,7 +81,9 @@ fn blockRead(file: *core.File, buffer: []u8) isize {
 }
 
 fn blockWrite(file: *core.File, data: []const u8) isize {
-    const bf: *BlockFile = @alignCast(@fieldParentPtr("file", file));
+    // Get BlockFile from File pointer using offset calculation
+    const bf_ptr = @intFromPtr(file) - @offsetOf(BlockFile, "file");
+    const bf: *BlockFile = @alignCast(@as(*BlockFile, @ptrFromInt(bf_ptr)));
 
     // Check if this is a SimpleFS command (first byte >= 0x00 and <= 0x03)
     if (data.len > 0 and data[0] >= 0x00 and data[0] <= 0x03) {
@@ -128,13 +132,17 @@ fn blockWrite(file: *core.File, data: []const u8) isize {
 }
 
 fn blockClose(file: *core.File) void {
-    const bf: *BlockFile = @alignCast(@fieldParentPtr("file", file));
+    // Get BlockFile from File pointer using offset calculation
+    const bf_ptr = @intFromPtr(file) - @offsetOf(BlockFile, "file");
+    const bf: *BlockFile = @alignCast(@as(*BlockFile, @ptrFromInt(bf_ptr)));
     bf.pos = 0;
     // Note: We don't free the BlockFile here as it's statically allocated
 }
 
 fn blockLseek(file: *core.File, offset: i64, whence: u32) isize {
-    const bf: *BlockFile = @alignCast(@fieldParentPtr("file", file));
+    // Get BlockFile from File pointer using offset calculation
+    const bf_ptr = @intFromPtr(file) - @offsetOf(BlockFile, "file");
+    const bf: *BlockFile = @alignCast(@as(*BlockFile, @ptrFromInt(bf_ptr)));
     return bf.lseek(offset, whence);
 }
 

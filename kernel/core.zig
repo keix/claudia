@@ -2,6 +2,7 @@
 // Coordinates initialization of all kernel subsystems
 
 const std = @import("std");
+const config = @import("config.zig");
 
 // Architecture specific
 const csr = @import("arch/riscv/csr.zig");
@@ -18,6 +19,7 @@ const vfs = @import("fs/vfs.zig");
 const uart = @import("driver/uart/core.zig");
 const plic = @import("driver/plic.zig");
 const ramdisk = @import("driver/ramdisk.zig");
+const timer = @import("time/timer.zig");
 
 // Boot
 const initrd = @import("boot/initrd.zig");
@@ -25,12 +27,15 @@ const initrd = @import("boot/initrd.zig");
 // Boot-time memory allocation
 // Simple stack allocator for initial kernel processes
 // This is used before the heap is fully initialized
-var boot_stack_memory: [4096 * 4]u8 = undefined;
+var boot_stack_memory: [config.MemoryLayout.BOOT_STACK_SIZE]u8 = undefined; // Boot stack for init process
 var boot_stack_offset: usize = 0;
 
 fn allocBootStack(size: usize) []u8 {
     const aligned_size = (size + 7) & ~@as(usize, 7); // 8-byte align
     if (boot_stack_offset + aligned_size > boot_stack_memory.len) {
+        uart.puts("[ERROR] allocBootStack: Out of memory, requested ");
+        uart.putDec(size);
+        uart.puts(" bytes\n");
         return &[_]u8{}; // Out of memory
     }
 
@@ -101,6 +106,9 @@ fn initCoreSubsystems() void {
     // Initialize trap handling
     trap.init();
 
+    // Initialize timer system
+    timer.init();
+
     // Initialize user subsystem
     user.init();
 
@@ -117,8 +125,9 @@ fn initInterrupts() void {
     // Enable supervisor external interrupts for UART
     csr.enableInterrupts();
 
-    // Enable external interrupts in SIE
-    csr.csrs(csr.CSR.sie, 1 << 9); // SEIE bit
+    // Enable external and timer interrupts in SIE
+    csr.csrs(csr.CSR.sie, config.Interrupt.SEIE_BIT); // External interrupt enable
+    csr.csrs(csr.CSR.sie, config.Interrupt.STIE_BIT); // Timer interrupt enable
 
     // Initialize PLIC for external interrupts
     plic.init();
@@ -154,20 +163,12 @@ fn createInitProcess() void {
 
     // Create the init process
     if (proc.Scheduler.allocProcess("init", kernel_stack)) |init_proc| {
-        // Set up process to run user mode shell
-        setupUserProcess(init_proc);
-
         // Make the process runnable
+        // User mode setup happens when the process runs
         proc.Scheduler.makeRunnable(init_proc);
     } else {
         halt("Failed to create init process");
     }
-}
-
-fn setupUserProcess(process: *proc.Process) void {
-    // Mark process for user mode execution
-    // The actual user mode setup happens when the process runs
-    _ = process;
 }
 
 // Idle process support
