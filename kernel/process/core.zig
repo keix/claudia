@@ -307,7 +307,7 @@ pub const Scheduler = struct {
     }
 
     // Internal scheduler for exit() - must have current process
-    fn schedInternal() void {
+    fn scheduleInternal() void {
         const proc = current_process orelse unreachable;
 
         // Find next runnable process
@@ -395,12 +395,12 @@ pub const Scheduler = struct {
                 proc.page_table_ppn = 0;
             }
 
-            // Don't set current_process to null before calling schedInternal()
-            // schedInternal() needs it for context switching
-            schedInternal(); // This will switch to another process and never return
+            // Don't set current_process to null before calling scheduleInternal()
+            // scheduleInternal() needs it for context switching
+            scheduleInternal(); // This will switch to another process and never return
 
             // This should never be reached
-            uart.puts("[EXIT] ERROR: schedInternal() returned!\n");
+            uart.puts("[EXIT] ERROR: scheduleInternal() returned!\n");
             unreachable;
         }
     }
