@@ -56,7 +56,7 @@ pub fn sys_sched_yield() isize {
 
 // sys_getpid implementation
 pub fn sys_getpid() isize {
-    const current = proc.current_process orelse return defs.ESRCH;
+    const current = proc.Scheduler.getCurrentProcess() orelse return defs.ESRCH;
     return @intCast(current.pid);
 }
 

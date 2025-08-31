@@ -7,7 +7,7 @@ const vfs = @import("../fs/vfs.zig");
 
 // sys_getcwd implementation
 pub fn sys_getcwd(buf_addr: usize, size: usize) isize {
-    const current = proc.current_process orelse return defs.ESRCH;
+    const current = proc.Scheduler.getCurrentProcess() orelse return defs.ESRCH;
 
     // Check if buffer size is sufficient
     if (size == 0) return defs.EINVAL;
@@ -21,7 +21,7 @@ pub fn sys_getcwd(buf_addr: usize, size: usize) isize {
 
 // sys_chdir implementation
 pub fn sys_chdir(path_addr: usize) isize {
-    const current = proc.current_process orelse return defs.ESRCH;
+    const current = proc.Scheduler.getCurrentProcess() orelse return defs.ESRCH;
 
     // Copy path from user space
     var path_buf: [256]u8 = undefined;

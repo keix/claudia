@@ -528,11 +528,11 @@ pub const FileTable = struct {
             abs_path = path;
         } else if (path.len == 1 and path[0] == '.') {
             // Current directory
-            const process = proc.current_process orelse return defs.ESRCH;
+            const process = proc.Scheduler.getCurrentProcess() orelse return defs.ESRCH;
             abs_path = process.cwd[0..process.cwd_len];
         } else {
             // Relative path - prepend current directory
-            const process = proc.current_process orelse return defs.ESRCH;
+            const process = proc.Scheduler.getCurrentProcess() orelse return defs.ESRCH;
             const cwd_len = process.cwd_len;
 
             // Check buffer size
@@ -580,7 +580,7 @@ pub const FileTable = struct {
                 }
             } else {
                 // No directory specified, use current directory
-                const process = proc.current_process orelse return defs.ESRCH;
+                const process = proc.Scheduler.getCurrentProcess() orelse return defs.ESRCH;
                 const cwd = process.cwd[0..process.cwd_len];
                 if (vfs.createFile(cwd, abs_path)) |new_node| {
                     node = new_node;
