@@ -186,16 +186,6 @@ const TTY = struct {
         };
     }
 
-    fn putChar(self: *TTY, ch: u8) void {
-        if (self.input_buffer.put(ch)) {
-            // Wake up any processes waiting for input
-            proc.Scheduler.wakeAll(&self.read_wait);
-        }
-    }
-
-    fn getChar(self: *TTY) ?u8 {
-        return self.input_buffer.get();
-    }
 
     fn getCharAtomic(self: *TTY) ?u8 {
         const csr = @import("../arch/riscv/csr.zig");
