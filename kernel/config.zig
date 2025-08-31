@@ -83,6 +83,22 @@ pub const Console = struct {
     pub const TTY_MAGIC: u32 = 0xDEADBEEF;
 };
 
+// Process management configuration
+pub const Process = struct {
+    // Maximum number of processes
+    pub const MAX_PROCESSES: usize = 64;
+    
+    // Child process resource pools
+    pub const CHILD_POOL_SIZE: usize = 8;
+    pub const CHILD_STACK_SIZE: usize = 4096;
+    
+    // Process name length
+    pub const NAME_LENGTH: usize = 16;
+    
+    // Current working directory length
+    pub const CWD_LENGTH: usize = 256;
+};
+
 // Debug configuration
 pub const Debug = struct {
     // Enable verbose boot messages

@@ -8,6 +8,7 @@ const trap = @import("../trap/core.zig");
 const user = @import("../user/core.zig");
 const defs = @import("abi");
 const timer = @import("../time/timer.zig");
+const config = @import("../config.zig");
 
 // Process ID type
 pub const PID = u32;
@@ -24,6 +25,15 @@ pub const ProcessState = enum {
     RUNNING, // Currently running
     ZOMBIE, // Terminated but not yet cleaned up
 };
+
+// Helper functions for process state checks
+inline fn isSchedulable(proc: *const Process) bool {
+    return proc.state != .ZOMBIE and proc.state != .UNUSED;
+}
+
+inline fn isTerminated(proc: *const Process) bool {
+    return proc.state == .ZOMBIE or proc.state == .UNUSED;
+}
 
 // Wait queue for blocking I/O
 pub const WaitQ = struct {
@@ -84,11 +94,11 @@ pub const Process = struct {
     context: Context, // CPU context for kernel-level switching
     user_frame: ?*trap.TrapFrame, // User mode trap frame (null for kernel processes)
     stack: []u8, // Process stack
-    name: [16]u8, // Process name (null-terminated)
+    name: [config.Process.NAME_LENGTH]u8, // Process name (null-terminated)
     parent: ?*Process, // Parent process
     exit_code: i32, // Exit code when zombie
     is_kernel: bool, // Kernel-only process flag
-    cwd: [256]u8, // Current working directory
+    cwd: [config.Process.CWD_LENGTH]u8, // Current working directory
     cwd_len: usize, // Length of current working directory
     page_table_ppn: u64, // Physical page number of page table root (0 = kernel PT)
 
@@ -102,11 +112,11 @@ pub const Process = struct {
             .context = Context.zero(),
             .user_frame = null,
             .stack = stack,
-            .name = std.mem.zeroes([16]u8),
+            .name = std.mem.zeroes([config.Process.NAME_LENGTH]u8),
             .parent = null,
             .exit_code = 0,
             .is_kernel = false,
-            .cwd = std.mem.zeroes([256]u8),
+            .cwd = std.mem.zeroes([config.Process.CWD_LENGTH]u8),
             .cwd_len = 1,
             .page_table_ppn = 0, // Default to kernel page table
             .next = null,
@@ -133,8 +143,7 @@ pub const Process = struct {
 };
 
 // Simple process table
-const MAX_PROCESSES = 64;
-var process_table: [MAX_PROCESSES]Process = undefined;
+var process_table: [config.Process.MAX_PROCESSES]Process = undefined;
 var next_pid: PID = 1;
 
 // Current running process
@@ -158,16 +167,16 @@ fn enqueueProcess(proc: *Process) void {
 }
 
 // Simple stack allocator for child processes
-var child_stack_pool: [8][4096]u8 = undefined;
-var child_stack_used: [8]bool = [_]bool{false} ** 8;
+var child_stack_pool: [config.Process.CHILD_POOL_SIZE][config.Process.CHILD_STACK_SIZE]u8 = undefined;
+var child_stack_used: [config.Process.CHILD_POOL_SIZE]bool = [_]bool{false} ** config.Process.CHILD_POOL_SIZE;
 
 // Trap frame pool for child processes
-var child_frame_pool: [8]trap.TrapFrame = undefined;
-var child_frame_used: [8]bool = [_]bool{false} ** 8;
+var child_frame_pool: [config.Process.CHILD_POOL_SIZE]trap.TrapFrame = undefined;
+var child_frame_used: [config.Process.CHILD_POOL_SIZE]bool = [_]bool{false} ** config.Process.CHILD_POOL_SIZE;
 
 // Idle process resources
 var idle_process: Process = undefined;
-var idle_stack: [4096]u8 align(16) = undefined;
+var idle_stack: [config.Process.CHILD_STACK_SIZE]u8 align(16) = undefined;
 
 // Process scheduler
 pub const Scheduler = struct {
@@ -221,7 +230,7 @@ pub const Scheduler = struct {
         }
 
         // Not eligible for scheduling (terminated or unused)
-        if (proc.state == .ZOMBIE or proc.state == .UNUSED) {
+        if (isTerminated(proc)) {
             // Not eligible for scheduling (terminated or unused)
             return;
         }
@@ -276,7 +285,6 @@ pub const Scheduler = struct {
             // When we return here, this process has been rescheduled
         } else {
             // No runnable process - switch to idle process
-            // No runnable process - switch to idle process
 
             // DEBUG: Check idle process setup
             uart.puts("[SCHED] Switching to idle, context.ra=0x");
@@ -316,7 +324,6 @@ pub const Scheduler = struct {
 
                 return next;
             } else {
-                // No other runnable process - switch to idle
                 // No other runnable process - switch to idle
                 idle_process.state = .RUNNING;
                 current_process = &idle_process;
@@ -565,7 +572,6 @@ pub const Scheduler = struct {
 
             // We return here when this process runs again
         } else {
-            // No runnable process - switch to idle
             // No runnable process - switch to idle
             idle_process.state = .RUNNING;
             current_process = &idle_process;
@@ -853,11 +859,22 @@ fn idleLoop() noreturn {
         // Check if any process became runnable
         if (ready_queue_head != null) {
             // Something is runnable, yield to scheduler
-            // Something is runnable, yield to scheduler
             Scheduler.yield();
         }
 
         // Wait for interrupt
+        csr.wfi();
+    }
+}
+
+// Handle fatal errors with consistent message format
+fn fatalError(comptime context: []const u8, msg: []const u8) noreturn {
+    uart.puts("[");
+    uart.puts(context);
+    uart.puts("] ERROR: ");
+    uart.puts(msg);
+    uart.puts("\n");
+    while (true) {
         csr.wfi();
     }
 }
