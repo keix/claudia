@@ -41,10 +41,9 @@ pub fn main(args: *const utils.Args) void {
         return;
     };
 
-
     if (pid == 0) {
         // Child process
-        utils.writeStr("C");  // Simple marker
+        utils.writeStr("C"); // Simple marker
         sys.exit(0);
     } else {
         // Parent process

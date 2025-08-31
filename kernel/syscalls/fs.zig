@@ -10,6 +10,11 @@ var file_read: ?*const fn (*anyopaque, []u8) isize = null;
 var file_close: ?*const fn (i32) isize = null;
 var file_open: ?*const fn ([]const u8, u32, u16) isize = null;
 
+// Helper to get function pointer or return ENOSYS
+inline fn requireFn(comptime T: type, ptr: ?T) !T {
+    return ptr orelse return error.NotImplemented;
+}
+
 // Initialize file system function pointers
 pub fn init(
     getFile: *const fn (i32) ?*anyopaque,
@@ -29,15 +34,8 @@ pub fn setOpenFn(openFn: *const fn ([]const u8, u32, u16) isize) void {
 }
 
 pub fn sys_write(fd: usize, ubuf: usize, len: usize) isize {
-    // const uart = @import("../driver/uart/core.zig");
-    // uart.puts("[sys_write] called with fd=");
-    // uart.putDec(fd);
-    // uart.puts(", len=");
-    // uart.putDec(len);
-    // uart.puts("\n");
-
-    const getFile = file_getFile orelse return defs.ENOSYS;
-    const writeFile = file_write orelse return defs.ENOSYS;
+    const getFile = requireFn(@TypeOf(file_getFile.?), file_getFile) catch return defs.ENOSYS;
+    const writeFile = requireFn(@TypeOf(file_write.?), file_write) catch return defs.ENOSYS;
 
     const f = getFile(@as(i32, @intCast(fd))) orelse return defs.EBADF;
     var tmp: [256]u8 = undefined;
@@ -48,13 +46,7 @@ pub fn sys_write(fd: usize, ubuf: usize, len: usize) isize {
     while (left > 0) {
         const n = if (left > tmp.len) tmp.len else left;
         if (copy.copyin(tmp[0..n], ubuf + off)) |_| {} else |_| return defs.EFAULT;
-        // uart.puts("[sys_write] About to call writeFile with ");
-        // uart.putDec(n);
-        // uart.puts(" bytes\n");
         const w = writeFile(f, tmp[0..n]);
-        // uart.puts("[sys_write] writeFile returned: ");
-        // uart.putDec(@as(usize, @bitCast(w)));
-        // uart.puts("\n");
         if (w < 0) return w;
         const written = @as(usize, @intCast(w));
         done += written;
@@ -72,8 +64,8 @@ pub fn sys_write(fd: usize, ubuf: usize, len: usize) isize {
 }
 
 pub fn sys_read(fd: usize, ubuf: usize, len: usize) isize {
-    const getFile = file_getFile orelse return defs.ENOSYS;
-    const readFile = file_read orelse return defs.ENOSYS;
+    const getFile = requireFn(@TypeOf(file_getFile.?), file_getFile) catch return defs.ENOSYS;
+    const readFile = requireFn(@TypeOf(file_read.?), file_read) catch return defs.ENOSYS;
 
     const f = getFile(@as(i32, @intCast(fd))) orelse return defs.EBADF;
 
@@ -104,7 +96,7 @@ pub fn sys_read(fd: usize, ubuf: usize, len: usize) isize {
 }
 
 pub fn sys_close(fd: usize) isize {
-    const closeFile = file_close orelse return defs.ENOSYS;
+    const closeFile = requireFn(@TypeOf(file_close.?), file_close) catch return defs.ENOSYS;
     return closeFile(@as(i32, @intCast(fd)));
 }
 
@@ -112,7 +104,7 @@ pub fn sys_close(fd: usize) isize {
 const AT_FDCWD: isize = -100;
 
 pub fn sys_openat(dirfd: usize, pathname: usize, flags: usize, mode: usize) isize {
-    const openFile = file_open orelse return defs.ENOSYS;
+    const openFile = requireFn(@TypeOf(file_open.?), file_open) catch return defs.ENOSYS;
 
     // For now, only support AT_FDCWD (ignore dirfd)
     const fd = @as(isize, @bitCast(dirfd));

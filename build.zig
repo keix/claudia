@@ -445,7 +445,7 @@ pub fn build(b: *std.Build) void {
 
     // RISC-V specific: use medany code model
     kernel.root_module.code_model = .medium;
-    
+
     // Disable GP relaxation to prevent GP-relative addressing issues
     kernel.root_module.addCMacro("__riscv_no_relax", "1");
 

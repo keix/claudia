@@ -137,7 +137,6 @@ fn fileOpen(path: []const u8, flags: u32, mode: u16) isize {
 
 // Main trap handler called from assembly
 pub export fn trapHandler(frame: *TrapFrame) void {
-    
     const cause = frame.scause;
     const is_interrupt = (cause & (1 << 63)) != 0;
     const exception_code = cause & 0x7FFFFFFFFFFFFFFF;
@@ -223,7 +222,7 @@ fn handlePLICInterrupt() void {
 
 fn handlePageFault(frame: *TrapFrame, code: u64) void {
     const fault_addr = frame.stval;
-    
+
     // DEBUG: Print page fault details
     uart.puts("[PAGEFAULT] type=");
     if (code == @intFromEnum(ExceptionCause.InstructionPageFault)) {
@@ -237,7 +236,7 @@ fn handlePageFault(frame: *TrapFrame, code: u64) void {
     uart.putHex(fault_addr);
     uart.puts(" from PC=0x");
     uart.putHex(frame.sepc);
-    
+
     // Check if we're in user or kernel mode
     const sstatus = csr.readSstatus();
     const spp = (sstatus >> 8) & 1;
@@ -246,13 +245,13 @@ fn handlePageFault(frame: *TrapFrame, code: u64) void {
     } else {
         uart.puts(" (KERNEL MODE)");
     }
-    
+
     // Check which process
     if (proc.Scheduler.getCurrentProcess()) |current| {
         uart.puts(" PID=");
         uart.putDec(current.pid);
     }
-    
+
     uart.puts("\n");
 
     // Determine if this is a kernel or user address
@@ -374,7 +373,7 @@ fn handlePageFault(frame: *TrapFrame, code: u64) void {
 
     // DEBUG: Page fault not resolved
     uart.puts("[PAGEFAULT] Unresolved page fault, halting\n");
-    
+
     // Halt the system after printing debug info
     while (true) {
         csr.wfi();
@@ -418,7 +417,6 @@ fn syscallHandler(frame: *TrapFrame) void {
         frame.a0 = @bitCast(@as(isize, defs.ESRCH));
         return;
     };
-    
 
     // Associate trap frame with current process
     current.user_frame = frame;
@@ -433,5 +431,4 @@ fn syscallHandler(frame: *TrapFrame) void {
     // Use full dispatcher
     const result = dispatch.call(syscall_num, frame.a0, frame.a1, frame.a2, frame.a3, frame.a4);
     frame.a0 = @bitCast(result);
-    
 }

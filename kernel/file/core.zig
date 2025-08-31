@@ -186,7 +186,6 @@ const TTY = struct {
         };
     }
 
-
     fn getCharAtomic(self: *TTY) ?u8 {
         const csr = @import("../arch/riscv/csr.zig");
 
