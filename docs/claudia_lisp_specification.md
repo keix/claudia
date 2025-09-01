@@ -71,9 +71,12 @@ Claudia Lisp follows Scheme/Lisp-1 conventions:
    (+ 1 (* 2 3))   ; nested lists
    ```
 
-5. **Strings**: Double-quoted text (limited support)
+5. **Strings**: Double-quoted text with escape sequences
    ```lisp
    "Hello, World!"
+   "Line 1\nLine 2"  ; newline
+   "Tab\there"       ; tab
+   "Quote: \"text\"" ; escaped quotes
    ```
 
 ### Whitespace
@@ -104,9 +107,14 @@ Space, tab, newline, and carriage return are treated as delimiters.
    Nil: void
    ```
 
+5. **String**: Text data
+   ```zig
+   String: []const u8
+   ```
+
 ### Composite Types
 
-1. **List**: Linked list of values
+1. **List**: Fixed-size array of values
    ```zig
    List: struct {
        items: [32]LispValue,
@@ -114,12 +122,19 @@ Space, tab, newline, and carriage return are treated as delimiters.
    }
    ```
 
-2. **Function**: User-defined functions
+2. **Cons**: Cons cell for pairs
+   ```zig
+   Cons: struct {
+       car: LispValue,
+       cdr: LispValue,
+   }
+   ```
+
+3. **Function**: User-defined functions
    ```zig
    Function: struct {
        params: *List,
-       body: *LispValue,
-       env: *Environment,
+       body: LispValue,
    }
    ```
 
@@ -180,6 +195,8 @@ Prevents evaluation of an expression.
 (quote (1 2 3))    ; => (1 2 3) (list)
 ```
 
+Note: The shorthand `'` notation is not currently implemented. Use the full `(quote ...)` form.
+
 ## Built-in Functions
 
 ### Arithmetic
@@ -214,19 +231,23 @@ Examples:
 ### List Operations
 
 ```lisp
-(cons a lst)     ; construct list with a as head
-(car lst)        ; first element (head)
-(cdr lst)        ; rest of list (tail)
-(list a b ...)   ; create list from elements
+(cons a b)       ; construct cons cell (pair)
+(car lst)        ; first element (works on lists and cons cells)
+(cdr lst)        ; rest of list/second element (works on lists and cons cells)
 ```
 
 Examples:
 ```lisp
-(cons 1 '(2 3))  ; => (1 2 3)
+(cons 1 2)       ; => (1 . 2)  [cons cell with dot notation]
+(cons 1 nil)     ; => (1)      [list with single element]
+(cons 1 (cons 2 nil)) ; => (1 2) [proper list]
 (car '(1 2 3))   ; => 1
 (cdr '(1 2 3))   ; => (2 3)
-(list 1 2 3)     ; => (1 2 3)
+(car (cons 1 2)) ; => 1
+(cdr (cons 1 2)) ; => 2
 ```
+
+Note: The `list` function is not currently implemented. Use nested `cons` with `nil` terminator to create lists.
 
 ### Logical Operations
 
@@ -239,8 +260,14 @@ Examples:
 ### I/O Functions
 
 ```lisp
-(print expr)     ; print expression and return it
-(load "file")    ; load and evaluate file
+(print expr ...)  ; print expressions separated by spaces
+(load "file")     ; load and evaluate file
+```
+
+Examples:
+```lisp
+(print "Hello" "World")  ; => Hello World
+(print "x =" (+ 1 2))    ; => x = 3
 ```
 
 ## Evaluation Rules
@@ -299,11 +326,17 @@ Global Memory (32KB):
 +------------------+
 |  Global Buffer   |  <- Fixed allocation pool
 +------------------+
-|  Environments    |  <- Variable bindings
+|  Variable Names  |  <- Symbol storage
 +------------------+
-|  Lists           |  <- Cons cells
+|  Variable Values |  <- Bound values
 +------------------+
-|  Functions       |  <- Lambda closures
+|  Lists           |  <- Fixed-size lists
++------------------+
+|  Cons Cells      |  <- Pairs (car/cdr)
++------------------+
+|  Functions       |  <- Lambda definitions
++------------------+
+|  Strings         |  <- String data
 +------------------+
 ```
 
@@ -353,17 +386,19 @@ Located at `/lib/std.lisp`:
 ### Hard Limits
 
 1. **Memory**: 32KB total allocation
-2. **List Size**: Maximum 32 elements
-3. **Recursion**: ~100 levels (stack limited)
-4. **Symbol Length**: 255 characters
-5. **Environment Depth**: ~10 levels
-6. **Input Line**: 512 characters
+2. **List Size**: Maximum 32 elements per List structure
+3. **Variables**: Maximum 128 global variables
+4. **Recursion**: ~100 levels (stack limited)
+5. **Symbol Length**: Limited by available memory
+6. **Input Line**: 256 characters
+7. **String Length**: Limited by available memory
 
 ### Soft Limits
 
-1. **Number Range**: -2^63 to 2^63-1
+1. **Number Range**: -2^31 to 2^31-1 (32-bit integers)
 2. **Function Parameters**: Recommended < 10
 3. **Expression Nesting**: Recommended < 20
+4. **Cons Cell Chains**: Limited by memory
 
 ## Examples
 
@@ -383,6 +418,23 @@ lisp> (defun square (x) (* x x))
 <function>
 lisp> (square 5)
 25
+```
+
+### Cons Cells and Lists
+
+```lisp
+lisp> (cons 1 2)
+(1 . 2)
+lisp> (cons 1 (cons 2 nil))
+(1 2)
+lisp> (car (cons 1 2))
+1
+lisp> (cdr (cons 1 2))
+2
+lisp> (car (quote (a b c)))
+a
+lisp> (cdr (quote (a b c)))
+(b c)
 ```
 
 ### FizzBuzz

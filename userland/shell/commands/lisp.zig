@@ -40,9 +40,16 @@ const Atom = union(enum) {
     Symbol: []const u8,
     Boolean: bool,
     String: []const u8,
+    Nil: void, // Explicit nil type
 };
 
-// List structure
+// Cons cell structure
+const Cons = struct {
+    car: LispValue,
+    cdr: LispValue,
+};
+
+// List structure (for compatibility, will be phased out)
 const List = struct {
     items: [32]LispValue, // Fixed size
     len: usize,
@@ -57,6 +64,7 @@ const Function = struct {
 // Lisp value
 const LispValue = union(enum) {
     Atom: Atom,
+    Cons: *Cons,
     List: *List,
     Function: *Function,
 
@@ -72,7 +80,13 @@ const LispValue = union(enum) {
                         utils.writeStr(s);
                         utils.writeStr("\"");
                     },
+                    .Nil => utils.writeStr("nil"),
                 }
+            },
+            .Cons => |cons_cell| {
+                utils.writeStr("(");
+                printConsCell(cons_cell);
+                utils.writeStr(")");
             },
             .List => |list| {
                 utils.writeStr("(");
@@ -88,6 +102,104 @@ const LispValue = union(enum) {
         }
     }
 };
+
+// Helper function to print cons cells with proper formatting
+fn printConsCell(cons_cell: *Cons) void {
+    cons_cell.car.print();
+
+    // Check cdr
+    switch (cons_cell.cdr) {
+        .Atom => |atom| {
+            switch (atom) {
+                .Nil => {}, // Don't print anything for nil terminator
+                else => {
+                    utils.writeStr(" . ");
+                    cons_cell.cdr.print();
+                },
+            }
+        },
+        .Cons => |next| {
+            utils.writeStr(" ");
+            printConsCell(next);
+        },
+        else => {
+            utils.writeStr(" . ");
+            cons_cell.cdr.print();
+        },
+    }
+}
+
+// Cons cell operations
+fn cons(car_val: LispValue, cdr_val: LispValue) ?LispValue {
+    const cell = allocAligned(Cons) orelse return null;
+    cell.car = car_val;
+    cell.cdr = cdr_val;
+    return LispValue{ .Cons = cell };
+}
+
+fn car(value: LispValue) ?LispValue {
+    switch (value) {
+        .Cons => |cell| return cell.car,
+        .List => |list| {
+            if (list.len == 0) return null;
+            return list.items[0];
+        },
+        else => return null, // Error: not a list or cons cell
+    }
+}
+
+fn cdr(value: LispValue) ?LispValue {
+    switch (value) {
+        .Cons => |cell| return cell.cdr,
+        .List => |list| {
+            if (list.len <= 1) return makeNil();
+            // Create a new list with remaining elements
+            const new_list = allocAligned(List) orelse return null;
+            new_list.len = list.len - 1;
+            for (1..list.len) |i| {
+                new_list.items[i - 1] = list.items[i];
+            }
+            return LispValue{ .List = new_list };
+        },
+        else => return null, // Error: not a list or cons cell
+    }
+}
+
+// Create a nil value
+fn makeNil() LispValue {
+    return LispValue{ .Atom = .{ .Nil = {} } };
+}
+
+// Convert cons cells to List for compatibility
+fn consToList(cons_val: LispValue) ?*List {
+    const list_ptr = allocAligned(List) orelse return null;
+    list_ptr.len = 0;
+
+    var current = cons_val;
+    while (true) {
+        switch (current) {
+            .Cons => |cons_cell| {
+                if (list_ptr.len >= list_ptr.items.len) return null; // List full
+                list_ptr.items[list_ptr.len] = cons_cell.car;
+                list_ptr.len += 1;
+                current = cons_cell.cdr;
+            },
+            .Atom => |atom| {
+                switch (atom) {
+                    .Nil => return list_ptr, // Proper list termination
+                    else => {
+                        // Improper list (dotted pair)
+                        if (list_ptr.len >= list_ptr.items.len) return null;
+                        list_ptr.items[list_ptr.len] = current;
+                        list_ptr.len += 1;
+                        return list_ptr;
+                    },
+                }
+            },
+            else => return null,
+        }
+    }
+}
 
 // Environment (symbol table)
 const MAX_VARS = 32;
@@ -223,6 +335,7 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
     } else if (input[pos.*] == '(') {
         // Parse list
         pos.* += 1; // Skip '('
+
         const list_ptr = allocAligned(List) orelse return null;
         list_ptr.len = 0;
 
@@ -234,10 +347,9 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
                 return LispValue{ .List = list_ptr };
             }
 
-            if (list_ptr.len >= list_ptr.items.len) return null; // List full
-
-            const elem = parse(input, pos) orelse return null;
-            list_ptr.items[list_ptr.len] = elem;
+            if (list_ptr.len >= list_ptr.items.len) return null; // List too long
+            const item = parse(input, pos) orelse return null;
+            list_ptr.items[list_ptr.len] = item;
             list_ptr.len += 1;
         }
     } else if (input[pos.*] >= '0' and input[pos.*] <= '9') {
@@ -248,11 +360,13 @@ fn parse(input: []const u8, pos: *usize) ?LispValue {
     } else {
         // Parse symbol
         if (parseSymbol(input, pos)) |sym| {
-            // Check for boolean literals
+            // Check for special literals
             if (utils.strEq(sym, "#t")) {
                 return LispValue{ .Atom = Atom{ .Boolean = true } };
             } else if (utils.strEq(sym, "#f")) {
                 return LispValue{ .Atom = Atom{ .Boolean = false } };
+            } else if (utils.strEq(sym, "nil")) {
+                return makeNil();
             }
 
             // Store symbol string
@@ -282,6 +396,9 @@ const BuiltinOp = enum {
     Load,
     Lambda,
     Defun,
+    Cons,
+    Car,
+    Cdr,
     Unknown,
 
     fn fromSymbol(sym: []const u8) BuiltinOp {
@@ -298,6 +415,9 @@ const BuiltinOp = enum {
         if (utils.strEq(sym, "load")) return .Load;
         if (utils.strEq(sym, "lambda")) return .Lambda;
         if (utils.strEq(sym, "defun")) return .Defun;
+        if (utils.strEq(sym, "cons")) return .Cons;
+        if (utils.strEq(sym, "car")) return .Car;
+        if (utils.strEq(sym, "cdr")) return .Cdr;
         return .Unknown;
     }
 };
@@ -752,6 +872,30 @@ fn evalDefun(list: *List) ?LispValue {
     return func_val;
 }
 
+// Cons operations
+fn evalCons(list: *List) ?LispValue {
+    if (list.len != 3) return null;
+
+    const car_val = eval(list.items[1]) orelse return null;
+    const cdr_val = eval(list.items[2]) orelse return null;
+
+    return cons(car_val, cdr_val);
+}
+
+fn evalCar(list: *List) ?LispValue {
+    if (list.len != 2) return null;
+
+    const val = eval(list.items[1]) orelse return null;
+    return car(val);
+}
+
+fn evalCdr(list: *List) ?LispValue {
+    if (list.len != 2) return null;
+
+    const val = eval(list.items[1]) orelse return null;
+    return cdr(val);
+}
+
 // Apply a function with arguments
 fn applyFunction(func: *Function, args: []LispValue) ?LispValue {
     // Check argument count
@@ -805,7 +949,7 @@ fn eval(value: LispValue) ?LispValue {
     switch (value) {
         .Atom => |atom| {
             switch (atom) {
-                .Number, .Boolean, .String => return value,
+                .Number, .Boolean, .String, .Nil => return value,
                 .Symbol => |name| {
                     return getVar(name);
                 },
@@ -843,6 +987,9 @@ fn eval(value: LispValue) ?LispValue {
                         .Load => evalLoad(list),
                         .Lambda => evalLambda(list),
                         .Defun => evalDefun(list),
+                        .Cons => evalCons(list),
+                        .Car => evalCar(list),
+                        .Cdr => evalCdr(list),
                         .Unknown => unreachable,
                     };
                 }
@@ -886,6 +1033,83 @@ fn eval(value: LispValue) ?LispValue {
         .Function => |_| {
             // Functions evaluate to themselves
             return value;
+        },
+        .Cons => {
+            // Convert cons to list for evaluation
+            const list = consToList(value) orelse return null;
+            if (list.len == 0) return makeNil();
+
+            const first = list.items[0];
+
+            // Check if first element is a symbol (for built-in ops and function names)
+            if (first == .Atom and first.Atom == .Symbol) {
+                const op = first.Atom.Symbol;
+
+                // Try arithmetic operations first
+                const arith_op = ArithOp.fromSymbol(op);
+                if (arith_op != .Unknown) {
+                    return evalArithmetic(list, arith_op);
+                }
+
+                // Try other built-in operations
+                const builtin = BuiltinOp.fromSymbol(op);
+                if (builtin != .Unknown) {
+                    return switch (builtin) {
+                        .And => evalAnd(list),
+                        .Concat => evalConcat(list),
+                        .Print => evalPrint(list),
+                        .Define => evalDefine(list),
+                        .If => evalIf(list),
+                        .Quote => evalQuote(list),
+                        .Syscall => evalSyscall(list),
+                        .While => evalWhile(list),
+                        .Cond => evalCond(list),
+                        .Set => evalSet(list),
+                        .Load => evalLoad(list),
+                        .Lambda => evalLambda(list),
+                        .Defun => evalDefun(list),
+                        .Cons => evalCons(list),
+                        .Car => evalCar(list),
+                        .Cdr => evalCdr(list),
+                        .Unknown => unreachable,
+                    };
+                }
+
+                // Try function application - lookup symbol as a function
+                if (getVar(op)) |func_val| {
+                    if (func_val == .Function) {
+                        // Collect arguments (skip function name)
+                        var args: [32]LispValue = undefined;
+                        const arg_count = list.len - 1;
+                        if (arg_count > args.len) return null;
+
+                        for (1..list.len) |i| {
+                            args[i - 1] = list.items[i];
+                        }
+
+                        return applyFunction(func_val.Function, args[0..arg_count]);
+                    }
+                }
+
+                return null;
+            }
+
+            // First element is not a symbol - try to evaluate it to a function
+            const func_val = eval(first) orelse return null;
+            if (func_val == .Function) {
+                // Collect arguments
+                var args: [32]LispValue = undefined;
+                const arg_count = list.len - 1;
+                if (arg_count > args.len) return null;
+
+                for (1..list.len) |i| {
+                    args[i - 1] = list.items[i];
+                }
+
+                return applyFunction(func_val.Function, args[0..arg_count]);
+            }
+
+            return null;
         },
     }
 }
