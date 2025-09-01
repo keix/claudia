@@ -142,6 +142,13 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "abi", .module = abi_mod },
                 },
             }) },
+            .{ .name = "syscalls/proc/getppid", .module = b.createModule(.{
+                .root_source_file = b.path("userland/syscalls/proc/getppid.zig"),
+                .imports = &.{
+                    .{ .name = "syscall", .module = syscall_mod },
+                    .{ .name = "abi", .module = abi_mod },
+                },
+            }) },
             .{ .name = "syscalls/time/time.zig", .module = b.createModule(.{
                 .root_source_file = b.path("userland/syscalls/time/time.zig"),
                 .imports = &.{
@@ -248,6 +255,14 @@ pub fn build(b: *std.Build) void {
 
     const pid_mod = b.createModule(.{
         .root_source_file = b.path("userland/shell/commands/pid.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
+    const ppid_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/ppid.zig"),
         .imports = &.{
             .{ .name = "sys", .module = sys_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
@@ -362,6 +377,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "cat.zig", .module = cat_mod },
             .{ .name = "lisp.zig", .module = lisp_mod },
             .{ .name = "pid.zig", .module = pid_mod },
+            .{ .name = "ppid.zig", .module = ppid_mod },
             .{ .name = "seek.zig", .module = seek_mod },
             .{ .name = "pwd.zig", .module = pwd_mod },
             .{ .name = "cd.zig", .module = cd_mod },
