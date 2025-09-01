@@ -42,6 +42,7 @@ pub fn call(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) isi
         sysno.sys_execve => process.sys_execve(a0, a1, a2),
         sysno.sys_sched_yield => process.sys_sched_yield(),
         sysno.sys_getpid => process.sys_getpid(),
+        sysno.sys_getppid => process.sys_getppid(),
         sysno.sys_getcwd => path.sys_getcwd(a0, a1),
         sysno.sys_chdir => path.sys_chdir(a0),
         sysno.sys_fstat => stat.sys_fstat(a0, a1),

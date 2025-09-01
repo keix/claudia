@@ -2,7 +2,21 @@
 A shell is but a whisper to the kernel.  
 Each command, a small spell, shaping the machine.
 
-This document describes the commands available in Claudia's shell environment. All commands are implemented as part of the shell binary and executed within the same process (no fork/exec for built-in commands yet).
+This document describes the commands available in Claudia's shell environment. All commands are implemented as part of the shell binary (busybox-style) and executed within the shell process itself.
+
+## Process Model
+
+Claudia implements a simplified UNIX process model:
+- **init (PID 1)**: The first process, started by the kernel
+- **shell**: Currently runs as the init process itself (not a separate process)
+- **Built-in commands**: Execute directly within the shell process
+- **fork()**: Creates a child process that shares the parent's memory space (simplified implementation)
+- **exec()**: Currently only supports executing "shell" - replaces the process image
+
+Note: The current implementation has limitations:
+- Child processes share the parent's page table (no copy-on-write)
+- exec() only supports loading the shell binary
+- No support for external programs yet
 
 ## Available Commands
 
@@ -20,6 +34,7 @@ This document describes the commands available in Claudia's shell environment. A
 | `ls` | List directory contents | `ls [directory]` | Color support, shows file types |
 | `mkdir` | Create directory | `mkdir <directory>...` | Creates in VFS |
 | `pid` | Show current process ID | `pid` | Shows current PID |
+| `ppid` | Show parent process ID | `ppid` | Shows parent PID |
 | `pwd` | Print working directory | `pwd` | Shows absolute path |
 | `rm` | Remove files or directories | `rm <file>...` | Removes from VFS |
 | `seek` | Demonstrate file seeking | `seek` | Shows lseek functionality |
@@ -48,9 +63,13 @@ This document describes the commands available in Claudia's shell environment. A
 - **date**: Shows current date/time using hardware timer
 - **id**: Shows user and group IDs (always root in single-user system)
 - **pid**: Displays current process ID
+- **ppid**: Displays parent process ID
 
 ### Process Management
+- **fork_test**: Demonstrates fork system call
+- **fork_demo**: More advanced fork demonstration
 - **sleep**: Suspends execution for specified number of seconds
+- Note: `fork()` creates a child process, `exec()` replaces the current process image
 
 ### Programming
 - **lisp**: Launches the Lisp interpreter

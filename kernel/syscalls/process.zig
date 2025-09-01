@@ -60,6 +60,15 @@ pub fn sys_getpid() isize {
     return @intCast(current.pid);
 }
 
+// sys_getppid implementation
+pub fn sys_getppid() isize {
+    const current = proc.Scheduler.getCurrentProcess() orelse return defs.ESRCH;
+    if (current.parent) |parent| {
+        return @intCast(parent.pid);
+    }
+    return 1; // Parent is init process
+}
+
 // sys_exit implementation
 pub fn sys_exit(status: usize) isize {
     const exitFn = proc_exit orelse return defs.ENOSYS;
