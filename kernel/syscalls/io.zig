@@ -14,3 +14,17 @@ pub fn sys_lseek(fd: usize, offset: usize, whence: usize) isize {
 
     return file.FileTable.sysLseek(@as(i32, @intCast(fd)), offset_i64, whence_u32);
 }
+
+// sys_dup implementation
+pub fn sys_dup(oldfd: usize) isize {
+    return file.FileTable.dup(@as(i32, @intCast(oldfd)));
+}
+
+// sys_dup3 implementation (dup2 with flags)
+// Note: Linux uses dup3 instead of dup2 in modern syscalls
+pub fn sys_dup3(oldfd: usize, newfd: usize, flags: usize) isize {
+    // For now, ignore flags (O_CLOEXEC is the only valid flag)
+    _ = flags;
+
+    return file.FileTable.dup2(@as(i32, @intCast(oldfd)), @as(i32, @intCast(newfd)));
+}

@@ -509,6 +509,56 @@ pub const FileTable = struct {
         return 0;
     }
 
+    // Duplicate file descriptor to lowest available
+    pub fn dup(oldfd: FD) isize {
+        if (oldfd < 0 or oldfd >= MAX_FDS) {
+            return defs.EBADF;
+        }
+
+        const old_file = file_table[@as(usize, @intCast(oldfd))] orelse return defs.EBADF;
+
+        // Find the lowest available fd starting from 0
+        for (0..MAX_FDS) |i| {
+            if (file_table[i] == null) {
+                file_table[i] = old_file;
+                old_file.addRef(); // Increment reference count
+                return @as(isize, @intCast(i));
+            }
+        }
+
+        return defs.EMFILE; // Too many open files
+    }
+
+    // Duplicate file descriptor to specific fd
+    pub fn dup2(oldfd: FD, newfd: FD) isize {
+        if (oldfd < 0 or oldfd >= MAX_FDS or newfd < 0 or newfd >= MAX_FDS) {
+            return defs.EBADF;
+        }
+
+        // If oldfd and newfd are the same, just verify oldfd is valid
+        if (oldfd == newfd) {
+            if (file_table[@as(usize, @intCast(oldfd))] == null) {
+                return defs.EBADF;
+            }
+            return @as(isize, @intCast(newfd));
+        }
+
+        const old_file = file_table[@as(usize, @intCast(oldfd))] orelse return defs.EBADF;
+
+        const new_idx = @as(usize, @intCast(newfd));
+
+        // Close newfd if it's already open
+        if (file_table[new_idx]) |existing| {
+            existing.close();
+        }
+
+        // Duplicate the file descriptor
+        file_table[new_idx] = old_file;
+        old_file.addRef(); // Increment reference count
+
+        return @as(isize, @intCast(newfd));
+    }
+
     pub fn sysLseek(fd: FD, offset: i64, whence: u32) isize {
         if (getFile(fd)) |file| {
             return file.lseek(offset, whence);
