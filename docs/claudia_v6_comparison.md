@@ -38,9 +38,11 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 ### Implementation Status
 - Process creation with fork() and exec() working
+- Fork with memory isolation (independent page tables)
+- wait() system call for process synchronization
+- Zombie process reaping
 - Context switching with proper privilege mode handling
 - Idle process prevents scheduler panic
-- No copy-on-write for fork() yet (shares parent page table)
 - Simple round-robin scheduler without priorities
 
 ## System Calls
@@ -49,8 +51,8 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 | Category | UNIX V6 | Claudia | Implementation Rate |
 |----------|---------|---------|-------------------|
-| **Total System Calls** | ~48 | 25 implemented | 52.1% |
-| **Process Control** | 12 | 8 implemented | 66.7% |
+| **Total System Calls** | ~48 | 27 implemented | 56.3% |
+| **Process Control** | 12 | 10 implemented | 83.3% |
 | **File Management** | 15 | 8 implemented | 53.3% |
 | **Directory Operations** | 2 | 4 implemented | 200% |
 | **Device Operations** | 6 | 0 implemented | 0% |
@@ -59,14 +61,15 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 ### Detailed System Call Implementation Status
 
-#### Process Control (8/12 implemented)
+#### Process Control (10/12 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
-| **fork** | 2 | 220 (clone) | Implemented | Working with shared page table |
-| **exit** | 1 | 93 | Implemented | Basic cleanup only |
-| wait | 2 | 260 (wait4) | - | No zombie handling |
+| **fork** | 2 | 220 (clone) | Implemented | Memory isolation with independent page tables |
+| **exit** | 1 | 93 | Implemented | Cleans up resources and wakes parent |
+| **wait** | 2 | 260 (wait4) | Implemented | Basic zombie reaping |
 | **exec** | 11 | 221 (execve) | Implemented | Hardcoded to shell only |
 | **getpid** | 20 | 172 | Implemented | Returns current process ID |
+| **getppid** | - | 110 | Implemented | Returns parent process ID |
 | **getuid** | 24 | 174 | Implemented | Always returns 0 (root) |
 | **setuid** | 23 | 146 | Implemented | No-op in single-user system |
 | nice | 34 | - | - | |
@@ -148,8 +151,8 @@ Based on current needs for shell and Lisp interpreter:
    - `creat` - Explicit file creation
    
 2. **High Priority**
-   - `wait` - Process synchronization (fork/exec done)
    - `pipe` - Inter-process communication
+   - `signal/kill` - Process control
    
 3. **Medium Priority**
    - `signal/kill` - Process control
@@ -272,10 +275,13 @@ Based on current needs for shell and Lisp interpreter:
 Claudia has achieved:
 - Kernel with paging-based memory management (Sv39)
 - Working multiprocess support with fork() and exec()
+- Fork with memory isolation (independent page tables for each process)
+- Process synchronization with wait() system call
+- Zombie process reaping
 - Context switching with proper privilege mode transitions
 - Idle process prevents scheduler deadlock
 - Simple filesystem with initrd
-- Basic shell and utilities (ls, cat, echo, pwd, cd, mkdir, rm, touch, date, id, sleep, fork_demo)
+- Basic shell and utilities (ls, cat, echo, pwd, cd, mkdir, rm, touch, date, id, sleep)
 - Directory operations (Linux-style openat + getdents64)
 - File removal (unlinkat system call)
 - Device abstraction layer
@@ -287,18 +293,17 @@ Claudia has achieved:
 ## Future Plans
 
 1. **Short Term**
-   - Independent page tables for child processes
    - Implement stat/fstatat for file information
    - Add pipe support
    - INode/VNode unification
    - File permissions and ownership
+   - Copy-on-write fork optimization
    
 2. **Medium Term**
    - Signal system
-   - Copy-on-write fork
-   - wait() system call for process synchronization
    - Network stack
    - More userland tools
+   - Multi-user support
    
 3. **Long Term**
    - Multi-user support
