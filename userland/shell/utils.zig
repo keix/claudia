@@ -203,3 +203,25 @@ pub fn writeOct(value: u32) void {
 
     writeStr(buf[pos..]);
 }
+
+// Write hexadecimal number
+pub fn writeHex(value: u64) void {
+    var buf: [16]u8 = undefined;
+    var pos: usize = buf.len;
+    var val = value;
+
+    if (val == 0) {
+        writeStr("0x0");
+        return;
+    }
+
+    while (val > 0 and pos > 0) {
+        pos -= 1;
+        const digit = @as(u8, @intCast(val & 0xF));
+        buf[pos] = if (digit < 10) '0' + digit else 'a' + digit - 10;
+        val >>= 4;
+    }
+
+    writeStr("0x");
+    writeStr(buf[pos..]);
+}

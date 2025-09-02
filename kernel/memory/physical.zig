@@ -49,7 +49,6 @@ pub const FrameAllocator = struct {
                         self.setBit(frame);
                         self.free_frames -= 1;
                         const addr = self.frameToAddr(frame);
-
                         return addr;
                     }
                 }

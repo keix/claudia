@@ -36,16 +36,23 @@ const GlobalAllocator = struct {
         instance.initialized = true;
     }
 
+    var total_allocated_frames: u32 = 0;
+
     pub fn allocFrame() ?usize {
         std.debug.assert(instance.initialized);
         const frame = instance.frame_allocator.alloc();
-
+        if (frame) |_| {
+            total_allocated_frames += 1;
+        }
         return frame;
     }
 
     pub fn freeFrame(addr: usize) void {
         std.debug.assert(instance.initialized);
         instance.frame_allocator.free(addr);
+        if (total_allocated_frames > 0) {
+            total_allocated_frames -= 1;
+        }
     }
 
     pub fn getMemoryInfo() struct { total: usize, free: usize } {

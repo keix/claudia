@@ -2,7 +2,7 @@
 // Re-exports key functionality from modularized components
 
 const scheduler = @import("scheduler.zig");
-const syscalls = @import("syscalls.zig");
+pub const syscalls = @import("syscalls.zig");
 const types = @import("types.zig");
 const context = @import("context.zig");
 

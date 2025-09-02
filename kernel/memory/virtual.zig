@@ -48,6 +48,7 @@ pub const PageTable = struct {
 
         // Check if this is kernel init end - it might already have data!
         if (table_addr == config.MemoryLayout.KERNEL_INIT_END) {
+            // Special case: KERNEL_INIT_END
             var has_data = false;
             for (0..PAGE_ENTRIES) |i| {
                 if (table[i] != 0) {
@@ -112,6 +113,7 @@ pub const PageTable = struct {
 
         // Walk the page table tree and free all allocated pages
         self.freePageTableRecursiveWithTracking(self.root_ppn, 2, &freed_pages, &freed_count);
+
         self.root_ppn = 0;
     }
 
@@ -369,13 +371,19 @@ pub fn getCurrentPageTable() *PageTable {
 
 // Build global kernel mappings for any page table (including user page tables)
 pub fn buildKernelGlobalMappings(page_table: *PageTable) !void {
+    // Start building kernel mappings
     const user_memory = @import("../user/memory.zig");
 
     // Map kernel text/data/bss and heap (supervisor only, global)
     var addr: usize = types.KERNEL_BASE;
     const kernel_end = types.KERNEL_END; // Use KERNEL_END for more generous mapping
 
+    // Mapping kernel region
+
+    var page_count: u32 = 0;
     while (addr < kernel_end) : (addr += PAGE_SIZE) {
+        page_count += 1;
+        // Progress tracking
         try page_table.map(addr, addr, PTE_R | PTE_W | PTE_X | PTE_G);
 
         // Check after each critical mapping
@@ -383,6 +391,7 @@ pub fn buildKernelGlobalMappings(page_table: *PageTable) !void {
             page_table.checkCriticalPTE("After mapping 0x8021b000");
         }
     }
+    // Kernel mapping complete
 
     // Final check before continuing
     page_table.checkCriticalPTE("After kernel mapping complete");
@@ -431,19 +440,160 @@ pub fn buildKernelGlobalMappings(page_table: *PageTable) !void {
 
     // WORKAROUND: Hardware seems to expect kernel at different VPN
     // Map critical kernel pages at the locations hardware expects
-    const critical_addr: u64 = 0x8021c000;
-    const hw_vpn2: u64 = 0x1c; // Hardware expects this
+    // NOTE: Skip this for child process page tables to avoid memory leak
+    if (page_table == &kernel_page_table) {
+        const critical_addr: u64 = 0x8021c000;
+        const hw_vpn2: u64 = 0x1c; // Hardware expects this
 
-    // Get the L2 page table
-    const root_addr = page_table.root_ppn << 12;
-    const root_table = @as([*]volatile u64, @ptrFromInt(root_addr));
+        // Get the L2 page table
+        const root_addr = page_table.root_ppn << 12;
+        const root_table = @as([*]volatile u64, @ptrFromInt(root_addr));
 
-    // Check if hw_vpn2 entry exists
-    if (root_table[hw_vpn2] == 0) {
-        // Copy the L2 entry from where we put it to where hardware expects it
-        const our_vpn2 = (critical_addr >> 30) & 0x1FF; // Should be 2
-        if (root_table[our_vpn2] != 0) {
-            root_table[hw_vpn2] = root_table[our_vpn2];
+        // Check if hw_vpn2 entry exists
+        if (root_table[hw_vpn2] == 0) {
+            // Copy the L2 entry from where we put it to where hardware expects it
+            const our_vpn2 = (critical_addr >> 30) & 0x1FF; // Should be 2
+            if (root_table[our_vpn2] != 0) {
+                root_table[hw_vpn2] = root_table[our_vpn2];
+            }
         }
     }
+}
+
+// Clone user space mappings from one page table to another
+// This creates a simple copy of all user pages (no COW yet)
+pub fn cloneUserSpace(src_pt: *PageTable, dst_pt: *PageTable) !void {
+
+    // Walk the source page table and copy user mappings
+    const src_root_addr = src_pt.root_ppn << PAGE_SHIFT;
+    const src_root = @as([*]volatile PageTableEntry, @ptrFromInt(src_root_addr));
+
+    const dst_root_addr = dst_pt.root_ppn << PAGE_SHIFT;
+    const dst_root = @as([*]volatile PageTableEntry, @ptrFromInt(dst_root_addr));
+
+    // Walk through all L2 entries
+    var valid_entries: u32 = 0;
+    var pages_copied: u32 = 0;
+    // Walk L2 entries
+
+    for (0..PAGE_ENTRIES) |i| {
+        const l2_pte = src_root[i];
+        if ((l2_pte & PTE_V) == 0) continue;
+
+        valid_entries += 1;
+
+        // Check if this is a user-accessible page or in user address range
+        // Note: Some systems may not set PTE_U properly, so also check address range
+        const is_user_range = i < 4; // VPN2 0-3 covers 0x0 - 0x40000000 (1GB each)
+
+        // Process user entries
+
+        if ((l2_pte & PTE_U) != 0 or is_user_range) {
+            // Processing user L2 entry
+
+            // This is a user mapping, we need to copy it
+            if ((l2_pte & (PTE_R | PTE_W | PTE_X)) != 0) {
+                // Leaf page at L2 (1GB page) - not typically used for user space
+                continue;
+            }
+
+            // Allocate L1 table for destination if not already present
+            // Check if dst_root already has an entry
+
+            if ((dst_root[i] & PTE_V) == 0) {
+                const l1_page = allocator.allocFrame() orelse return error.OutOfMemory;
+                PageTable.clearPageTable(l1_page);
+                dst_root[i] = addrToPte(l1_page, PTE_V);
+            } else {
+                // dst_root already has valid entry
+            }
+
+            // Walk L1 table
+            const src_l1_addr = pteToAddr(l2_pte);
+            // Sanity check - this address seems way too high
+            if (src_l1_addr > 0x100000000) { // > 4GB
+                continue;
+            }
+
+            const src_l1 = @as([*]volatile PageTableEntry, @ptrFromInt(src_l1_addr));
+
+            const dst_l1_addr = pteToAddr(dst_root[i]);
+            // Get destination L1 table
+            const dst_l1 = @as([*]volatile PageTableEntry, @ptrFromInt(dst_l1_addr));
+
+            // Walk L1 entries
+            for (0..PAGE_ENTRIES) |j| {
+                const l1_pte = src_l1[j];
+                if ((l1_pte & PTE_V) == 0) continue;
+
+                // For user space pages, copy regardless of PTE_U bit
+                if (true) { // Always process L1 entries in user range
+                    if ((l1_pte & (PTE_R | PTE_W | PTE_X)) != 0) {
+                        // Leaf page at L1 (2MB page) - not typically used
+                        continue;
+                    }
+
+                    // Allocate L0 table for destination if not already present
+                    if ((dst_l1[j] & PTE_V) == 0) {
+                        const l0_page = allocator.allocFrame() orelse return error.OutOfMemory;
+                        PageTable.clearPageTable(l0_page);
+                        dst_l1[j] = addrToPte(l0_page, PTE_V);
+                    }
+
+                    // Walk L0 table and copy user pages
+                    const src_l0_addr = pteToAddr(l1_pte);
+
+                    // Sanity check L0 address
+                    if (src_l0_addr > 0x100000000) {
+                        continue;
+                    }
+
+                    const src_l0 = @as([*]volatile PageTableEntry, @ptrFromInt(src_l0_addr));
+
+                    const dst_l0_addr = pteToAddr(dst_l1[j]);
+                    const dst_l0 = @as([*]volatile PageTableEntry, @ptrFromInt(dst_l0_addr));
+
+                    for (0..PAGE_ENTRIES) |k| {
+                        const l0_pte = src_l0[k];
+                        if ((l0_pte & PTE_V) == 0) continue;
+
+                        // Copy any valid page in user address range
+                        if ((l0_pte & PTE_V) != 0 and (l0_pte & (PTE_R | PTE_W | PTE_X)) != 0) {
+                            // Calculate virtual address
+                            const vaddr = (i << 30) | (j << 21) | (k << 12);
+
+                            // Skip kernel addresses
+                            if (vaddr >= 0x80000000) {
+                                continue;
+                            }
+
+                            // This is a user page - allocate new physical page and copy data
+                            const new_page = allocator.allocFrame() orelse return error.OutOfMemory;
+
+                            // Copy page data
+                            const src_page_addr = pteToAddr(l0_pte);
+
+                            // Validate source address - skip if it's in MMIO range or invalid
+                            if (src_page_addr < 0x80000000 or src_page_addr >= 0x90000000) {
+                                // Skip this page - it might be MMIO or invalid
+                                allocator.freeFrame(new_page);
+                                continue;
+                            }
+
+                            const src_data = @as([*]const u8, @ptrFromInt(src_page_addr));
+                            const dst_data = @as([*]u8, @ptrFromInt(new_page));
+                            @memcpy(dst_data[0..PAGE_SIZE], src_data[0..PAGE_SIZE]);
+
+                            // Map the new page with same permissions but ensure PTE_U is set
+                            dst_l0[k] = addrToPte(new_page, (l0_pte & 0x3FF) | PTE_U); // Keep flags and ensure user bit
+                            pages_copied += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Ensure all changes are visible
+    asm volatile ("sfence.vma" ::: "memory");
 }

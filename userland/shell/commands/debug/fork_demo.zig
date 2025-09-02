@@ -36,8 +36,16 @@ pub fn main(args: *const utils.Args) void {
     utils.writeStr(numberToStr(@as(u64, @intCast(my_pid)), &pidbuf));
     utils.writeStr(" starting fork demo\n");
 
-    const pid = sys.fork() catch {
-        utils.writeStr("Error: fork failed\n");
+    const pid = sys.fork() catch |err| {
+        utils.writeStr("Error: fork failed with ");
+        switch (err) {
+            error.ProcessLimitReached => utils.writeStr("ProcessLimitReached\n"),
+            error.OutOfMemory => utils.writeStr("OutOfMemory\n"),
+            error.SystemCallNotImplemented => utils.writeStr("SystemCallNotImplemented\n"),
+            error.NoSuchProcess => utils.writeStr("NoSuchProcess\n"),
+            error.InvalidArgument => utils.writeStr("InvalidArgument\n"),
+            error.UnknownError => utils.writeStr("UnknownError\n"),
+        }
         return;
     };
 

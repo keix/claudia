@@ -191,6 +191,13 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "abi", .module = abi_mod },
                 },
             }) },
+            .{ .name = "syscalls/proc/wait", .module = b.createModule(.{
+                .root_source_file = b.path("userland/syscalls/proc/wait.zig"),
+                .imports = &.{
+                    .{ .name = "syscall", .module = syscall_mod },
+                    .{ .name = "abi", .module = abi_mod },
+                },
+            }) },
         },
     });
 
@@ -342,22 +349,6 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const fork_test_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/fork_test.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
-    const fork_demo_mod = b.createModule(.{
-        .root_source_file = b.path("userland/shell/commands/fork_demo.zig"),
-        .imports = &.{
-            .{ .name = "sys", .module = sys_mod },
-            .{ .name = "shell/utils", .module = shell_utils_mod },
-        },
-    });
-
     const sleep_mod = b.createModule(.{
         .root_source_file = b.path("userland/shell/commands/sleep.zig"),
         .imports = &.{
@@ -387,8 +378,6 @@ pub fn build(b: *std.Build) void {
             .{ .name = "id.zig", .module = id_mod },
             .{ .name = "mkdir.zig", .module = mkdir_mod },
             .{ .name = "rm.zig", .module = rm_mod },
-            .{ .name = "fork_test.zig", .module = fork_test_mod },
-            .{ .name = "fork_demo.zig", .module = fork_demo_mod },
             .{ .name = "sleep.zig", .module = sleep_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
         },

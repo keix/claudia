@@ -247,6 +247,26 @@ fn handlePageFault(frame: *TrapFrame, code: u64) void {
     const fault_vpn2 = (fault_addr >> 30) & 0x1FF;
     const fault_vpn1 = (fault_addr >> 21) & 0x1FF;
     const fault_vpn0 = (fault_addr >> 12) & 0x1FF;
+
+    // Debug output for page faults
+    @import("../driver/uart/core.zig").puts("\n[PAGE FAULT] at address 0x");
+    @import("../driver/uart/core.zig").putHex(fault_addr);
+    @import("../driver/uart/core.zig").puts(" (");
+    if (is_kernel_addr) {
+        @import("../driver/uart/core.zig").puts("kernel");
+    } else {
+        @import("../driver/uart/core.zig").puts("user");
+    }
+    @import("../driver/uart/core.zig").puts(" space), sepc=0x");
+    @import("../driver/uart/core.zig").putHex(frame.sepc);
+
+    // Check current process
+    const current_proc = proc.Scheduler.getCurrentProcess();
+    if (current_proc) |p| {
+        @import("../driver/uart/core.zig").puts(", PID=");
+        @import("../driver/uart/core.zig").putDec(p.pid);
+    }
+    @import("../driver/uart/core.zig").puts("\n");
     const is_instruction_fault = (code == @intFromEnum(ExceptionCause.InstructionPageFault));
 
     var found_valid_mapping = false;

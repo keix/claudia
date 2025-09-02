@@ -24,6 +24,7 @@ pub const getpid = @import("syscalls/proc/getpid").getpid;
 pub const getppid = @import("syscalls/proc/getppid").getppid;
 pub const fork = @import("syscalls/proc/fork").fork;
 pub const sched_yield = @import("syscalls/proc/yield").yield;
+pub const wait = @import("syscalls/proc/wait").wait;
 
 // Directory operations
 pub const readdir = @import("syscalls/io/readdir").readdir;

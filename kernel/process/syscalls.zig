@@ -8,6 +8,7 @@ const trap = @import("../trap/core.zig");
 const user = @import("../user/core.zig");
 const defs = @import("abi");
 const config = @import("../config.zig");
+const virtual = @import("../memory/virtual.zig");
 
 const types = @import("types.zig");
 const scheduler = @import("scheduler.zig");
@@ -21,26 +22,82 @@ const child_return_to_user = @extern(*const fn (*trap.TrapFrame) callconv(.C) no
 
 // Fork current process (simplified implementation)
 pub fn fork() isize {
-    const parent = scheduler.getCurrentProcess() orelse return defs.ESRCH;
+
+    // Reap any zombie processes before allocating new resources
+    scheduler.reapZombies();
+
+    const parent = scheduler.getCurrentProcess() orelse {
+        return defs.ESRCH;
+    };
 
     // Allocate static kernel stack for child (simple allocator)
-    const child_stack = scheduler.allocateChildStack() orelse return defs.ENOMEM;
+    const child_stack = scheduler.allocateChildStack() orelse {
+        return defs.ENOMEM;
+    };
 
     // Create child process
-    const child = scheduler.allocProcess("child", child_stack) orelse return defs.EAGAIN;
+    const child = scheduler.allocProcess("child", child_stack) orelse {
+        return defs.EAGAIN;
+    };
 
     // Copy parent process context - but child should not go to processEntryPoint
     // Instead, child should resume from the syscall return point
     child.parent = parent;
 
-    // CRITICAL: For now, child shares parent's page table
-    // This is a simplified fork - proper fork would copy the page table
-    // The child MUST call exec() to get its own page table with kernel mappings
+    // Create independent page table for child
+    var child_pt = virtual.PageTable{ .root_ppn = 0 };
+    child_pt.init() catch {
+        return defs.ENOMEM;
+    };
+
+    // Copy kernel mappings to child page table
+    virtual.buildKernelGlobalMappings(&child_pt) catch {
+        child_pt.deinit();
+        return defs.ENOMEM;
+    };
+
+    // Get parent's page table
+    var parent_pt = virtual.PageTable{ .root_ppn = parent.page_table_ppn };
+
+    if (parent_pt.root_ppn == 0) {
+        // Parent is using kernel page table, get it from satp
+        const satp = csr.readSatp();
+        parent_pt.root_ppn = (satp >> 44) & 0xFFFFFFFFF;
+    }
+
+    // Clone user space from parent to child
+    virtual.cloneUserSpace(&parent_pt, &child_pt) catch {
+        child_pt.deinit();
+        return defs.ENOMEM;
+    };
+
+    // Map child's kernel stack to its page table
+    // Child process has its own kernel stack allocated by allocateChildStack()
+    const child_stack_start = @intFromPtr(child.stack.ptr);
+    const page_size = @import("../memory/types.zig").PAGE_SIZE;
+    const child_stack_pages = (child.stack.len + page_size - 1) / page_size;
+
+    // Map each page of the child's kernel stack
+    for (0..child_stack_pages) |i| {
+        const vaddr = child_stack_start + i * page_size;
+        const paddr = vaddr; // Kernel addresses are identity mapped
+
+        child_pt.map(vaddr, paddr, virtual.PTE_R | virtual.PTE_W | virtual.PTE_G) catch {
+            child_pt.deinit();
+            return defs.ENOMEM;
+        };
+    }
+
+    // Set child's page table
+    child.page_table_ppn = child_pt.root_ppn;
 
     // Copy user mode trap frame if it exists
     if (parent.user_frame) |parent_frame| {
         // Allocate independent trap frame for child
-        const child_frame = scheduler.allocateChildTrapFrame() orelse return -1;
+        const child_frame = scheduler.allocateChildTrapFrame() orelse {
+            child_pt.deinit();
+            return defs.ENOMEM;
+        };
         child_frame.* = parent_frame.*;
         child_frame.a0 = 0; // Child returns 0 from fork
         child_frame.gp = 0; // Ensure GP is 0 to prevent GP-relative addressing
@@ -65,17 +122,13 @@ pub fn fork() isize {
         // SPP=1 (supervisor), SPIE=1 (interrupts enabled after sret)
         child.context.sstatus = (1 << 8) | (1 << 5); // SPP | SPIE
 
-        // CRITICAL: Child must use parent's page table, not kernel's!
-        // The parent is already running with a user page table that has
-        // the user program mapped. The child needs the same mappings.
-        child.context.satp = parent.context.satp;
-
-        // LIMITATION: Child shares parent's page table for simplicity
-        // A full implementation would use copy-on-write or separate page tables
-        // Set to 0 to prevent double-free on exit
-        child.page_table_ppn = 0;
+        // CRITICAL: Child must use its own page table
+        // Set satp with the child's page table
+        const mode: u64 = 8; // Sv39
+        child.context.satp = (mode << 60) | (child.page_table_ppn & 0xFFFFFFFFF);
     } else {
-        return -1; // No user frame
+        child_pt.deinit();
+        return defs.EINVAL; // No user frame
     }
 
     // Make child runnable
@@ -103,7 +156,6 @@ pub fn exec(filename: []const u8, args: []const u8) isize {
 // Entry point for forked child processes - return directly to user mode
 pub fn forkedChildReturn() noreturn {
     const child_proc = scheduler.getCurrentProcess() orelse {
-        uart.puts("[forkedChildReturn] ERROR: No current process!\n");
         while (true) {
             csr.wfi();
         }
@@ -111,7 +163,6 @@ pub fn forkedChildReturn() noreturn {
 
     // Get the child's trap frame
     const frame = child_proc.user_frame orelse {
-        uart.puts("[forkedChildReturn] ERROR: No user frame!\n");
         while (true) {
             csr.wfi();
         }
@@ -145,4 +196,46 @@ fn execShell(_: *Process) noreturn {
         scheduler.exit(-1);
     }
     unreachable;
+}
+
+// Wait for child process to exit
+pub fn sys_wait4(pid: i32, status: ?*i32, options: i32, rusage: ?*anyopaque) isize {
+    _ = pid; // Initially only support -1 (any child)
+    _ = status; // Initially ignore exit status
+    _ = options; // Initially ignore options
+    _ = rusage; // Initially ignore usage stats
+
+    const proc = scheduler.getCurrentProcess() orelse {
+        return -defs.ESRCH;
+    };
+
+    while (true) {
+        // Look for zombie children
+        for (&scheduler.process_table) |*p| {
+            if (p.state == .ZOMBIE and p.parent == proc) {
+                // Found one!
+                const child_pid = @as(isize, @intCast(p.pid));
+
+                // Clean up the zombie
+                p.state = .UNUSED;
+                p.parent = null;
+
+                return child_pid;
+            }
+        }
+
+        // Do we have any children at all?
+        var has_child = false;
+        for (&scheduler.process_table) |*p| {
+            if (p.parent == proc and p.state != .UNUSED) {
+                has_child = true;
+                break;
+            }
+        }
+        if (!has_child) return -defs.ECHILD;
+
+        // Wait for a child to exit
+        proc.state = .SLEEPING;
+        scheduler.yield();
+    }
 }
