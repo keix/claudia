@@ -9,16 +9,16 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | Feature | UNIX V6 | Claudia |
 |---------|---------|---------|
 | **CPU Architecture** | PDP-11 (16-bit) | RISC-V RV64 (64-bit) |
-| **MMU Support** | None | Sv39 (3-level page tables) |
-| **Address Space** | Physical only | Full virtual memory |
+| **MMU Support** | Segmentation (PDP-11/45, 11/70) | Sv39 (3-level page tables) |
+| **Address Space** | Segmented (I/D split) | Full virtual memory |
 
 ## Memory Management
 
 | Feature | UNIX V6 | Claudia |
 |---------|---------|---------|
-| **Virtual Memory** | None, physical only | Full paging with Sv39 |
-| **Memory Size** | Max 256KB | Up to 512GB virtual (256MB physical) |
-| **Protection** | Basic segment bounds | Per-page R/W/X bits |
+| **Virtual Memory** | Segmentation-based | Full paging with Sv39 |
+| **Memory Size** | 64KB per process | Up to 512GB virtual (256MB physical) |
+| **Protection** | Segment-based R/W/E | Per-page R/W/X bits |
 | **Swapping** | Whole process swap | Planned per-page swap |
 | **Heap Management** | brk/sbrk syscalls | sbrk implemented |
 
@@ -26,6 +26,8 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 - Hardware-enforced memory protection
 - Modern 64-bit address space
 - Efficient page-based memory management
+
+Note: UNIX V6 did support memory management on PDP-11/45 and 11/70 models with segmentation hardware. Each process could use up to 64KB of memory divided into 8KB segments, with separate instruction and data spaces (I/D split) on capable models.
 
 ## Process Management
 
@@ -51,22 +53,22 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 
 | Category | UNIX V6 | Claudia | Implementation Rate |
 |----------|---------|---------|-------------------|
-| **Total System Calls** | ~48 | 27 implemented | 56.3% |
-| **Process Control** | 12 | 10 implemented | 83.3% |
-| **File Management** | 15 | 8 implemented | 53.3% |
+| **Total System Calls** | 41 | 29 implemented | 70.7% |
+| **Process Control** | 11 | 10 implemented | 90.9% |
+| **File Management** | 14 | 10 implemented | 71.4% |
 | **Directory Operations** | 2 | 4 implemented | 200% |
-| **Device Operations** | 6 | 0 implemented | 0% |
+| **Device Operations** | 5 | 0 implemented | 0% |
 | **Time Operations** | 3 | 3 implemented | 100% |
-| **Other System Operations** | 10 | 2 implemented | 20% |
+| **Other System Operations** | 4 | 2 implemented | 50% |
 
 ### Detailed System Call Implementation Status
 
-#### Process Control (10/12 implemented)
+#### Process Control (10/11 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
 | **fork** | 2 | 220 (clone) | Implemented | Memory isolation with independent page tables |
 | **exit** | 1 | 93 | Implemented | Cleans up resources and wakes parent |
-| **wait** | 2 | 260 (wait4) | Implemented | Basic zombie reaping |
+| **wait** | 7 | 260 (wait4) | Implemented | Basic zombie reaping |
 | **exec** | 11 | 221 (execve) | Implemented | Hardcoded to shell only |
 | **getpid** | 20 | 172 | Implemented | Returns current process ID |
 | **getppid** | - | 110 | Implemented | Returns parent process ID |
@@ -75,12 +77,11 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | nice | 34 | - | - | |
 | kill | 37 | 129 | - | No signals |
 | signal | 48 | 134 (rt_sigaction) | - | |
-| alarm | 27 | - | - | |
-| pause | 29 | - | - | |
+| ptrace | 26 | - | - | Process debugging |
 | **clone** | - | 220 | Implemented | Simplified to fork() |
 | **sched_yield** | - | 124 | Implemented | Modern addition |
 
-#### File Management (8/15 implemented)
+#### File Management (10/14 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
 | **openat** | - | 56 | Implemented | Modern open with directory support |
@@ -95,9 +96,10 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | stat | 18 | 79 (fstatat) | - | |
 | chmod | 15 | - | - | |
 | chown | 16 | - | - | |
-| dup | 41 | - | - | |
+| **dup** | 41 | 23 | Implemented | Duplicate file descriptor |
+| **dup2** | - | 24 (dup3) | Implemented | Modern dup2 via dup3 |
 | pipe | 42 | - | - | |
-| access | - | - | - | Not in V6 |
+| open | 5 | - | - | Use openat instead |
 
 #### Directory Operations (4/2 implemented - 200%)
 | System Call | V6 # | Claudia # | Status | Notes |
@@ -109,7 +111,7 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | **mkdirat** | - | 34 | Implemented | Modern addition with AT_FDCWD support |
 | **unlinkat** | - | 35 | Implemented | Modern addition for file/directory removal |
 
-#### Device Operations (0/6 implemented)
+#### Device Operations (0/5 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
 | mount | 21 | - | - | |
@@ -117,7 +119,6 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | sync | 36 | - | - | |
 | stty | 31 | - | - | |
 | gtty | 32 | - | - | |
-| ioctl | 54 | 29 | - | |
 
 #### Time Operations (3/3 implemented - 100%)
 | System Call | V6 # | Claudia # | Status | Notes |
@@ -128,19 +129,13 @@ Claudia is a modern rewrite of UNIX Sixth Edition, implemented in Zig for the RI
 | **clock_gettime** | - | 113 | Implemented | Modern high-precision time |
 | **nanosleep** | - | 101 | Implemented | Modern sleep with nanosecond precision |
 
-#### System Operations (2/10 implemented)
+#### System Operations (2/4 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
 | break/sbrk | 17 | 214 (brk) | - | Heap management exists |
-| prof | 44 | - | - | |
 | **setgid** | 46 | 144 | Implemented | No-op in single-user system |
 | **getgid** | 47 | 176 | Implemented | Always returns 0 (root) |
-| acct | 51 | - | - | |
-| phys | 52 | - | - | Not applicable to RISC-V |
-| lock | 53 | - | - | |
-| mpx | 56 | - | - | |
-| ptrace | 26 | - | - | |
-| umask | - | - | - | Not in V6 |
+| profil | 44 | - | - | Execution profiling |
 
 ### Implementation Priority
 

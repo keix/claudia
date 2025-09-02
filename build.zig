@@ -107,6 +107,13 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "abi", .module = abi_mod },
                 },
             }) },
+            .{ .name = "syscalls/io/dup", .module = b.createModule(.{
+                .root_source_file = b.path("userland/syscalls/io/dup.zig"),
+                .imports = &.{
+                    .{ .name = "syscall", .module = syscall_mod },
+                    .{ .name = "abi", .module = abi_mod },
+                },
+            }) },
             .{ .name = "syscalls/io/getcwd", .module = b.createModule(.{
                 .root_source_file = b.path("userland/syscalls/io/getcwd.zig"),
                 .imports = &.{
@@ -357,6 +364,14 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const duptest_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/duptest.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
     // Create commands index module
     const commands_index_mod = b.createModule(.{
         .root_source_file = b.path("userland/shell/commands/index.zig"),
@@ -379,6 +394,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "mkdir.zig", .module = mkdir_mod },
             .{ .name = "rm.zig", .module = rm_mod },
             .{ .name = "sleep.zig", .module = sleep_mod },
+            .{ .name = "duptest.zig", .module = duptest_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });
