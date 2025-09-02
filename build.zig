@@ -358,6 +358,30 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const simplefork_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/simplefork.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
+    const simplefork_fixed_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/simplefork_fixed.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
+    const forktest_minimal_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/forktest_minimal.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
     const sleep_mod = b.createModule(.{
         .root_source_file = b.path("userland/shell/commands/sleep.zig"),
         .imports = &.{
@@ -389,6 +413,9 @@ pub fn build(b: *std.Build) void {
             .{ .name = "rm.zig", .module = rm_mod },
             .{ .name = "fork_test.zig", .module = fork_test_mod },
             .{ .name = "fork_demo.zig", .module = fork_demo_mod },
+            .{ .name = "simplefork.zig", .module = simplefork_mod },
+            .{ .name = "simplefork_fixed.zig", .module = simplefork_fixed_mod },
+            .{ .name = "forktest_minimal.zig", .module = forktest_minimal_mod },
             .{ .name = "sleep.zig", .module = sleep_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
         },

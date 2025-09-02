@@ -29,8 +29,11 @@ pub fn sys_clone(flags: usize, stack: usize, parent_tid: usize, child_tid: usize
 
 // Wrapper for traditional fork() behavior
 pub fn sys_fork() isize {
-    const forkFn = proc_fork orelse return defs.ENOSYS;
-    return forkFn();
+    const forkFn = proc_fork orelse {
+        return defs.ENOSYS;
+    };
+    const result = forkFn();
+    return result;
 }
 
 // sys_execve implementation

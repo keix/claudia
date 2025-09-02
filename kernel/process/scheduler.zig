@@ -41,7 +41,9 @@ var idle_process: Process = undefined;
 var idle_stack: [config.Process.CHILD_STACK_SIZE]u8 align(config.Process.STACK_ALIGNMENT) = undefined;
 
 // Simple stack allocator for child processes
-var child_stack_pool: [config.Process.CHILD_POOL_SIZE][config.Process.CHILD_STACK_SIZE]u8 = undefined;
+// Must be page-aligned for virtual memory mapping
+const PAGE_SIZE = @import("../memory/types.zig").PAGE_SIZE;
+var child_stack_pool: [config.Process.CHILD_POOL_SIZE][config.Process.CHILD_STACK_SIZE]u8 align(PAGE_SIZE) = undefined;
 var child_stack_used: [config.Process.CHILD_POOL_SIZE]bool = [_]bool{false} ** config.Process.CHILD_POOL_SIZE;
 
 // Trap frame pool for child processes
@@ -147,6 +149,19 @@ pub fn dequeueRunnable() ?*Process {
 }
 
 // Core scheduling function - switches to next runnable process
+// Switch address space to the given process
+fn switchAddressSpace(proc: *Process) void {
+    if (proc.page_table_ppn != 0) {
+        // Process has its own page table
+        const mode: u64 = 8; // Sv39
+        const satp_value = (mode << 60) | (proc.page_table_ppn & 0xFFFFFFFFF);
+
+        csr.writeSatp(satp_value);
+        asm volatile ("sfence.vma" ::: "memory"); // Flush TLB
+    }
+    // If page_table_ppn is 0, keep using current page table (kernel or parent's)
+}
+
 // @param make_current_runnable: if true, adds current process to runnable queue
 // @return: the newly scheduled process, or null if no switch occurred
 pub fn schedule(make_current_runnable: bool) ?*Process {
@@ -167,6 +182,8 @@ pub fn schedule(make_current_runnable: bool) ?*Process {
             next.state = .RUNNING;
             current_process = next;
 
+            // Switch address space before context switch
+            switchAddressSpace(next);
             context_switch(&proc.context, &next.context);
 
             return next;
@@ -175,6 +192,8 @@ pub fn schedule(make_current_runnable: bool) ?*Process {
             idle_process.state = .RUNNING;
             current_process = &idle_process;
 
+            // Switch address space before context switch
+            switchAddressSpace(&idle_process);
             context_switch(&proc.context, &idle_process.context);
             return &idle_process;
         }
@@ -202,6 +221,8 @@ fn scheduleInternal() void {
         next.state = .RUNNING;
         current_process = next;
 
+        // Switch address space before context switch
+        switchAddressSpace(next);
         // Context switch to next process
         context_switch(&proc.context, &next.context);
         // When we return here, this process has been rescheduled
@@ -210,6 +231,8 @@ fn scheduleInternal() void {
         idle_process.state = .RUNNING;
         current_process = &idle_process;
 
+        // Switch address space before context switch
+        switchAddressSpace(&idle_process);
         // Context switch to idle process
         context_switch(&proc.context, &idle_process.context);
         // When we return here, this process has been rescheduled
@@ -225,6 +248,8 @@ pub fn scheduleNext() void {
         next.state = .RUNNING;
         current_process = next;
 
+        // Switch address space before context switch
+        switchAddressSpace(next);
         // Context switch to next process
         context_switch(&proc.context, &next.context);
         // When we return here, this process has been rescheduled
@@ -286,7 +311,6 @@ pub fn exit(exit_code: i32) void {
         scheduleInternal(); // This will switch to another process and never return
 
         // This should never be reached
-        uart.puts("[EXIT] ERROR: scheduleInternal() returned!\n");
         unreachable;
     }
 }

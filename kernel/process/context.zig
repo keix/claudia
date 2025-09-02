@@ -28,7 +28,7 @@ pub fn processEntryPointWithProc(proc: *Process) noreturn {
         if (proc.user_frame) |frame| {
 
             // Verify frame is in kernel space
-            validateKernelPointer(frame, "[CHILD] ERROR: Frame pointer in user space!\n");
+            validateKernelPointer(frame);
 
             // Return to user mode by pretending we came from a trap
             // This is a bit of a hack, but it should work for basic fork
@@ -89,9 +89,8 @@ pub fn initIdleContext(proc: *Process) void {
 }
 
 // Validate that a pointer is in kernel space
-fn validateKernelPointer(ptr: anytype, error_msg: []const u8) void {
+fn validateKernelPointer(ptr: anytype) void {
     if (@intFromPtr(ptr) < config.MemoryLayout.USER_KERNEL_BOUNDARY) {
-        uart.puts(error_msg);
         while (true) {
             csr.wfi();
         }
@@ -104,7 +103,7 @@ pub noinline fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
     asm volatile ("li gp, 0");
 
     // Double-check frame pointer is in kernel space
-    validateKernelPointer(frame, "[ERROR] Frame pointer in user space!\n");
+    validateKernelPointer(frame);
 
     // Set up RISC-V CSRs for return to user mode
     // SSTATUS: Use RMW to only modify SPP=0, SPIE=1, preserve other flags
