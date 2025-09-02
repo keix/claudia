@@ -197,3 +197,45 @@ fn execShell(_: *Process) noreturn {
     }
     unreachable;
 }
+
+// Wait for child process to exit
+pub fn sys_wait4(pid: i32, status: ?*i32, options: i32, rusage: ?*anyopaque) isize {
+    _ = pid; // Initially only support -1 (any child)
+    _ = status; // Initially ignore exit status
+    _ = options; // Initially ignore options
+    _ = rusage; // Initially ignore usage stats
+
+    const proc = scheduler.getCurrentProcess() orelse {
+        return -defs.ESRCH;
+    };
+
+    while (true) {
+        // Look for zombie children
+        for (&scheduler.process_table) |*p| {
+            if (p.state == .ZOMBIE and p.parent == proc) {
+                // Found one!
+                const child_pid = @as(isize, @intCast(p.pid));
+
+                // Clean up the zombie
+                p.state = .UNUSED;
+                p.parent = null;
+
+                return child_pid;
+            }
+        }
+
+        // Do we have any children at all?
+        var has_child = false;
+        for (&scheduler.process_table) |*p| {
+            if (p.parent == proc and p.state != .UNUSED) {
+                has_child = true;
+                break;
+            }
+        }
+        if (!has_child) return -defs.ECHILD;
+
+        // Wait for a child to exit
+        proc.state = .SLEEPING;
+        scheduler.yield();
+    }
+}

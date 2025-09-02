@@ -26,7 +26,7 @@ pub const Context = types.Context;
 extern fn context_switch(old_context: *Context, new_context: *Context) void;
 
 // Simple process table
-var process_table: [config.Process.MAX_PROCESSES]Process = undefined;
+pub var process_table: [config.Process.MAX_PROCESSES]Process = undefined;
 var next_pid: PID = 1;
 
 // Current running process
@@ -306,6 +306,11 @@ pub fn exit(exit_code: i32) void {
             proc.page_table_ppn = 0;
         }
 
+        // Wake parent if waiting
+        if (proc.parent) |parent| {
+            wakeup(@intFromPtr(parent));
+        }
+
         // Don't set current_process to null before calling scheduleInternal()
         // scheduleInternal() needs it for context switching
         scheduleInternal(); // This will switch to another process and never return
@@ -369,6 +374,15 @@ pub fn sleepOn(wq: *WaitQ, proc: *Process) void {
 
         // Wait for interrupt
         csr.wfi();
+    }
+}
+
+// Wake processes sleeping on a specific wait channel
+pub fn wakeup(chan: usize) void {
+    for (&process_table) |*proc| {
+        if (proc.state == .SLEEPING and @intFromPtr(proc) == chan) {
+            makeRunnable(proc);
+        }
     }
 }
 

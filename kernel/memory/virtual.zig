@@ -584,7 +584,6 @@ pub fn cloneUserSpace(src_pt: *PageTable, dst_pt: *PageTable) !void {
                             const dst_data = @as([*]u8, @ptrFromInt(new_page));
                             @memcpy(dst_data[0..PAGE_SIZE], src_data[0..PAGE_SIZE]);
 
-
                             // Map the new page with same permissions but ensure PTE_U is set
                             dst_l0[k] = addrToPte(new_page, (l0_pte & 0x3FF) | PTE_U); // Keep flags and ensure user bit
                             pages_copied += 1;

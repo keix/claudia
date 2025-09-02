@@ -26,7 +26,9 @@ pub fn main(args: *const utils.Args) void {
             _ = i * i;
             _ = sys.sched_yield();
         }
-        // Small delay to let child finish
+
+        // Wait for child to exit
+        _ = sys.wait() catch {};
     }
 
     utils.writeStr("Done\n");

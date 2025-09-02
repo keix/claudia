@@ -78,3 +78,14 @@ pub fn sys_exit(status: usize) isize {
     exitFn(@as(i32, @intCast(status)));
     return 0; // Never reached
 }
+
+// sys_wait4 implementation
+pub fn sys_wait4(pid: usize, status: usize, options: usize, rusage: usize) isize {
+    // Handle -1 as usize (truncate to i32)
+    const pid_i32: i32 = @as(i32, @truncate(@as(i64, @bitCast(pid))));
+    const status_ptr = if (status != 0) @as(?*i32, @ptrFromInt(status)) else null;
+    const options_i32 = @as(i32, @intCast(options));
+    const rusage_ptr = if (rusage != 0) @as(?*anyopaque, @ptrFromInt(rusage)) else null;
+
+    return proc.syscalls.sys_wait4(pid_i32, status_ptr, options_i32, rusage_ptr);
+}
