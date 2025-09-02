@@ -10,13 +10,13 @@ Claudia implements a simplified UNIX process model:
 - **init (PID 1)**: The first process, started by the kernel
 - **shell**: Currently runs as the init process itself (not a separate process)
 - **Built-in commands**: Execute directly within the shell process
-- **fork()**: Creates a child process that shares the parent's memory space (simplified implementation)
+- **fork()**: Creates a child process with independent page table (full memory isolation)
 - **exec()**: Currently only supports executing "shell" - replaces the process image
 
 Note: The current implementation has limitations:
-- Child processes share the parent's page table (no copy-on-write)
 - exec() only supports loading the shell binary
 - No support for external programs yet
+- No copy-on-write optimization (each fork copies all memory)
 
 ## Available Commands
 
@@ -66,10 +66,9 @@ Note: The current implementation has limitations:
 - **ppid**: Displays parent process ID
 
 ### Process Management
-- **fork_test**: Demonstrates fork system call
-- **fork_demo**: More advanced fork demonstration
 - **sleep**: Suspends execution for specified number of seconds
-- Note: `fork()` creates a child process, `exec()` replaces the current process image
+- Note: `fork()` creates a child process with independent memory, `exec()` replaces the current process image
+- Fork test commands have been moved to debug tools and are not included in the binary
 
 ### Programming
 - **lisp**: Launches the Lisp interpreter
@@ -89,7 +88,7 @@ Note: The current implementation has limitations:
 | `cp` | Copy files | High |
 | `mv` | Move/rename files | Medium |
 | `ps` | List processes | Medium |
-| `wait` | Wait for child process | Medium |
+| `wait` | Wait for child process | Implemented |
 | `kill` | Send signals to processes | Low |
 | `head` | Display first lines | Low |
 | `tail` | Display last lines | Low |

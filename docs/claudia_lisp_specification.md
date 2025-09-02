@@ -43,7 +43,7 @@ Claudia Lisp follows Scheme/Lisp-1 conventions:
 
 ### Tokens
 
-1. **Numbers**: Signed 64-bit integers
+1. **Numbers**: Signed 32-bit integers
    ```lisp
    42
    -17
@@ -87,9 +87,9 @@ Space, tab, newline, and carriage return are treated as delimiters.
 
 ### Primitive Types
 
-1. **Number**: 64-bit signed integers
+1. **Number**: 32-bit signed integers
    ```zig
-   Number: i64
+   Number: i32
    ```
 
 2. **Symbol**: Interned strings for identifiers
@@ -197,6 +197,17 @@ Prevents evaluation of an expression.
 
 Note: The shorthand `'` notation is not currently implemented. Use the full `(quote ...)` form.
 
+### Other Shorthand Notations
+
+The following common Lisp shorthand notations are **not** supported:
+- `'expr` for `(quote expr)`
+- `` `expr`` for `(quasiquote expr)`
+- `,expr` for `(unquote expr)`
+- `#(...)` for vectors
+- `#\c` for characters
+
+All expressions must use their full form.
+
 ## Built-in Functions
 
 ### Arithmetic
@@ -206,7 +217,7 @@ Note: The shorthand `'` notation is not currently implemented. Use the full `(qu
 (- a b)          ; subtraction
 (* a b ...)      ; multiplication (variadic)
 (/ a b)          ; integer division
-(% a b)          ; modulo
+(mod a b)        ; modulo
 ```
 
 Examples:
@@ -215,17 +226,15 @@ Examples:
 (- 10 3)         ; => 7
 (* 2 3 4)        ; => 24
 (/ 10 3)         ; => 3
-(% 10 3)         ; => 1
+(mod 10 3)       ; => 1
 ```
 
 ### Comparison
 
 ```lisp
 (= a b)          ; numeric equality
-(< a b)          ; less than
 (> a b)          ; greater than
 (<= a b)         ; less than or equal
-(>= a b)         ; greater than or equal
 ```
 
 ### List Operations
@@ -252,9 +261,7 @@ Note: The `list` function is not currently implemented. Use nested `cons` with `
 ### Logical Operations
 
 ```lisp
-(not x)          ; logical negation
-(and a b ...)    ; logical and (short-circuit)
-(or a b ...)     ; logical or (short-circuit)
+(and a b)        ; logical and (binary only)
 ```
 
 ### I/O Functions
@@ -374,9 +381,14 @@ Located at `/lib/std.lisp`:
 (defun or (a b) (if a a b))
 (defun and (a b) (if a b #f))
 
-; List predicates
-(defun null (x) (= x '()))
-(defun pair (x) (and (list? x) (not (null? x))))
+; Numeric functions
+(defun inc (n) (+ n 1))
+(defun dec (n) (- n 1))
+(defun sq (x) (* x x))
+(defun min (a b) (if (> a b) b a))
+(defun max (a b) (if (> a b) a b))
+(defun even (n) (= 0 (mod n 2)))
+(defun odd (n) (= 1 (mod n 2)))
 
 ; etc...
 ```
@@ -387,10 +399,10 @@ Located at `/lib/std.lisp`:
 
 1. **Memory**: 32KB total allocation
 2. **List Size**: Maximum 32 elements per List structure
-3. **Variables**: Maximum 128 global variables
+3. **Variables**: Maximum 32 global variables
 4. **Recursion**: ~100 levels (stack limited)
 5. **Symbol Length**: Limited by available memory
-6. **Input Line**: 256 characters
+6. **Input Line**: 512 characters
 7. **String Length**: Limited by available memory
 
 ### Soft Limits
@@ -445,9 +457,9 @@ lisp> (defun fizzbuzz (n)
           (if (> i n)
               '()
               (cons
-                (if (= (% i 15) 0) "FizzBuzz"
-                    (if (= (% i 3) 0) "Fizz"
-                        (if (= (% i 5) 0) "Buzz" i)))
+                (if (= (mod i 15) 0) "FizzBuzz"
+                    (if (= (mod i 3) 0) "Fizz"
+                        (if (= (mod i 5) 0) "Buzz" i)))
                 (fb (+ i 1)))))
         (fb 1))
 <function>
