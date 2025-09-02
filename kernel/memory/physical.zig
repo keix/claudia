@@ -49,12 +49,6 @@ pub const FrameAllocator = struct {
                         self.setBit(frame);
                         self.free_frames -= 1;
                         const addr = self.frameToAddr(frame);
-
-                        // Skip problematic address that causes hang
-                        if (addr == 0x8032d000) {
-                            continue;
-                        }
-
                         return addr;
                     }
                 }

@@ -40,6 +40,6 @@ pub const commands = [_]CommandEntry{
     .{ .name = "fork_demo", .func = @import("fork_demo.zig").main },
     .{ .name = "simplefork", .func = @import("simplefork.zig").main },
     .{ .name = "simplefork_fixed", .func = @import("simplefork_fixed.zig").main },
-    .{ .name = "forktest_minimal", .func = @import("forktest_minimal.zig").main },
+    .{ .name = "forktest", .func = @import("forktest.zig").main },
     .{ .name = "sleep", .func = @import("sleep.zig").main },
 };

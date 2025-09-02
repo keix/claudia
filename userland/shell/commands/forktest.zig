@@ -20,10 +20,13 @@ pub fn main(args: *const utils.Args) void {
         // Parent process
         utils.writeStr("P\n");
 
-        // Small delay to let child finish
-        for (0..1000000) |_| {
-            asm volatile ("nop");
+        for (0..10) |i| {
+            // Busy wait
+            utils.writeStr("P\n");
+            _ = i * i;
+            _ = sys.sched_yield();
         }
+        // Small delay to let child finish
     }
 
     utils.writeStr("Done\n");

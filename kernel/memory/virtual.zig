@@ -44,13 +44,6 @@ pub const PageTable = struct {
 
     // Helper function to safely clear a page table
     fn clearPageTable(table_addr: usize) void {
-        // Special handling for problematic address
-        if (table_addr == 0x8032d000) {
-            // Don't try to clear this page - it seems to be inaccessible
-            // This is a workaround for a deeper issue
-            return;
-        }
-
         const table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
 
         // Check if this is kernel init end - it might already have data!
@@ -71,14 +64,6 @@ pub const PageTable = struct {
         } else {
             // Normal clear
             for (0..PAGE_ENTRIES) |i| {
-                // Debug for last few entries only when debugging is needed
-                // if (i >= 508) {
-                //     uart.puts("[clearPageTable] Clearing entry ");
-                //     uart.putDec(@intCast(i));
-                //     uart.puts(" value=0x");
-                //     uart.putHex(table[i]);
-                //     uart.puts("\n");
-                // }
                 @atomicStore(u64, &table[i], 0, .monotonic);
             }
         }
@@ -599,7 +584,6 @@ pub fn cloneUserSpace(src_pt: *PageTable, dst_pt: *PageTable) !void {
                             const dst_data = @as([*]u8, @ptrFromInt(new_page));
                             @memcpy(dst_data[0..PAGE_SIZE], src_data[0..PAGE_SIZE]);
 
-                            // Don't print individual pages to avoid too much output
 
                             // Map the new page with same permissions but ensure PTE_U is set
                             dst_l0[k] = addrToPte(new_page, (l0_pte & 0x3FF) | PTE_U); // Keep flags and ensure user bit
