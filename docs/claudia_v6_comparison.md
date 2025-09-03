@@ -53,9 +53,9 @@ Note: UNIX V6 did support memory management on PDP-11/45 and 11/70 models with s
 
 | Category | UNIX V6 | Claudia | Implementation Rate |
 |----------|---------|---------|-------------------|
-| **Total System Calls** | 41 | 29 implemented | 70.7% |
+| **Total System Calls** | 41 | 30 implemented | 73.2% |
 | **Process Control** | 11 | 10 implemented | 90.9% |
-| **File Management** | 14 | 10 implemented | 71.4% |
+| **File Management** | 14 | 11 implemented | 78.6% |
 | **Directory Operations** | 2 | 4 implemented | 200% |
 | **Device Operations** | 5 | 0 implemented | 0% |
 | **Time Operations** | 3 | 3 implemented | 100% |
@@ -81,7 +81,7 @@ Note: UNIX V6 did support memory management on PDP-11/45 and 11/70 models with s
 | **clone** | - | 220 | Implemented | Simplified to fork() |
 | **sched_yield** | - | 124 | Implemented | Modern addition |
 
-#### File Management (10/14 implemented)
+#### File Management (11/14 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
 | **openat** | - | 56 | Implemented | Modern open with directory support |
@@ -93,7 +93,7 @@ Note: UNIX V6 did support memory management on PDP-11/45 and 11/70 models with s
 | **unlink** | 10 | 35 (unlinkat) | Implemented | Modern unlinkat with AT_FDCWD |
 | **lseek** | 19 | 62 | Implemented | Modern lseek with SEEK_SET/CUR/END |
 | **fstat** | 28 | 80 | Implemented | File status by file descriptor |
-| stat | 18 | 79 (fstatat) | - | |
+| **stat** | 18 | 79 (fstatat) | Implemented | File status by path with AT_FDCWD |
 | chmod | 15 | - | - | |
 | chown | 16 | - | - | |
 | **dup** | 41 | 23 | Implemented | Duplicate file descriptor |
@@ -142,17 +142,16 @@ Note: UNIX V6 did support memory management on PDP-11/45 and 11/70 models with s
 Based on current needs for shell and Lisp interpreter:
 
 1. **Immediate Priority**
-   - `stat` - File information for `ls -l` (fstat done)
    - `creat` - Explicit file creation
+   - `pipe` - Inter-process communication
    
 2. **High Priority**
-   - `pipe` - Inter-process communication
-   - `signal/kill` - Process control
-   
-3. **Medium Priority**
    - `signal/kill` - Process control
    - `link` - Hard links (unlink done)
+   
+3. **Medium Priority**
    - `chmod/chown` - Permissions
+   - `brk/sbrk` - Heap management
 
 ## File System
 
