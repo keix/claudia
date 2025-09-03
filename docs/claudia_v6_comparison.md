@@ -53,13 +53,13 @@ Note: UNIX V6 did support memory management on PDP-11/45 and 11/70 models with s
 
 | Category | UNIX V6 | Claudia | Implementation Rate |
 |----------|---------|---------|-------------------|
-| **Total System Calls** | 41 | 30 implemented | 73.2% |
+| **Total System Calls** | 41 | 31 implemented | 75.6% |
 | **Process Control** | 11 | 10 implemented | 90.9% |
 | **File Management** | 14 | 11 implemented | 78.6% |
 | **Directory Operations** | 2 | 4 implemented | 200% |
 | **Device Operations** | 5 | 0 implemented | 0% |
 | **Time Operations** | 3 | 3 implemented | 100% |
-| **Other System Operations** | 4 | 2 implemented | 50% |
+| **Other System Operations** | 4 | 3 implemented | 75% |
 
 ### Detailed System Call Implementation Status
 
@@ -129,10 +129,10 @@ Note: UNIX V6 did support memory management on PDP-11/45 and 11/70 models with s
 | **clock_gettime** | - | 113 | Implemented | Modern high-precision time |
 | **nanosleep** | - | 101 | Implemented | Modern sleep with nanosecond precision |
 
-#### System Operations (2/4 implemented)
+#### System Operations (3/4 implemented)
 | System Call | V6 # | Claudia # | Status | Notes |
 |-------------|------|-----------|--------|-------|
-| break/sbrk | 17 | 214 (brk) | - | Heap management exists |
+| **break/sbrk** | 17 | 214 (brk) | Implemented | Dynamic heap management with page allocation |
 | **setgid** | 46 | 144 | Implemented | No-op in single-user system |
 | **getgid** | 47 | 176 | Implemented | Always returns 0 (root) |
 | profil | 44 | - | - | Execution profiling |
@@ -151,7 +151,7 @@ Based on current needs for shell and Lisp interpreter:
    
 3. **Medium Priority**
    - `chmod/chown` - Permissions
-   - `brk/sbrk` - Heap management
+   - `mount/umount` - File system mounting
 
 ## File System
 
@@ -254,7 +254,7 @@ Based on current needs for shell and Lisp interpreter:
 | Aspect | UNIX V6 | Claudia |
 |--------|---------|---------|
 | **Language** | C (K&R) | Zig (100% no libc) |
-| **Lines of Code** | ~9,000 | ~14,000 (kernel + userland + assembly) |
+| **Lines of Code** | ~9,000 | ~15,000 (+ assembly / lisp) |
 | **Build System** | make | Zig build system |
 | **Initrd Tool** | None | mkinitrd.zig |
 
@@ -275,9 +275,12 @@ Claudia has achieved:
 - Context switching with proper privilege mode transitions
 - Idle process prevents scheduler deadlock
 - Simple filesystem with initrd
-- Basic shell and utilities (ls, cat, echo, pwd, cd, mkdir, rm, touch, date, id, sleep)
+- Basic shell and utilities (see [Claudia Commands Utilities](claudia_commands_utilities.md))
 - Directory operations (Linux-style openat + getdents64)
 - File removal (unlinkat system call)
+- File status information (stat/fstatat system calls)
+- Duplicate file descriptors (dup/dup2 system calls)
+- Dynamic memory allocation (brk/sbrk system calls)
 - Device abstraction layer
 - UART interrupt handling with PLIC
 - Educational Lisp interpreter with functions
@@ -287,8 +290,8 @@ Claudia has achieved:
 ## Future Plans
 
 1. **Short Term**
-   - Implement stat/fstatat for file information
-   - Add pipe support
+   - Add pipe support for inter-process communication
+   - Implement creat system call
    - INode/VNode unification
    - File permissions and ownership
    - Copy-on-write fork optimization

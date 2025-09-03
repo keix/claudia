@@ -212,6 +212,13 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "abi", .module = abi_mod },
                 },
             }) },
+            .{ .name = "syscalls/mem/brk", .module = b.createModule(.{
+                .root_source_file = b.path("userland/syscalls/mem/brk.zig"),
+                .imports = &.{
+                    .{ .name = "syscall", .module = syscall_mod },
+                    .{ .name = "abi", .module = abi_mod },
+                },
+            }) },
         },
     });
 
@@ -371,6 +378,14 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const brktest_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/brktest.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
+
     // Create commands index module
     const commands_index_mod = b.createModule(.{
         .root_source_file = b.path("userland/shell/commands/index.zig"),
@@ -393,6 +408,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "mkdir.zig", .module = mkdir_mod },
             .{ .name = "rm.zig", .module = rm_mod },
             .{ .name = "sleep.zig", .module = sleep_mod },
+            .{ .name = "brktest.zig", .module = brktest_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });

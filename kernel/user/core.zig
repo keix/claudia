@@ -179,6 +179,10 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
         // Store the new page table PPN for cleanup on exit
         current.page_table_ppn = user_ppn;
 
+        // Initialize heap management
+        current.heap_start = memory.USER_HEAP_BASE;
+        current.heap_end = memory.USER_HEAP_BASE; // Initially, heap is empty
+
         // Also update the current CPU's SATP immediately if we're running on this process
         const current_cpu_satp = csr.readSatp();
         if (current_cpu_satp == old_satp) {

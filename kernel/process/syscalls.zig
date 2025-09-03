@@ -91,6 +91,10 @@ pub fn fork() isize {
     // Set child's page table
     child.page_table_ppn = child_pt.root_ppn;
 
+    // Copy heap management info from parent
+    child.heap_start = parent.heap_start;
+    child.heap_end = parent.heap_end;
+
     // Copy user mode trap frame if it exists
     if (parent.user_frame) |parent_frame| {
         // Allocate independent trap frame for child
