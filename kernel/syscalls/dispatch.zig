@@ -48,6 +48,7 @@ pub fn call(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) isi
         sysno.sys_getcwd => path.sys_getcwd(a0, a1),
         sysno.sys_chdir => path.sys_chdir(a0),
         sysno.sys_fstat => stat.sys_fstat(a0, a1),
+        sysno.sys_fstatat => stat.sys_fstatat(a0, a1, a2, a3),
         sysno.sys_time => time.sys_time(a0),
         sysno.sys_clock_gettime => time.sys_clock_gettime(a0, a1),
         sysno.sys_nanosleep => time.sys_nanosleep(a0, a1),
