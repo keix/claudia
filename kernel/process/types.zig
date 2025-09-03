@@ -84,6 +84,10 @@ pub const Process = struct {
     cwd_len: usize, // Length of current working directory
     page_table_ppn: u64, // Physical page number of page table root (0 = kernel PT)
 
+    // Heap management
+    heap_start: u64, // Start of heap (fixed)
+    heap_end: u64, // Current end of heap (program break)
+
     // Simple linked list for process queue
     next: ?*Process,
 
@@ -101,6 +105,8 @@ pub const Process = struct {
             .cwd = std.mem.zeroes([config.Process.CWD_LENGTH]u8),
             .cwd_len = 1,
             .page_table_ppn = 0, // Default to kernel page table
+            .heap_start = 0, // Will be initialized when user memory is set up
+            .heap_end = 0, // Will be initialized when user memory is set up
             .next = null,
         };
 

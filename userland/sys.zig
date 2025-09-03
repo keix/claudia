@@ -52,3 +52,7 @@ pub const mkdirat = @import("syscalls/io/mkdir").mkdirat;
 pub const unlink = @import("syscalls/io/unlinkat").unlink;
 pub const unlinkat = @import("syscalls/io/unlinkat").unlinkat;
 pub const rmdir = @import("syscalls/io/unlinkat").rmdir;
+
+// Memory management
+pub const sbrk = @import("syscalls/mem/brk").sbrk;
+pub const brk = @import("syscalls/mem/brk").brk;

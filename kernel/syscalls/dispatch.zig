@@ -10,6 +10,7 @@ const path = @import("path.zig");
 const stat = @import("stat.zig");
 const time = @import("time.zig");
 const uid = @import("uid.zig");
+const brk = @import("brk.zig");
 
 // Initialize the dispatcher with required function pointers
 pub fn init(
@@ -61,6 +62,7 @@ pub fn call(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) isi
         sysno.sys_mkdirat => dir.sys_mkdirat(a0, a1, a2),
         sysno.sys_unlinkat => dir.sys_unlinkat(a0, a1, a2),
         sysno.sys_wait4 => process.sys_wait4(a0, a1, a2, a3),
+        sysno.sys_brk => brk.sys_brk(a0),
         else => defs.ENOSYS,
     };
 }
