@@ -4,6 +4,7 @@ const allocator = @import("allocator.zig");
 const csr = @import("../arch/riscv/csr.zig");
 const uart = @import("../driver/uart/core.zig");
 const config = @import("../config.zig");
+const user_memory = @import("../user/memory.zig");
 
 const PAGE_SIZE = types.PAGE_SIZE;
 const PAGE_SHIFT = types.PAGE_SHIFT;
@@ -372,8 +373,6 @@ pub fn getCurrentPageTable() *PageTable {
 // Build global kernel mappings for any page table (including user page tables)
 pub fn buildKernelGlobalMappings(page_table: *PageTable) !void {
     // Start building kernel mappings
-    const user_memory = @import("../user/memory.zig");
-
     // Map kernel text/data/bss and heap (supervisor only, global)
     var addr: usize = types.KERNEL_BASE;
     const kernel_end = types.KERNEL_END; // Use KERNEL_END for more generous mapping

@@ -3,6 +3,8 @@
 
 const std = @import("std");
 const csr = @import("../arch/riscv/csr.zig");
+const uart = @import("../driver/uart/core.zig");
+const proc = @import("../process/core.zig");
 
 // Timer frequency (10MHz for QEMU)
 const TIMER_FREQ: u64 = 10_000_000;
@@ -38,7 +40,6 @@ pub fn readTime() u64 {
 
 // Initialize timer
 pub fn init() void {
-    const uart = @import("../driver/uart/core.zig");
     uart.puts("Timer: Initializing...\n");
 
     // Set first timer interrupt
@@ -59,7 +60,6 @@ var interrupt_count: u32 = 0;
 // Handle timer interrupt - called from trap handler
 pub fn handleInterrupt() void {
     // Debug: Print on first few interrupts
-    const uart = @import("../driver/uart/core.zig");
     if (interrupt_count < 5) {
         uart.puts("Timer interrupt!\n");
         interrupt_count += 1;
@@ -71,7 +71,6 @@ pub fn handleInterrupt() void {
     sbi_set_timer(next_time);
 
     // Trigger process scheduling
-    const proc = @import("../process/core.zig");
     proc.Scheduler.yield();
 }
 

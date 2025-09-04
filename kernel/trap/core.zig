@@ -9,6 +9,10 @@ const defs = abi;
 const dispatch = @import("../syscalls/dispatch.zig");
 const memory = @import("../memory/core.zig");
 const config = @import("../config.zig");
+const fs = @import("../syscalls/fs.zig");
+const timer = @import("../time/timer.zig");
+const plic = @import("../driver/plic.zig");
+const uart = @import("../driver/uart/core.zig");
 
 // Import trap vector from assembly
 extern const trap_vector: u8;
@@ -123,7 +127,6 @@ pub fn init() void {
     );
 
     // Set open function separately
-    const fs = @import("../syscalls/fs.zig");
     fs.setOpenFn(fileOpen);
 }
 
@@ -213,7 +216,6 @@ fn interruptHandler(frame: *TrapFrame, code: u64) void {
     _ = frame;
     switch (code) {
         csr.Interrupt.SupervisorTimer => {
-            const timer = @import("../time/timer.zig");
             timer.checkSleepers();
         },
         csr.Interrupt.SupervisorExternal => {
@@ -224,7 +226,6 @@ fn interruptHandler(frame: *TrapFrame, code: u64) void {
 }
 
 fn handlePLICInterrupt() void {
-    const plic = @import("../driver/plic.zig");
 
     // Claim the interrupt (hart 0, context 1 for S-mode)
     const irq = plic.claim(0, 1);
@@ -249,24 +250,24 @@ fn handlePageFault(frame: *TrapFrame, code: u64) void {
     const fault_vpn0 = (fault_addr >> 12) & 0x1FF;
 
     // Debug output for page faults
-    @import("../driver/uart/core.zig").puts("\n[PAGE FAULT] at address 0x");
-    @import("../driver/uart/core.zig").putHex(fault_addr);
-    @import("../driver/uart/core.zig").puts(" (");
+    uart.puts("\n[PAGE FAULT] at address 0x");
+    uart.putHex(fault_addr);
+    uart.puts(" (");
     if (is_kernel_addr) {
-        @import("../driver/uart/core.zig").puts("kernel");
+        uart.puts("kernel");
     } else {
-        @import("../driver/uart/core.zig").puts("user");
+        uart.puts("user");
     }
-    @import("../driver/uart/core.zig").puts(" space), sepc=0x");
-    @import("../driver/uart/core.zig").putHex(frame.sepc);
+    uart.puts(" space), sepc=0x");
+    uart.putHex(frame.sepc);
 
     // Check current process
     const current_proc = proc.Scheduler.getCurrentProcess();
     if (current_proc) |p| {
-        @import("../driver/uart/core.zig").puts(", PID=");
-        @import("../driver/uart/core.zig").putDec(p.pid);
+        uart.puts(", PID=");
+        uart.putDec(p.pid);
     }
-    @import("../driver/uart/core.zig").puts("\n");
+    uart.puts("\n");
     const is_instruction_fault = (code == @intFromEnum(ExceptionCause.InstructionPageFault));
 
     var found_valid_mapping = false;
