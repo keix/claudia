@@ -4,6 +4,8 @@ const File = @import("core.zig").File;
 const FileOperations = @import("core.zig").FileOperations;
 const vfs = @import("../fs/vfs.zig");
 const defs = @import("abi");
+const copy = @import("../user/copy.zig");
+const core = @import("core.zig");
 
 // Memory file structure - associates a File with a VNode
 pub const MemFile = struct {
@@ -19,7 +21,7 @@ pub const MemFile = struct {
         };
 
         // Create a pseudo-inode for the file with metadata from VNode
-        const inode = @import("core.zig").allocInode(.REGULAR, &DummyInodeOps);
+        const inode = core.allocInode(.REGULAR, &DummyInodeOps);
         if (inode) |i| {
             i.size = vnode.data_size;
             i.mode = 0o644; // Default file permissions
@@ -52,28 +54,28 @@ pub const MemFile = struct {
 // VNode currently handles actual file operations, while Inode exists only
 // for metadata access (e.g., fstat). These dummy operations ensure the interface
 // is satisfied but delegate actual I/O to VNode through MemFile operations.
-const DummyInodeOps = @import("core.zig").InodeOperations{
+const DummyInodeOps = core.InodeOperations{
     .read = dummyRead,
     .write = dummyWrite,
     .truncate = dummyTruncate,
     .lookup = null,
 };
 
-fn dummyRead(inode: *@import("core.zig").Inode, buffer: []u8, offset: u64) isize {
+fn dummyRead(inode: *core.Inode, buffer: []u8, offset: u64) isize {
     _ = inode;
     _ = buffer;
     _ = offset;
     return defs.ENOSYS;
 }
 
-fn dummyWrite(inode: *@import("core.zig").Inode, data: []const u8, offset: u64) isize {
+fn dummyWrite(inode: *core.Inode, data: []const u8, offset: u64) isize {
     _ = inode;
     _ = data;
     _ = offset;
     return defs.ENOSYS;
 }
 
-fn dummyTruncate(inode: *@import("core.zig").Inode, size: u64) anyerror!void {
+fn dummyTruncate(inode: *core.Inode, size: u64) anyerror!void {
     _ = inode;
     _ = size;
     return error.NotSupported;
@@ -103,7 +105,6 @@ fn memRead(file: *File, buffer: []u8) isize {
     if (to_read == 0) return 0; // EOF
 
     // Copy data from VNode's buffer
-    const copy = @import("../user/copy.zig");
     const user_addr = @intFromPtr(buffer.ptr);
     _ = copy.copyout(user_addr, vnode.data[mem_file.position .. mem_file.position + to_read]) catch return defs.EFAULT;
 
@@ -145,7 +146,7 @@ fn memClose(file: *File) void {
 
     // Free the inode if allocated
     if (file.inode) |inode| {
-        @import("core.zig").freeInode(inode);
+        core.freeInode(inode);
     }
     // Decrement VNode reference count
     mem_file.vnode.release();

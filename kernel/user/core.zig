@@ -8,6 +8,7 @@ const virtual = @import("../memory/virtual.zig");
 const types = @import("../memory/types.zig");
 const elf = @import("elf.zig");
 const uart = @import("../driver/uart/core.zig");
+const proc = @import("../process/core.zig");
 
 // Import safe user mode switch function (includes SATP switching)
 extern fn switch_to_user_mode(entry_point: u64, user_stack: u64, kernel_stack: u64, satp_val: u64) void;
@@ -162,7 +163,6 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
 
     // Update current process's kernel context SATP
     // This ensures when we return from interrupts/syscalls, we use the new page table
-    const proc = @import("../process/core.zig");
     if (proc.Scheduler.getCurrentProcess()) |current| {
         const old_satp = current.context.satp;
         current.context.satp = satp_value;

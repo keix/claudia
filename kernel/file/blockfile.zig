@@ -5,6 +5,7 @@ const types = @import("types.zig");
 const defs = @import("abi");
 const blockdev = @import("../driver/blockdev.zig");
 const ramdisk = @import("../driver/ramdisk.zig");
+const simplefs_ops = @import("../fs/simplefs_ops.zig");
 
 // Block device file structure
 pub const BlockFile = struct {
@@ -54,7 +55,6 @@ fn blockRead(file: *core.File, buffer: []u8) isize {
     const bf: *BlockFile = @alignCast(@as(*BlockFile, @ptrFromInt(bf_ptr)));
 
     // Check if this is a SimpleFS file read
-    const simplefs_ops = @import("../fs/simplefs_ops.zig");
     if (simplefs_ops.handleFileRead(buffer)) |bytes_read| {
         return @as(isize, @intCast(bytes_read));
     } else |_| {
@@ -88,7 +88,6 @@ fn blockWrite(file: *core.File, data: []const u8) isize {
     // Check if this is a SimpleFS command (first byte >= 0x00 and <= 0x03)
     if (data.len > 0 and data[0] >= 0x00 and data[0] <= 0x03) {
         // Handle SimpleFS command
-        const simplefs_ops = @import("../fs/simplefs_ops.zig");
         _ = simplefs_ops.handleCommand(data) catch |err| {
             return switch (err) {
                 error.InvalidCommand => defs.EINVAL,

@@ -7,6 +7,7 @@ const simplefs = @import("../fs/simplefs.zig");
 const process = @import("../process/core.zig");
 const fs = @import("fs.zig");
 const uart = @import("../driver/uart/core.zig");
+const file_table = @import("../file/core.zig").FileTable;
 
 // Directory entry structure for getdents64
 pub const DirEntry = extern struct {
@@ -120,7 +121,6 @@ pub fn sys_unlinkat(dirfd: usize, pathname: usize, flags: usize) isize {
 
 pub fn sys_getdents64(fd: usize, dirp: usize, count: usize) isize {
     // Get the file handle
-    const file_table = @import("../file/core.zig").FileTable;
     const file = file_table.getFile(@intCast(fd)) orelse return defs.EBADF;
 
     // Read directory entries

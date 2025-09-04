@@ -2,6 +2,7 @@
 const std = @import("std");
 const simplefs = @import("simplefs.zig");
 const ramdisk = @import("../driver/ramdisk.zig");
+const uart = @import("../driver/uart/core.zig");
 
 // Use a pointer to SimpleFS
 var fs: ?*simplefs.SimpleFS = null;
@@ -50,7 +51,6 @@ pub fn readFile(name: []const u8, buffer: []u8) !usize {
 pub fn listFiles() void {
     if (!mounted) {
         mount() catch {
-            const uart = @import("../driver/uart/core.zig");
             uart.puts("Error: SimpleFS not mounted\n");
             return;
         };

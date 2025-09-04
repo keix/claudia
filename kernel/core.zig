@@ -23,6 +23,7 @@ const timer = @import("time/timer.zig");
 
 // Boot
 const initrd = @import("boot/initrd.zig");
+const kalloc = @import("memory/kalloc.zig");
 
 // Boot-time memory allocation
 // Simple stack allocator for initial kernel processes
@@ -77,7 +78,6 @@ fn initMemorySystem() void {
     };
 
     // Initialize kernel heap before enabling MMU
-    const kalloc = @import("memory/kalloc.zig");
     kalloc.init() catch {
         halt("Failed to initialize kernel heap");
     };

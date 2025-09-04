@@ -1,6 +1,7 @@
 // kernel/fs/vfs.zig - Virtual File System layer
 const std = @import("std");
 const defs = @import("abi");
+const uart = @import("../driver/uart/core.zig");
 
 // VFS node types
 pub const NodeType = enum(u8) {
@@ -208,13 +209,11 @@ pub fn resolvePath(path: []const u8) ?*VNode {
 
 // Debug: Print VFS tree for debugging
 pub fn debugPrintTree() void {
-    const uart = @import("../driver/uart/core.zig");
     uart.puts("\nVFS Tree:\n");
     debugPrintNodeWithUart(&root_node, 0);
 }
 
 fn debugPrintNodeWithUart(node: *VNode, depth: usize) void {
-    const uart = @import("../driver/uart/core.zig");
 
     // Print indentation
     var i: usize = 0;

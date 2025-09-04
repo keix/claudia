@@ -7,6 +7,8 @@ const defs = @import("abi");
 const proc = @import("../process/core.zig");
 const vfs = @import("../fs/vfs.zig");
 const config = @import("../config.zig");
+const copy = @import("../user/copy.zig");
+const csr = @import("../arch/riscv/csr.zig");
 
 // Import submodules
 pub const types = @import("types.zig");
@@ -188,7 +190,6 @@ const TTY = struct {
     }
 
     fn getCharAtomic(self: *TTY) ?u8 {
-        const csr = @import("../arch/riscv/csr.zig");
 
         if (self.magic != TTY_MAGIC) {
             @panic("TTY structure corrupted!");
@@ -204,7 +205,6 @@ const TTY = struct {
     }
 
     fn putCharAtomic(self: *TTY, ch: u8) bool {
-        const csr = @import("../arch/riscv/csr.zig");
         const saved_sstatus = csr.csrrc(csr.CSR.sstatus, csr.SSTATUS.SIE);
         defer {
             if ((saved_sstatus & csr.SSTATUS.SIE) != 0) {
@@ -263,9 +263,7 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 
     if (buffer.len == 0) return 0;
 
-    const copy = @import("../user/copy.zig");
     const user_addr = @intFromPtr(buffer.ptr);
-    const csr = @import("../arch/riscv/csr.zig");
 
     // Handle canonical vs raw mode
     // Validate TTY before accessing it
@@ -304,8 +302,6 @@ fn consoleRead(file: *File, buffer: []u8) isize {
 
 // Canonical mode read - process line buffering
 fn consoleReadCanonical(buffer: []u8, user_addr: usize) isize {
-    const copy = @import("../user/copy.zig");
-    const csr = @import("../arch/riscv/csr.zig");
 
     // Note: We're already in kernel mode if this function is executing.
     // SPP bit tells us where we came FROM on the last trap, not where we ARE now.

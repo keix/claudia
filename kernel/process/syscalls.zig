@@ -9,6 +9,7 @@ const user = @import("../user/core.zig");
 const defs = @import("abi");
 const config = @import("../config.zig");
 const virtual = @import("../memory/virtual.zig");
+const page_size = @import("../memory/types.zig").PAGE_SIZE;
 
 const types = @import("types.zig");
 const scheduler = @import("scheduler.zig");
@@ -74,7 +75,6 @@ pub fn fork() isize {
     // Map child's kernel stack to its page table
     // Child process has its own kernel stack allocated by allocateChildStack()
     const child_stack_start = @intFromPtr(child.stack.ptr);
-    const page_size = @import("../memory/types.zig").PAGE_SIZE;
     const child_stack_pages = (child.stack.len + page_size - 1) / page_size;
 
     // Map each page of the child's kernel stack
