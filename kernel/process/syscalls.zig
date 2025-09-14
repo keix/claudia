@@ -27,6 +27,14 @@ pub fn fork() isize {
     // Reap any zombie processes before allocating new resources
     scheduler.reapZombies();
 
+    // Disable interrupts during critical fork operations to prevent race conditions
+    const saved_sie = csr.csrrc(csr.CSR.sstatus, csr.SSTATUS.SIE);
+    defer {
+        if ((saved_sie & csr.SSTATUS.SIE) != 0) {
+            _ = csr.csrrs(csr.CSR.sstatus, csr.SSTATUS.SIE);
+        }
+    }
+
     const parent = scheduler.getCurrentProcess() orelse {
         return defs.ESRCH;
     };
@@ -122,9 +130,9 @@ pub fn fork() isize {
         child.context.s0 = @intFromPtr(child); // Process pointer in s0
         child.context.a0 = 0; // Return value for fork (child returns 0)
 
-        // CRITICAL: Set supervisor mode in context for proper return
-        // SPP=1 (supervisor), SPIE=1 (interrupts enabled after sret)
-        child.context.sstatus = (1 << 8) | (1 << 5); // SPP | SPIE
+        // CRITICAL: Set proper mode in context for return to user mode
+        // SPP=0 (user mode), SPIE=1 (interrupts enabled after sret)
+        child.context.sstatus = (1 << 5); // SPIE only, SPP=0 for user mode
 
         // CRITICAL: Child must use its own page table
         // Set satp with the child's page table
@@ -134,6 +142,10 @@ pub fn fork() isize {
         child_pt.deinit();
         return defs.EINVAL; // No user frame
     }
+
+    // Ensure all memory writes are visible before making child runnable
+    // Use RISC-V fence instruction for full memory barrier
+    asm volatile ("fence rw, rw" ::: "memory");
 
     // Make child runnable
     scheduler.makeRunnable(child);
