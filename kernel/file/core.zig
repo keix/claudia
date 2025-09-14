@@ -190,7 +190,6 @@ const TTY = struct {
     }
 
     fn getCharAtomic(self: *TTY) ?u8 {
-
         if (self.magic != TTY_MAGIC) {
             @panic("TTY structure corrupted!");
         }
