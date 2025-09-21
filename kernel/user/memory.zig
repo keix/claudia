@@ -138,9 +138,6 @@ pub const UserMemoryContext = struct {
         // Build all kernel global mappings
         try virtual.buildKernelGlobalMappings(page_table);
 
-        // Check if mapping survived
-        page_table.checkCriticalPTE("After buildKernelGlobalMappings in addKernelMappings");
-
         // Explicitly ensure kernel stack is mapped (defensive programming)
         // This is redundant as buildKernelGlobalMappings() already calls it,
         // but ensures kernel stack is always accessible from trap handler

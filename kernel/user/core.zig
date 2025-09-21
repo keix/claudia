@@ -171,7 +171,6 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
         if (current.page_table_ppn != 0) {
             var old_page_table = virtual.PageTable{
                 .root_ppn = current.page_table_ppn,
-                .debug_watchdog_active = false,
             };
             old_page_table.deinit();
         }

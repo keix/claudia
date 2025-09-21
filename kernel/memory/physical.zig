@@ -4,11 +4,16 @@ const uart = @import("../driver/uart/core.zig");
 pub const PAGE_SIZE = types.PAGE_SIZE;
 pub const PAGE_SHIFT = types.PAGE_SHIFT;
 
+// Protected page table addresses
+const PROTECTED_PAGE_TABLE_1 = 0x802bf000;
+const PROTECTED_PAGE_TABLE_2 = 0x802cf000;
+
 pub const FrameAllocator = struct {
     bitmap: []u8,
     total_frames: usize,
     free_frames: usize,
     base_addr: usize,
+    bitmap_bytes: usize,
 
     const Self = @This();
 
@@ -20,10 +25,10 @@ pub const FrameAllocator = struct {
         const reserved_frames = (mem.available - mem.base) >> PAGE_SHIFT;
         self.total_frames = mem.size >> PAGE_SHIFT;
         self.free_frames = self.total_frames - reserved_frames;
+        self.bitmap_bytes = (self.total_frames + 7) / 8;
 
         // Initialize bitmap (1 = used)
-        const bitmap_bytes = (self.total_frames + 7) / 8;
-        for (0..bitmap_bytes) |i| {
+        for (0..self.bitmap_bytes) |i| {
             self.bitmap[i] = 0xFF;
         }
 
@@ -36,22 +41,20 @@ pub const FrameAllocator = struct {
     pub fn alloc(self: *Self) ?usize {
         if (self.free_frames == 0) return null;
 
-        // Find first free bit in bitmap
-        const bitmap_bytes = (self.total_frames + 7) / 8;
-        for (0..bitmap_bytes) |byte_idx| {
-            if (self.bitmap[byte_idx] != 0xFF) {
-                // This byte has free bits
-                for (0..8) |bit_idx| {
-                    const frame = byte_idx * 8 + bit_idx;
-                    if (frame >= self.total_frames) break;
+        // Find first free bit in bitmap using optimized search
+        for (0..self.bitmap_bytes) |byte_idx| {
+            const byte = self.bitmap[byte_idx];
+            if (byte != 0xFF) {
+                // Use @ctz to find first zero bit (inverted)
+                const inverted = ~byte;
+                const bit_idx = @ctz(inverted);
+                const frame = byte_idx * 8 + bit_idx;
 
-                    if (!self.testBit(frame)) {
-                        self.setBit(frame);
-                        self.free_frames -= 1;
-                        const addr = self.frameToAddr(frame);
-                        return addr;
-                    }
-                }
+                if (frame >= self.total_frames) continue;
+
+                self.setBit(frame);
+                self.free_frames -= 1;
+                return self.frameToAddr(frame);
             }
         }
         return null;
@@ -59,7 +62,7 @@ pub const FrameAllocator = struct {
 
     pub fn free(self: *Self, addr: usize) void {
         // Never free active page tables
-        if (addr == 0x802bf000 or addr == 0x802cf000) {
+        if (addr == PROTECTED_PAGE_TABLE_1 or addr == PROTECTED_PAGE_TABLE_2) {
             return;
         }
 

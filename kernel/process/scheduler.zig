@@ -300,7 +300,6 @@ pub fn exit(exit_code: i32) void {
         if (proc.page_table_ppn != 0) {
             var page_table = virtual.PageTable{
                 .root_ppn = proc.page_table_ppn,
-                .debug_watchdog_active = false,
             };
             page_table.deinit();
             proc.page_table_ppn = 0;
