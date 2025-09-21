@@ -4,7 +4,6 @@
 const std = @import("std");
 const types = @import("types.zig");
 const allocator = @import("allocator.zig");
-const uart = @import("../driver/uart/core.zig");
 
 // Use heap configuration from types.zig
 const HEAP_BASE = types.KERNEL_HEAP_BASE;

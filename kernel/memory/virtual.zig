@@ -2,7 +2,6 @@ const std = @import("std");
 const types = @import("types.zig");
 const allocator = @import("allocator.zig");
 const csr = @import("../arch/riscv/csr.zig");
-const uart = @import("../driver/uart/core.zig");
 const config = @import("../config.zig");
 const user_memory = @import("../user/memory.zig");
 
