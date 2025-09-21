@@ -1,14 +1,12 @@
 // Memory subsystem public API
 
 const allocator = @import("allocator.zig");
-const uart = @import("../driver/uart/core.zig");
 const kalloc = @import("kalloc.zig");
 
 pub const types = @import("types.zig");
 pub const virtual = @import("virtual.zig");
 
-// Re-export commonly used types
-pub const PAGE_SIZE = types.PAGE_SIZE;
+// Re-export commonly used types (but not constants - use types directly)
 pub const PageTable = virtual.PageTable;
 pub const kernel_page_table = &virtual.kernel_page_table;
 

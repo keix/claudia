@@ -1,8 +1,8 @@
 const types = @import("types.zig");
-const uart = @import("../driver/uart/core.zig");
 
-pub const PAGE_SIZE = types.PAGE_SIZE;
-pub const PAGE_SHIFT = types.PAGE_SHIFT;
+// Use PAGE_SIZE and PAGE_SHIFT directly from types
+const PAGE_SIZE = types.PAGE_SIZE;
+const PAGE_SHIFT = types.PAGE_SHIFT;
 
 // Protected page table addresses
 const PROTECTED_PAGE_TABLE_1 = 0x802bf000;

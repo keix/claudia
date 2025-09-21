@@ -1,7 +1,6 @@
 const std = @import("std");
 const types = @import("types.zig");
 const physical = @import("physical.zig");
-const uart = @import("../driver/uart/core.zig");
 
 // Symbol exported from linker script
 extern const _end: u8;
