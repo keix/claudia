@@ -4,10 +4,6 @@ const types = @import("types.zig");
 const PAGE_SIZE = types.PAGE_SIZE;
 const PAGE_SHIFT = types.PAGE_SHIFT;
 
-// Protected page table addresses
-const PROTECTED_PAGE_TABLE_1 = 0x802bf000;
-const PROTECTED_PAGE_TABLE_2 = 0x802cf000;
-
 pub const FrameAllocator = struct {
     bitmap: []u8,
     total_frames: usize,
@@ -61,10 +57,6 @@ pub const FrameAllocator = struct {
     }
 
     pub fn free(self: *Self, addr: usize) void {
-        // Never free active page tables
-        if (addr == PROTECTED_PAGE_TABLE_1 or addr == PROTECTED_PAGE_TABLE_2) {
-            return;
-        }
 
         // Validate address
         if (addr < self.base_addr or addr >= self.base_addr + (self.total_frames << PAGE_SHIFT)) {
