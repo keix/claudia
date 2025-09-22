@@ -28,7 +28,6 @@ pub const MemoryLayout = struct {
     pub const KERNEL_END_BOUNDARY: u64 = 0x90000000;
 
     // Page table debug markers
-    pub const PAGE_TABLE_DEBUG_MARKER: u64 = 0xDEADBEEF00000000;
     pub const PAGE_TABLE_DEBUG_WATCHDOG_1: u64 = 0x802bf;
     pub const PAGE_TABLE_DEBUG_WATCHDOG_2: u64 = 0x802cf;
 };

@@ -98,11 +98,6 @@ pub const PageTable = struct {
 
         // Clear the page table
         clearPageTable(root_page);
-
-        // Write a marker to verify this page table
-        const root_table = @as([*]volatile PageTableEntry, @ptrFromInt(root_page));
-        const marker_offset = PAGE_ENTRIES - 1; // Last entry
-        root_table[marker_offset] = config.MemoryLayout.PAGE_TABLE_DEBUG_MARKER;
     }
 
     // Deinitialize page table and free all allocated pages
@@ -319,9 +314,6 @@ pub const PageTable = struct {
 // Global kernel page table
 pub var kernel_page_table: PageTable = undefined;
 
-// Track if we're in kernel init phase
-var kernel_init_complete: bool = false;
-
 // Common kernel mapping function
 fn mapKernelRegions(page_table: *PageTable) !void {
     // Map kernel code/data (identity mapping)
@@ -392,9 +384,6 @@ pub fn enableMMU() void {
 
     csr.writeSatp(satp_value);
     csr.sfence_vma();
-
-    // Mark kernel init as complete
-    kernel_init_complete = true;
 }
 
 // Get current page table root
