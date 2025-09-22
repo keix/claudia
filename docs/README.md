@@ -6,6 +6,7 @@
 
 ## Architecture
 - [Architecture](claudia_architecture.md) - The structure and breath of Claudia
+- [Time Sharing](claudia_time_sharing.md) - The art of sharing time among many
 - [UNIX V6 Comparison](claudia_v6_comparison.md) - A dialogue across time with UNIX Sixth Edition
 
 ## Reference

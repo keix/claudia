@@ -61,26 +61,9 @@ pub const PageTable = struct {
     fn clearPageTable(table_addr: usize) void {
         const table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
 
-        // Check if this is kernel init end - it might already have data!
-        if (table_addr == config.MemoryLayout.KERNEL_INIT_END) {
-            // Special case: KERNEL_INIT_END
-            var has_data = false;
-            for (0..PAGE_ENTRIES) |i| {
-                if (table[i] != 0) {
-                    has_data = true;
-                    break;
-                }
-            }
-            if (!has_data) {
-                for (0..PAGE_ENTRIES) |i| {
-                    @atomicStore(u64, &table[i], 0, .monotonic);
-                }
-            }
-        } else {
-            // Normal clear
-            for (0..PAGE_ENTRIES) |i| {
-                @atomicStore(u64, &table[i], 0, .monotonic);
-            }
+        // Clear entire table
+        for (0..PAGE_ENTRIES) |i| {
+            @atomicStore(u64, &table[i], 0, .monotonic);
         }
         asm volatile ("fence rw, rw" ::: "memory");
     }
@@ -98,11 +81,6 @@ pub const PageTable = struct {
 
         // Clear the page table
         clearPageTable(root_page);
-
-        // Write a marker to verify this page table
-        const root_table = @as([*]volatile PageTableEntry, @ptrFromInt(root_page));
-        const marker_offset = PAGE_ENTRIES - 1; // Last entry
-        root_table[marker_offset] = config.MemoryLayout.PAGE_TABLE_DEBUG_MARKER;
     }
 
     // Deinitialize page table and free all allocated pages
@@ -158,6 +136,39 @@ pub const PageTable = struct {
         allocator.freeFrame(table_addr);
     }
 
+    // Helper function to walk or create a page table entry at a specific level
+    fn walkOrCreatePTE(_: *Self, table_addr: usize, index: usize) !struct { addr: usize, pte: *volatile PageTableEntry } {
+        const table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
+        const pte = &table[index];
+
+        if ((pte.* & PTE_V) == 0) {
+            // Allocate new page table
+            const new_page = allocator.allocFrame() orelse return error.OutOfMemory;
+            errdefer allocator.freeFrame(new_page);
+
+            clearPageTable(new_page);
+            pte.* = addrToPte(new_page, PTE_V);
+        }
+
+        return .{
+            .addr = pteToAddr(pte.*),
+            .pte = pte,
+        };
+    }
+
+    // Helper to walk page tables without creating new entries
+    fn walkPTE(table_addr: usize, index: usize) ?struct { addr: usize, pte: PageTableEntry } {
+        const table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
+        const pte = table[index];
+
+        if ((pte & PTE_V) == 0) return null;
+
+        return .{
+            .addr = pteToAddr(pte),
+            .pte = pte,
+        };
+    }
+
     // Map a virtual address to physical address
     pub fn map(self: *Self, vaddr: usize, paddr: usize, flags: u64) !void {
         // Check alignment
@@ -168,48 +179,17 @@ pub const PageTable = struct {
         // Extract VPN levels
         const vpn = extractVPN(vaddr);
 
-        // Walk/create page tables
-        var table_addr = self.root_ppn << PAGE_SHIFT;
+        // Walk/create page tables using helper
+        const root_addr = self.root_ppn << PAGE_SHIFT;
 
-        // Level 2 (root)
-        var table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
-        var pte = &table[vpn.vpn2];
-
-        if ((pte.* & PTE_V) == 0) {
-            // Allocate new page table
-            const new_page = allocator.allocFrame() orelse return error.OutOfMemory;
-            errdefer allocator.freeFrame(new_page);
-
-            if (new_page == config.MemoryLayout.KERNEL_INIT_START) {
-                return error.InvalidPageAddress;
-            }
-
-            clearPageTable(new_page);
-            pte.* = addrToPte(new_page, PTE_V);
-        }
-
-        // Level 1
-        table_addr = pteToAddr(pte.*);
-        table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
-        pte = &table[vpn.vpn1];
-
-        if ((pte.* & PTE_V) == 0) {
-            // Allocate new page table
-            const new_page = allocator.allocFrame() orelse return error.OutOfMemory;
-            errdefer allocator.freeFrame(new_page);
-
-            if (new_page == config.MemoryLayout.KERNEL_INIT_START) {
-                return error.InvalidPageAddress;
-            }
-
-            clearPageTable(new_page);
-            pte.* = addrToPte(new_page, PTE_V);
-        }
+        // Walk through page table levels
+        const l1_result = try self.walkOrCreatePTE(root_addr, vpn.vpn2);
+        const l0_result = try self.walkOrCreatePTE(l1_result.addr, vpn.vpn1);
 
         // Level 0 (leaf)
-        table_addr = pteToAddr(pte.*);
-        table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
-        pte = &table[vpn.vpn0];
+        const table_addr = l0_result.addr;
+        const table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
+        const pte = &table[vpn.vpn0];
 
         // Set the mapping
         const new_pte = addrToPte(paddr, flags | PTE_V);
@@ -231,8 +211,9 @@ pub const PageTable = struct {
         );
     }
 
-// Walk page table and execute callback for each valid user page
-    fn walkUserPages(self: *Self, callback: *const fn(vaddr: usize, paddr: usize, flags: u64) anyerror!void) !void {
+    // Walk page table and execute callback for each valid user page
+    // Generic version that accepts a context parameter
+    fn walkUserPagesGeneric(self: *Self, context: anytype, callback: anytype) !void {
         if (self.root_ppn == 0) return error.InvalidPageTable;
         const root_addr = self.root_ppn << PAGE_SHIFT;
         const root_table = @as([*]volatile PageTableEntry, @ptrFromInt(root_addr));
@@ -278,10 +259,20 @@ pub const PageTable = struct {
                     const paddr = pteToAddr(l0_pte);
                     const flags = l0_pte & 0x3FF;
 
-                    try callback(vaddr, paddr, flags);
+                    try callback(vaddr, paddr, flags, context);
                 }
             }
         }
+    }
+
+    // Walk page table and execute callback for each valid user page (original version)
+    fn walkUserPages(self: *Self, callback: *const fn (vaddr: usize, paddr: usize, flags: u64) anyerror!void) !void {
+        const wrapper = struct {
+            fn wrap(vaddr: usize, paddr: usize, flags: u64, cb: *const fn (usize, usize, u64) anyerror!void) !void {
+                try cb(vaddr, paddr, flags);
+            }
+        };
+        try self.walkUserPagesGeneric(callback, wrapper.wrap);
     }
 
     // Translate virtual address to physical address
@@ -291,24 +282,17 @@ pub const PageTable = struct {
 
         const offset = vaddr & (PAGE_SIZE - 1);
 
-        // Walk page tables
-        var table_addr = self.root_ppn << PAGE_SHIFT;
+        // Walk page tables using helper
+        const table_addr = self.root_ppn << PAGE_SHIFT;
 
-        // Level 2
-        var table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
-        var pte = table[vpn.vpn2];
-        if ((pte & PTE_V) == 0) return null;
-
-        // Level 1
-        table_addr = pteToAddr(pte);
-        table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
-        pte = table[vpn.vpn1];
-        if ((pte & PTE_V) == 0) return null;
+        // Walk through levels
+        const l1_result = walkPTE(table_addr, vpn.vpn2) orelse return null;
+        const l0_result = walkPTE(l1_result.addr, vpn.vpn1) orelse return null;
 
         // Level 0
-        table_addr = pteToAddr(pte);
-        table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
-        pte = table[vpn.vpn0];
+        const l0_table_addr = l0_result.addr;
+        const table = @as([*]volatile PageTableEntry, @ptrFromInt(l0_table_addr));
+        const pte = table[vpn.vpn0];
         if ((pte & PTE_V) == 0) return null;
 
         // Return physical address
@@ -318,9 +302,6 @@ pub const PageTable = struct {
 
 // Global kernel page table
 pub var kernel_page_table: PageTable = undefined;
-
-// Track if we're in kernel init phase
-var kernel_init_complete: bool = false;
 
 // Common kernel mapping function
 fn mapKernelRegions(page_table: *PageTable) !void {
@@ -392,9 +373,6 @@ pub fn enableMMU() void {
 
     csr.writeSatp(satp_value);
     csr.sfence_vma();
-
-    // Mark kernel init as complete
-    kernel_init_complete = true;
 }
 
 // Get current page table root
@@ -410,72 +388,38 @@ pub fn buildKernelGlobalMappings(page_table: *PageTable) !void {
     try user_memory.mapKernelStackToPageTable(page_table);
 }
 
+// Helper function to clone a single user page
+fn cloneUserPage(vaddr: usize, paddr: usize, flags: u64, dst_pt: *PageTable) !void {
+    // Validate source address - skip if it's in MMIO range or invalid
+    if (paddr < USER_SPACE_BOUNDARY or paddr >= MMIO_END) {
+        return; // Skip MMIO or invalid addresses
+    }
+
+    // Allocate new physical page
+    const new_page = allocator.allocFrame() orelse return error.OutOfMemory;
+    errdefer allocator.freeFrame(new_page);
+
+    // Copy page data
+    const src_data = @as([*]const u8, @ptrFromInt(paddr));
+    const dst_data = @as([*]u8, @ptrFromInt(new_page));
+    @memcpy(dst_data[0..PAGE_SIZE], src_data[0..PAGE_SIZE]);
+
+    // Map the new page with same permissions but ensure PTE_U is set
+    try dst_pt.map(vaddr, new_page, flags | PTE_U);
+}
+
 // Clone user space mappings from one page table to another
 // This creates a simple copy of all user pages (no COW yet)
 pub fn cloneUserSpace(src_pt: *PageTable, dst_pt: *PageTable) !void {
-    const src_root_addr = src_pt.root_ppn << PAGE_SHIFT;
-    const src_root = @as([*]volatile PageTableEntry, @ptrFromInt(src_root_addr));
-
-    // Walk L2 entries (1GB each)
-    for (0..PAGE_ENTRIES) |l2_idx| {
-        const l2_pte = src_root[l2_idx];
-        if ((l2_pte & PTE_V) == 0) continue;
-
-        // Check if this is user space (first 2GB)
-        if (l2_idx >= 2) continue; // Skip kernel space
-
-        // Skip leaf pages at L2 (1GB pages)
-        if ((l2_pte & (PTE_R | PTE_W | PTE_X)) != 0) continue;
-
-        const l1_addr = pteToAddr(l2_pte);
-        if (l1_addr > MAX_VALID_PHYS_ADDR) continue;
-
-        const l1_table = @as([*]volatile PageTableEntry, @ptrFromInt(l1_addr));
-
-        // Walk L1 entries (2MB each)
-        for (0..PAGE_ENTRIES) |l1_idx| {
-            const l1_pte = l1_table[l1_idx];
-            if ((l1_pte & PTE_V) == 0) continue;
-
-            // Skip leaf pages at L1 (2MB pages)
-            if ((l1_pte & (PTE_R | PTE_W | PTE_X)) != 0) continue;
-
-            const l0_addr = pteToAddr(l1_pte);
-            if (l0_addr > MAX_VALID_PHYS_ADDR) continue;
-
-            const l0_table = @as([*]volatile PageTableEntry, @ptrFromInt(l0_addr));
-
-            // Walk L0 entries (4KB each)
-            for (0..PAGE_ENTRIES) |l0_idx| {
-                const l0_pte = l0_table[l0_idx];
-                if ((l0_pte & PTE_V) == 0) continue;
-                if ((l0_pte & (PTE_R | PTE_W | PTE_X)) == 0) continue;
-
-                const vaddr = (l2_idx << 30) | (l1_idx << 21) | (l0_idx << 12);
-                if (vaddr >= USER_SPACE_BOUNDARY) continue;
-
-                const paddr = pteToAddr(l0_pte);
-
-                // Validate source address - skip if it's in MMIO range or invalid
-                if (paddr < USER_SPACE_BOUNDARY or paddr >= MMIO_END) {
-                    continue; // Skip MMIO or invalid addresses
-                }
-
-                // Allocate new physical page
-                const new_page = allocator.allocFrame() orelse return error.OutOfMemory;
-                errdefer allocator.freeFrame(new_page);
-
-                // Copy page data
-                const src_data = @as([*]const u8, @ptrFromInt(paddr));
-                const dst_data = @as([*]u8, @ptrFromInt(new_page));
-                @memcpy(dst_data[0..PAGE_SIZE], src_data[0..PAGE_SIZE]);
-
-                // Map the new page with same permissions but ensure PTE_U is set
-                const flags = l0_pte & 0x3FF;
-                try dst_pt.map(vaddr, new_page, flags | PTE_U);
-            }
+    // Use a wrapper to adapt the callback signature
+    const cloneWrapper = struct {
+        fn clone(vaddr: usize, paddr: usize, flags: u64, dst: *PageTable) !void {
+            try cloneUserPage(vaddr, paddr, flags, dst);
         }
-    }
+    };
+
+    // Walk all user pages in source and clone them
+    try src_pt.walkUserPagesGeneric(dst_pt, cloneWrapper.clone);
 
     // Ensure all changes are visible
     asm volatile ("sfence.vma" ::: "memory");

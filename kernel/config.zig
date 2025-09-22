@@ -6,8 +6,6 @@ const std = @import("std");
 // Memory layout configuration
 pub const MemoryLayout = struct {
     // Critical kernel addresses (QEMU virt specific)
-    pub const KERNEL_INIT_START: u64 = 0x802bf000;
-    pub const KERNEL_INIT_END: u64 = 0x802cf000;
 
     // Kernel stack sizes
     pub const BOOT_STACK_SIZE: usize = 4 * 4096; // 4 pages for boot
@@ -26,11 +24,6 @@ pub const MemoryLayout = struct {
     // Memory boundaries
     pub const USER_KERNEL_BOUNDARY: u64 = 0x80000000;
     pub const KERNEL_END_BOUNDARY: u64 = 0x90000000;
-
-    // Page table debug markers
-    pub const PAGE_TABLE_DEBUG_MARKER: u64 = 0xDEADBEEF00000000;
-    pub const PAGE_TABLE_DEBUG_WATCHDOG_1: u64 = 0x802bf;
-    pub const PAGE_TABLE_DEBUG_WATCHDOG_2: u64 = 0x802cf;
 };
 
 // Hardware timer configuration
