@@ -4,6 +4,7 @@ const types = @import("types.zig");
 const PAGE_SIZE = types.PAGE_SIZE;
 const PAGE_SHIFT = types.PAGE_SHIFT;
 
+// Frame allocator using a bitmap (1 = used, 0 = free)
 pub const FrameAllocator = struct {
     bitmap: []u8,
     total_frames: usize,
@@ -57,12 +58,15 @@ pub const FrameAllocator = struct {
     }
 
     pub fn free(self: *Self, addr: usize) void {
-
-        // Validate address
+        // Validate address range
         if (addr < self.base_addr or addr >= self.base_addr + (self.total_frames << PAGE_SHIFT)) {
+            // In kernel context, invalid frees are often programming errors
+            // Consider using std.debug.panic in debug builds
             return;
         }
-        if ((addr & (PAGE_SIZE - 1)) != 0) {
+
+        // Validate alignment
+        if (!types.isPageAligned(addr)) {
             return;
         }
 
@@ -73,29 +77,34 @@ pub const FrameAllocator = struct {
         }
     }
 
+    /// Convert frame number to physical address
     fn frameToAddr(self: *Self, frame: usize) usize {
         return self.base_addr + (frame << PAGE_SHIFT);
     }
 
+    /// Convert physical address to frame number
     fn addrToFrame(self: *Self, addr: usize) usize {
         return (addr - self.base_addr) >> PAGE_SHIFT;
     }
 
+    /// Mark a frame as allocated in the bitmap
     fn setBit(self: *Self, frame: usize) void {
-        const byte_idx = frame / 8;
-        const bit_idx = @as(u3, @truncate(frame % 8));
+        const byte_idx = frame >> 3; // frame / 8
+        const bit_idx = @as(u3, @truncate(frame & 7)); // frame % 8
         self.bitmap[byte_idx] |= (@as(u8, 1) << bit_idx);
     }
 
+    /// Mark a frame as free in the bitmap
     fn clearBit(self: *Self, frame: usize) void {
-        const byte_idx = frame / 8;
-        const bit_idx = @as(u3, @truncate(frame % 8));
+        const byte_idx = frame >> 3;
+        const bit_idx = @as(u3, @truncate(frame & 7));
         self.bitmap[byte_idx] &= ~(@as(u8, 1) << bit_idx);
     }
 
+    /// Check if a frame is allocated
     fn testBit(self: *Self, frame: usize) bool {
-        const byte_idx = frame / 8;
-        const bit_idx = @as(u3, @truncate(frame % 8));
+        const byte_idx = frame >> 3;
+        const bit_idx = @as(u3, @truncate(frame & 7));
         return (self.bitmap[byte_idx] & (@as(u8, 1) << bit_idx)) != 0;
     }
 };

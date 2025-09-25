@@ -5,29 +5,38 @@ const physical = @import("physical.zig");
 // Symbol exported from linker script
 extern const _end: u8;
 
+// Constants for memory management
+const MANAGED_MEMORY_SIZE = 256 * 1024 * 1024; // 256MB
+const BITMAP_SIZE = 32 * 1024; // 32KB bitmap for 256MB with 4KB pages
+
 // Global allocator state management
+/// Global physical memory allocator singleton
+/// Manages physical memory frames using a bitmap allocator
 const GlobalAllocator = struct {
     frame_allocator: physical.FrameAllocator,
-    bitmap_storage: [32 * 1024]u8 align(8), // Increased for 256MB
+    bitmap_storage: [BITMAP_SIZE]u8 align(8),
     initialized: bool,
 
     var instance: GlobalAllocator = .{
         .frame_allocator = undefined,
-        .bitmap_storage = undefined,
+        .bitmap_storage = std.mem.zeroes([BITMAP_SIZE]u8),
         .initialized = false,
     };
 
     pub fn init() void {
+        if (instance.initialized) {
+            // Already initialized, ignore duplicate calls
+            return;
+        }
+
         // Get kernel end address
         const kernel_end = @intFromPtr(&_end);
-        const available_start = (kernel_end + types.PAGE_SIZE - 1) & ~(types.PAGE_SIZE - 1);
+        const available_start = types.alignPageUp(kernel_end);
 
         // Physical memory info for QEMU virt machine
-        // Note: QEMU with -m 256M provides 256MB, but we only manage the lower portion
-        // to avoid complexity. This covers kernel + initrd region.
         const mem = types.PhysicalMemory{
-            .base = 0x80000000,
-            .size = 256 * 1024 * 1024, // 256MB to cover initrd at 0x88000000
+            .base = types.KERNEL_BASE,
+            .size = MANAGED_MEMORY_SIZE,
             .available = available_start,
         };
 
