@@ -1,7 +1,32 @@
-// Common memory management types and constants
+/// Common memory management types and constants
+///
+/// This module defines the core types and memory layout constants used throughout
+/// the Claudia kernel. All memory addresses and sizes are defined here to ensure
+/// consistency across the codebase.
+///
+/// Memory layout:
+/// - User space: 0x00000000 - 0x7FFFFFFF (2GB)
+/// - Kernel space: 0x80000000 - 0xFFFFFFFF (2GB)
+/// - MMIO devices are mapped in low addresses (UART, CLINT, PLIC)
 
 pub const PAGE_SIZE: usize = 4096;
 pub const PAGE_SHIFT: u6 = 12;
+pub const PAGE_MASK: usize = PAGE_SIZE - 1;
+
+/// Align an address up to the next page boundary
+pub inline fn alignPageUp(addr: usize) usize {
+    return (addr + PAGE_MASK) & ~PAGE_MASK;
+}
+
+/// Align an address down to the previous page boundary
+pub inline fn alignPageDown(addr: usize) usize {
+    return addr & ~PAGE_MASK;
+}
+
+/// Check if an address is page-aligned
+pub inline fn isPageAligned(addr: usize) bool {
+    return (addr & PAGE_MASK) == 0;
+}
 
 // Physical memory information
 pub const PhysicalMemory = struct {

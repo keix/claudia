@@ -9,17 +9,18 @@ const PAGE_SIZE = types.PAGE_SIZE;
 const PAGE_SHIFT = types.PAGE_SHIFT;
 const PAGE_ENTRIES = config.PageTable.ENTRIES_PER_TABLE; // Entries per page table
 
-const VA_VPN2_SHIFT: u6 = 30;
-const VA_VPN1_SHIFT: u6 = 21;
-const VA_VPN0_SHIFT: u6 = 12;
-const VA_VPN_MASK: u64 = 0x1FF;
+// Virtual address translation constants for RISC-V Sv39
+const VA_VPN2_SHIFT: u6 = 30; // Level 2 VPN shift (1GB pages)
+const VA_VPN1_SHIFT: u6 = 21; // Level 1 VPN shift (2MB pages)
+const VA_VPN0_SHIFT: u6 = 12; // Level 0 VPN shift (4KB pages)
+const VA_VPN_MASK: u64 = 0x1FF; // 9-bit VPN mask
 
 // Memory management constants
-const MAX_FREED_PAGES_TRACK = 256;
-const USER_SPACE_BOUNDARY = 0x80000000;
-const MAX_VALID_PHYS_ADDR = 0x100000000; // 4GB
-const MMIO_START = 0x80000000;
-const MMIO_END = 0x90000000;
+const MAX_FREED_PAGES_TRACK = 256; // Max pages to track for double-free prevention
+const USER_SPACE_BOUNDARY = 0x80000000; // 2GB boundary between user/kernel space
+const MAX_VALID_PHYS_ADDR = 0x100000000; // 4GB physical address limit
+const MMIO_START = 0x80000000; // Start of memory-mapped I/O region
+const MMIO_END = 0x90000000; // End of memory-mapped I/O region
 
 pub const PTE_V = types.PTE_V;
 pub const PTE_R = types.PTE_R;
@@ -32,14 +33,17 @@ pub const PTE_D = types.PTE_D;
 
 pub const PageTableEntry = u64;
 
-// Extract PPN from PTE
+// PTE format constants
+const PTE_PPN_SHIFT: u6 = 10; // Physical page number shift in PTE
+
+/// Extract physical address from page table entry
 fn pteToAddr(pte: PageTableEntry) usize {
-    return (pte >> 10) << PAGE_SHIFT;
+    return (pte >> PTE_PPN_SHIFT) << PAGE_SHIFT;
 }
 
-// Create PTE from physical address and flags
+/// Create page table entry from physical address and flags
 fn addrToPte(addr: usize, flags: u64) PageTableEntry {
-    return ((addr >> PAGE_SHIFT) << 10) | flags;
+    return ((addr >> PAGE_SHIFT) << PTE_PPN_SHIFT) | flags;
 }
 
 // Extract VPN components from virtual address
@@ -87,11 +91,8 @@ pub const PageTable = struct {
     pub fn deinit(self: *Self) void {
         if (self.root_ppn == 0) return;
 
-        // Track freed pages to avoid double frees from copied entries
-        // This is necessary because buildKernelGlobalMappings() copies page table
-        // entries as a hardware workaround, creating multiple references to the same
-        // L1/L0 page tables. Without tracking, we'd try to free them multiple times.
-        var freed_pages: [MAX_FREED_PAGES_TRACK]u64 = undefined;
+        // Track freed pages to avoid double frees
+        var freed_pages: [MAX_FREED_PAGES_TRACK]u64 = std.mem.zeroes([MAX_FREED_PAGES_TRACK]u64);
         var freed_count: usize = 0;
 
         // Walk the page table tree and free all allocated pages
@@ -136,7 +137,7 @@ pub const PageTable = struct {
         allocator.freeFrame(table_addr);
     }
 
-    // Helper function to walk or create a page table entry at a specific level
+    // Walk or create a page table entry
     fn walkOrCreatePTE(_: *Self, table_addr: usize, index: usize) !struct { addr: usize, pte: *volatile PageTableEntry } {
         const table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
         const pte = &table[index];
@@ -156,7 +157,7 @@ pub const PageTable = struct {
         };
     }
 
-    // Helper to walk page tables without creating new entries
+    // Walk page tables without creating
     fn walkPTE(table_addr: usize, index: usize) ?struct { addr: usize, pte: PageTableEntry } {
         const table = @as([*]volatile PageTableEntry, @ptrFromInt(table_addr));
         const pte = table[index];
@@ -172,7 +173,7 @@ pub const PageTable = struct {
     // Map a virtual address to physical address
     pub fn map(self: *Self, vaddr: usize, paddr: usize, flags: u64) !void {
         // Check alignment
-        if ((vaddr & (PAGE_SIZE - 1)) != 0 or (paddr & (PAGE_SIZE - 1)) != 0) {
+        if (!types.isPageAligned(vaddr) or !types.isPageAligned(paddr)) {
             return error.Misaligned;
         }
 
@@ -196,11 +197,12 @@ pub const PageTable = struct {
 
         const old_pte = @atomicLoad(u64, pte, .seq_cst);
         if (old_pte != 0 and new_pte == 0 and vaddr >= config.MemoryLayout.USER_KERNEL_BOUNDARY) {
-            return; // Don't clear kernel mapping
+            // Silently ignore attempts to clear kernel mappings for safety
+            return;
         }
         if (old_pte != 0 and (old_pte & PTE_V) != 0 and new_pte != old_pte) {
-            // Overwriting a valid mapping - this might be intentional but worth noting
-            // In production code, this could log a warning
+            // Overwriting a valid mapping - this is allowed but may indicate
+            // a logic error. In debug builds, consider logging this.
         }
 
         @atomicStore(u64, pte, new_pte, .seq_cst);
@@ -280,7 +282,7 @@ pub const PageTable = struct {
         // Extract VPN levels
         const vpn = extractVPN(vaddr);
 
-        const offset = vaddr & (PAGE_SIZE - 1);
+        const offset = vaddr & types.PAGE_MASK;
 
         // Walk page tables using helper
         const table_addr = self.root_ppn << PAGE_SHIFT;
@@ -337,7 +339,7 @@ fn mapKernelRegions(page_table: *PageTable) !void {
     }
 
     // Map region after kernel for initrd
-    var initrd_scan_addr = (types.KERNEL_END + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    var initrd_scan_addr = types.alignPageUp(types.KERNEL_END);
     const initrd_scan_end = initrd_scan_addr + config.MemoryLayout.INITRD_MAX_SCAN_SIZE;
     while (initrd_scan_addr < initrd_scan_end) : (initrd_scan_addr += PAGE_SIZE) {
         page_table.map(initrd_scan_addr, initrd_scan_addr, PTE_R | PTE_W | PTE_G) catch break;
