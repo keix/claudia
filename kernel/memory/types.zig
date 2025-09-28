@@ -8,7 +8,6 @@
 /// - User space: 0x00000000 - 0x7FFFFFFF (2GB)
 /// - Kernel space: 0x80000000 - 0xFFFFFFFF (2GB)
 /// - MMIO devices are mapped in low addresses (UART, CLINT, PLIC)
-
 pub const PAGE_SIZE: usize = 4096;
 pub const PAGE_SHIFT: u6 = 12;
 pub const PAGE_MASK: usize = PAGE_SIZE - 1;
