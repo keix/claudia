@@ -1,11 +1,10 @@
-// User memory management for Claudia kernel
+// User memory management
 
 const std = @import("std");
 const types = @import("../memory/types.zig");
 const allocator = @import("../memory/allocator.zig");
 const virtual = @import("../memory/virtual.zig");
 
-// Import memory layout constants from types.zig
 pub const USER_CODE_BASE = types.USER_CODE_BASE;
 pub const USER_CODE_SIZE = types.USER_CODE_SIZE;
 pub const USER_STACK_BASE = types.USER_STACK_BASE;
@@ -54,7 +53,7 @@ pub const UserMemoryContext = struct {
                 .virtual_base = USER_HEAP_BASE,
                 .size = USER_HEAP_SIZE,
                 .physical_frames = [_]?u64{null} ** MAX_REGION_PAGES,
-                .permissions = virtual.PTE_R | virtual.PTE_W | virtual.PTE_U, // Read + Write + User
+                .permissions = virtual.PTE_R | virtual.PTE_W | virtual.PTE_U,
                 .allocated = false,
             },
             .elf_segments = [_]UserRegion{UserRegion{
@@ -74,12 +73,8 @@ pub const UserMemoryContext = struct {
             return;
         }
 
-        // Allocate PageTable struct from kernel heap
         const kalloc = @import("../memory/kalloc.zig");
         const pt_ptr = try kalloc.kcreate(virtual.PageTable);
-
-        // Initialize the PageTable struct
-        // init() will allocate the root page internally
         try pt_ptr.init();
         self.page_table = pt_ptr;
     }
@@ -126,8 +121,6 @@ pub const UserMemoryContext = struct {
         try self.mapRegion(&self.heap_region);
     }
 
-    // Add kernel global mappings to user page table
-    // This includes: kernel text/data/bss, MMIO, trampoline, AND kernel stack
     fn addKernelMappings(self: *UserMemoryContext) !void {
         if (self.page_table == null) {
             return;
@@ -135,43 +128,16 @@ pub const UserMemoryContext = struct {
 
         const page_table = self.page_table.?;
 
-        // Build all kernel global mappings
         try virtual.buildKernelGlobalMappings(page_table);
-
-        // Explicitly ensure kernel stack is mapped (defensive programming)
-        // This is redundant as buildKernelGlobalMappings() already calls it,
-        // but ensures kernel stack is always accessible from trap handler
         try mapKernelStackToPageTable(page_table);
 
-        // CRITICAL: Verify kernel mappings were actually added
-        // Check a few critical kernel addresses
-        const test_addrs = [_]u64{
-            0x80200000, // Kernel code start
-            0x80210000, // More kernel code
-            0x8021b000, // Near the fault address
-            0x80400000, // Kernel heap
-            types.KERNEL_STACK_BASE, // Kernel stack
-        };
-
-        for (test_addrs) |addr| {
-            if (page_table.translate(addr) == null) {
-                return error.KernelMappingFailed;
-            }
+        // Verify critical kernel mappings
+        const critical_addrs = [_]u64{ 0x80200000, 0x8021b000, types.KERNEL_STACK_BASE };
+        for (critical_addrs) |addr| {
+            if (page_table.translate(addr) == null) return error.KernelMappingFailed;
         }
     }
 
-    // DEPRECATED: Old approach - used dynamic stack mapping instead of fixed kernel stack
-    // Now superseded by mapKernelStackToPageTable() in buildKernelGlobalMappings()
-    // TODO: Remove this function entirely once confirmed unused
-    pub fn mapCurrentStack(self: *UserMemoryContext, stack_ptr: u64, stack_size: usize) !void {
-        _ = self;
-        _ = stack_ptr;
-        _ = stack_size; // Silence unused parameter warnings
-        // NO-OP: This function is deprecated and should not be used
-        return;
-    }
-
-    // Debug function to verify mappings
     pub fn verifyMapping(self: *UserMemoryContext, vaddr: u64) bool {
         if (self.page_table == null) return false;
 
@@ -194,10 +160,7 @@ pub const UserMemoryContext = struct {
         deallocateRegion(&self.heap_region);
 
         if (self.page_table) |pt| {
-            // First deinit the page table (frees internal pages)
             pt.deinit();
-
-            // Then free the page table struct itself
             const kalloc = @import("../memory/kalloc.zig");
             kalloc.kdestroy(pt);
         }
@@ -277,10 +240,6 @@ pub fn getPhysicalAddress(region: *const UserRegion, virtual_addr: u64) ?u64 {
     return null;
 }
 
-// FIXME: Uses physical direct access assuming kernel VA=PA identity mapping
-// This will break when kernel moves to high-only mapping. Need to replace with:
-// A) Temporary kernel mapping window (kmap/kunmap), or
-// B) Switch to kernel PT temporarily during copy
 pub fn copyToRegion(region: *const UserRegion, offset: usize, data: []const u8) bool {
     if (!region.allocated or offset + data.len > region.size) {
         return false;
@@ -295,7 +254,6 @@ pub fn copyToRegion(region: *const UserRegion, offset: usize, data: []const u8) 
         const page_offset = (offset + bytes_copied) % types.PAGE_SIZE;
         const bytes_in_page = @min(types.PAGE_SIZE - page_offset, data.len - bytes_copied);
 
-        // WARNING: Direct physical access - assumes kernel VA=PA identity mapping
         const dest = @as([*]u8, @ptrFromInt(physical_addr));
         @memcpy(dest[0..bytes_in_page], data[bytes_copied .. bytes_copied + bytes_in_page]);
 
@@ -305,14 +263,13 @@ pub fn copyToRegion(region: *const UserRegion, offset: usize, data: []const u8) 
     return true;
 }
 
-// Zero memory in a user region (for .bss initialization)
 pub fn zeroRegion(region: *UserRegion, offset: usize, len: usize) bool {
     if (!region.allocated) {
         return false;
     }
 
     if (offset + len > region.size) {
-        return false; // Out of bounds
+        return false;
     }
 
     const start_page = offset / types.PAGE_SIZE;
@@ -334,7 +291,6 @@ pub fn zeroRegion(region: *UserRegion, offset: usize, len: usize) bool {
 
         if (zero_start >= zero_end) continue;
 
-        // Zero the memory range in this page
         const zero_len = zero_end - zero_start;
         const target_addr = physical_addr + zero_start;
         const target_ptr = @as([*]u8, @ptrFromInt(target_addr));
@@ -344,50 +300,38 @@ pub fn zeroRegion(region: *UserRegion, offset: usize, len: usize) bool {
     return true;
 }
 
-// FIXME: Global kernel stack storage - single stack for all processes
-// This will cause conflicts when multiple processes run concurrently.
-// Future: Move to per-process kernel stack in PCB (Process Control Block)
 var kernel_stack_frames: [4]?u64 = [_]?u64{null} ** 4;
 
 pub fn init() void {
-    // Allocate physical frames for kernel stack
     for (0..4) |i| {
         kernel_stack_frames[i] = allocator.allocFrame();
     }
 }
 
-// Get kernel stack top address from common kernel high mapping
-// Returns VA in kernel region (0x87F00000+), NOT a local array address
 pub fn getKernelStackTop() u64 {
     return KERNEL_STACK_BASE + KERNEL_STACK_SIZE - 8;
 }
 
-// Map kernel stack to any page table (called from buildKernelGlobalMappings)
 pub fn mapKernelStackToPageTable(page_table: *virtual.PageTable) !void {
-    // Map each kernel stack page
     for (0..4) |i| {
         if (kernel_stack_frames[i]) |frame| {
             const vaddr = KERNEL_STACK_BASE + @as(u64, @intCast(i * types.PAGE_SIZE));
-            try page_table.map(vaddr, frame, virtual.PTE_R | virtual.PTE_W | virtual.PTE_G); // U=0: kernel only
+            try page_table.map(vaddr, frame, virtual.PTE_R | virtual.PTE_W | virtual.PTE_G);
         }
     }
 }
 
-// Add ELF segment mapping functionality
 pub fn addElfSegment(context: *UserMemoryContext, virtual_addr: u64, size: usize, permissions: u8) !*UserRegion {
     if (context.elf_segment_count >= MAX_ELF_SEGMENTS) {
         return error.TooManySegments;
     }
 
-    // Check for overlap with existing segments and fixed regions
     const end_addr = virtual_addr + @as(u64, size);
 
-    // Check overlap with fixed regions
     if (checkOverlapWithFixedRegion(virtual_addr, end_addr)) |_| {
         return error.SegmentOverlap;
     }
 
-    // Check overlap with existing ELF segments
     for (0..context.elf_segment_count) |i| {
         const existing = &context.elf_segments[i];
         const existing_end = existing.virtual_base + @as(u64, existing.size);
@@ -403,7 +347,6 @@ pub fn addElfSegment(context: *UserMemoryContext, virtual_addr: u64, size: usize
     segment.permissions = permissions;
     segment.allocated = false;
 
-    // Clear physical frames
     for (0..MAX_REGION_PAGES) |i| {
         segment.physical_frames[i] = null;
     }
@@ -412,7 +355,6 @@ pub fn addElfSegment(context: *UserMemoryContext, virtual_addr: u64, size: usize
     return segment;
 }
 
-// Map all ELF segments to user page table
 pub fn mapElfSegments(context: *UserMemoryContext) !void {
     const page_table = context.page_table orelse return error.NoPageTable;
 
@@ -420,7 +362,6 @@ pub fn mapElfSegments(context: *UserMemoryContext) !void {
         const segment = &context.elf_segments[i];
         if (!segment.allocated) continue;
 
-        // Map each page of the segment
         const page_count = (segment.size + types.PAGE_SIZE - 1) / types.PAGE_SIZE;
         for (0..page_count) |page_idx| {
             if (segment.physical_frames[page_idx]) |frame| {
@@ -431,29 +372,24 @@ pub fn mapElfSegments(context: *UserMemoryContext) !void {
     }
 }
 
-// Check if virtual address range overlaps with any fixed region
 fn checkOverlapWithFixedRegion(start: u64, end: u64) ?[]const u8 {
-    // Check USER_CODE_BASE region
     if (!(end <= USER_CODE_BASE or start >= USER_CODE_BASE + USER_CODE_SIZE)) {
         return "USER_CODE";
     }
 
-    // Check USER_STACK_BASE region
     if (!(end <= USER_STACK_BASE or start >= USER_STACK_BASE + USER_STACK_SIZE)) {
         return "USER_STACK";
     }
 
-    // Check USER_HEAP_BASE region
     if (!(end <= USER_HEAP_BASE or start >= USER_HEAP_BASE + USER_HEAP_SIZE)) {
         return "USER_HEAP";
     }
 
-    // Check KERNEL regions (should not overlap with user segments)
     const KERNEL_BASE = 0x80000000;
-    const KERNEL_END = 0x90000000; // Approximate kernel region end
+    const KERNEL_END = 0x90000000;
     if (!(end <= KERNEL_BASE or start >= KERNEL_END)) {
         return "KERNEL";
     }
 
-    return null; // No overlap
+    return null;
 }
