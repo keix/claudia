@@ -1,12 +1,15 @@
-// Process management public API for Claudia kernel
-// Re-exports key functionality from modularized components
+// Process management subsystem public interface
+// This module re-exports key functionality from:
+//   - scheduler: Process scheduling and context switching
+//   - syscalls: System call implementations (fork, exec, wait)
+//   - types: Core data structures (Process, Context, etc.)
+//   - context: Context initialization and switching logic
 
 const scheduler = @import("scheduler.zig");
 pub const syscalls = @import("syscalls.zig");
 const types = @import("types.zig");
 const context = @import("context.zig");
 
-// Re-export types
 pub const Process = types.Process;
 pub const ProcessState = types.ProcessState;
 pub const PID = types.PID;
@@ -14,7 +17,7 @@ pub const WaitQ = types.WaitQ;
 pub const Context = types.Context;
 pub const isTerminated = types.isTerminated;
 
-// Re-export scheduler functions
+// Scheduler namespace - groups all scheduling-related functions
 pub const Scheduler = struct {
     pub const init = scheduler.init;
     pub const allocProcess = scheduler.allocProcess;
@@ -30,12 +33,12 @@ pub const Scheduler = struct {
     pub const yield = scheduler.yield;
     pub const reapZombies = scheduler.reapZombies;
 
-    // System calls
     pub const fork = syscalls.fork;
     pub const exec = syscalls.exec;
 };
 
-// Re-export current process getter
+// Get currently executing process
+// Note: This directly accesses scheduler's current_process variable
 pub fn getCurrentProcess() ?*Process {
     return scheduler.current_process;
 }

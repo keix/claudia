@@ -216,7 +216,7 @@ Based on current needs for shell and Lisp interpreter:
 | Category | UNIX V6 | Claudia |
 |----------|---------|---------|
 | **Shell** | Bourne shell (sh) | Minimal shell |
-| **Core Utils** | ls, cat, ed, etc. | [Claudia commands utilities](docs/claudia_commands_utilities.md) |
+| **Core Utils** | ls, cat, ed, etc. | [Claudia commands utilities](claudia_commands_utilities.md) |
 | **Lisp Interpreter** | None | Minimal Lisp with strings |
 | **Compiler** | cc (C compiler) | Cross-compiled only |
 | **Assembler** | as | Zig handles assembly |

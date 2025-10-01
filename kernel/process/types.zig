@@ -1,23 +1,19 @@
-// Process types and data structures for Claudia kernel
-// RISC-V specific process structures
-
 const std = @import("std");
 const trap = @import("../trap/core.zig");
 const config = @import("../config.zig");
 
 pub const PID = u32;
 
-// Process states
+// Process states in the lifecycle
 pub const ProcessState = enum {
-    UNUSED, // Slot not in use
-    EMBRYO, // Being created
-    SLEEPING, // Sleeping on a wait channel
-    RUNNABLE, // Ready to run
-    RUNNING, // Currently running
-    ZOMBIE, // Terminated but not yet cleaned up
+    UNUSED, // Process slot is free
+    EMBRYO, // Process is being created
+    SLEEPING, // Process is blocked waiting for event
+    RUNNABLE, // Process is ready to run
+    RUNNING, // Process is currently executing
+    ZOMBIE, // Process has exited but not yet cleaned up
 };
 
-// Wait queue for blocking I/O
 pub const WaitQ = struct {
     head: ?*Process = null,
 
@@ -26,70 +22,83 @@ pub const WaitQ = struct {
     }
 };
 
-// RISC-V CPU context for process switching (all general purpose registers)
-// Matches the layout expected by context.S
+// RISC-V register context for kernel-level process switching
+// Saved/restored by context_switch assembly routine
 pub const Context = struct {
-    ra: u64, // x1 - return address
-    sp: u64, // x2 - stack pointer
-    gp: u64, // x3 - global pointer
-    tp: u64, // x4 - thread pointer
-    t0: u64, // x5 - temporary
-    t1: u64, // x6 - temporary
-    t2: u64, // x7 - temporary
-    s0: u64, // x8 - saved register / frame pointer
-    s1: u64, // x9 - saved register
-    a0: u64, // x10 - function argument/return value
-    a1: u64, // x11 - function argument
-    a2: u64, // x12 - function argument
-    a3: u64, // x13 - function argument
-    a4: u64, // x14 - function argument
-    a5: u64, // x15 - function argument
-    a6: u64, // x16 - function argument
-    a7: u64, // x17 - function argument
-    s2: u64, // x18 - saved register
-    s3: u64, // x19 - saved register
-    s4: u64, // x20 - saved register
-    s5: u64, // x21 - saved register
-    s6: u64, // x22 - saved register
-    s7: u64, // x23 - saved register
-    s8: u64, // x24 - saved register
-    s9: u64, // x25 - saved register
-    s10: u64, // x26 - saved register
-    s11: u64, // x27 - saved register
-    t3: u64, // x28 - temporary
-    t4: u64, // x29 - temporary
-    t5: u64, // x30 - temporary
-    t6: u64, // x31 - temporary
-    satp: u64, // Supervisor Address Translation and Protection register
+    // Callee-saved registers (preserved across function calls)
+    ra: u64, // x1  - Return address
+    sp: u64, // x2  - Stack pointer
+    gp: u64, // x3  - Global pointer (not used in kernel)
+    tp: u64, // x4  - Thread pointer (per-CPU data)
+
+    // Caller-saved registers (temporary)
+    t0: u64, // x5  - Temporary/alternate return address
+    t1: u64, // x6  - Temporary
+    t2: u64, // x7  - Temporary
+
+    // Callee-saved registers
+    s0: u64, // x8  - Frame pointer / saved register
+    s1: u64, // x9  - Saved register
+
+    // Function arguments and return values
+    a0: u64, // x10 - Function arg 0 / return value 0
+    a1: u64, // x11 - Function arg 1 / return value 1
+    a2: u64, // x12 - Function arg 2
+    a3: u64, // x13 - Function arg 3
+    a4: u64, // x14 - Function arg 4
+    a5: u64, // x15 - Function arg 5
+    a6: u64, // x16 - Function arg 6
+    a7: u64, // x17 - Function arg 7
+
+    // More callee-saved registers
+    s2: u64, // x18 - Saved register
+    s3: u64, // x19 - Saved register
+    s4: u64, // x20 - Saved register
+    s5: u64, // x21 - Saved register
+    s6: u64, // x22 - Saved register
+    s7: u64, // x23 - Saved register
+    s8: u64, // x24 - Saved register
+    s9: u64, // x25 - Saved register
+    s10: u64, // x26 - Saved register
+    s11: u64, // x27 - Saved register
+
+    // More caller-saved registers
+    t3: u64, // x28 - Temporary
+    t4: u64, // x29 - Temporary
+    t5: u64, // x30 - Temporary
+    t6: u64, // x31 - Temporary
+
+    // Supervisor CSRs
+    satp: u64, // Supervisor Address Translation and Protection
     sepc: u64, // Supervisor Exception Program Counter
-    sstatus: u64, // Supervisor Status register
+    sstatus: u64, // Supervisor Status Register
 
     pub fn zero() Context {
         return std.mem.zeroes(Context);
     }
 };
 
-// Process control block
+// Process Control Block (PCB) - main process data structure
 pub const Process = struct {
-    pid: PID, // Process ID
-    state: ProcessState, // Process state
-    context: Context, // CPU context for kernel-level switching
-    user_frame: ?*trap.TrapFrame, // User mode trap frame (null for kernel processes)
-    stack: []u8, // Process stack
-    name: [config.Process.NAME_LENGTH]u8, // Process name (null-terminated)
+    pid: PID, // Process identifier
+    state: ProcessState, // Current state
+    context: Context, // Saved register state
+    user_frame: ?*trap.TrapFrame, // User mode registers (null for kernel processes)
+    stack: []u8, // Kernel stack
+    name: [config.Process.NAME_LENGTH]u8, // Process name
     parent: ?*Process, // Parent process
-    exit_code: i32, // Exit code when zombie
+    exit_code: i32, // Exit status for zombies
     is_kernel: bool, // Kernel-only process flag
     cwd: [config.Process.CWD_LENGTH]u8, // Current working directory
-    cwd_len: usize, // Length of current working directory
-    page_table_ppn: u64, // Physical page number of page table root (0 = kernel PT)
+    cwd_len: usize, // CWD string length
+    page_table_ppn: u64, // Root page table PPN (0 = use kernel PT)
 
-    // Heap management
-    heap_start: u64, // Start of heap (fixed)
-    heap_end: u64, // Current end of heap (program break)
+    // Memory management
+    heap_start: u64, // Start of heap (brk)
+    heap_end: u64, // Current heap end
 
-    // Simple linked list for process queue
-    next: ?*Process,
+    // Scheduler queue link
+    next: ?*Process, // Next in ready/wait queue
 
     pub fn init(pid: PID, name: []const u8, stack: []u8) Process {
         var proc = Process{
@@ -104,9 +113,9 @@ pub const Process = struct {
             .is_kernel = false,
             .cwd = std.mem.zeroes([config.Process.CWD_LENGTH]u8),
             .cwd_len = 1,
-            .page_table_ppn = 0, // Default to kernel page table
-            .heap_start = 0, // Will be initialized when user memory is set up
-            .heap_end = 0, // Will be initialized when user memory is set up
+            .page_table_ppn = 0,
+            .heap_start = 0,
+            .heap_end = 0,
             .next = null,
         };
 
@@ -114,12 +123,9 @@ pub const Process = struct {
         proc.cwd[0] = '/';
         proc.cwd[1] = 0;
 
-        // Copy name (max NAME_LENGTH-1 chars + null terminator)
         const copy_len = @min(name.len, config.Process.NAME_LENGTH - 1);
         @memcpy(proc.name[0..copy_len], name[0..copy_len]);
         proc.name[copy_len] = 0;
-
-        // Don't initialize context here - it will be done after assignment to table
 
         return proc;
     }
@@ -130,6 +136,7 @@ pub const Process = struct {
     }
 };
 
+// Check if process has terminated (zombie or unused)
 pub inline fn isTerminated(proc: *const Process) bool {
     return proc.state == .ZOMBIE or proc.state == .UNUSED;
 }

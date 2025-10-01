@@ -1,6 +1,3 @@
-// Context management and process entry points
-// Handles context initialization and switching logic
-
 const std = @import("std");
 const csr = @import("../arch/riscv/csr.zig");
 const uart = @import("../driver/uart/core.zig");
@@ -16,79 +13,57 @@ const syscalls = @import("syscalls.zig");
 pub const Process = types.Process;
 pub const Context = types.Context;
 
-// Entry point for process with direct pointer passing
 pub fn processEntryPointWithProc(proc: *Process) noreturn {
-    // Run process-specific code based on process name
     const name = proc.getName();
     if (std.mem.eql(u8, name, "init")) {
         user.initActualUserMode();
-        unreachable; // Should not return
+        unreachable;
     } else if (std.mem.eql(u8, name, "child")) {
-        // The trap frame should already be set up to return to the correct location
         if (proc.user_frame) |frame| {
-
-            // Verify frame is in kernel space
             validateKernelPointer(frame);
-
-            // Return to user mode by pretending we came from a trap
-            // This is a bit of a hack, but it should work for basic fork
             returnToUserMode(frame);
         } else {
-            // No trap frame - exit
             scheduler.exit(-1);
         }
     } else if (std.mem.eql(u8, name, "idle")) {
-        // Idle process - jump to our own idle loop
         scheduler.idleLoop();
     } else {
-        // Generic process - just exit
         scheduler.exit(0);
     }
     unreachable;
 }
 
-// Common context initialization logic
 fn initContextCommon(proc: *Process, entry_point: u64) void {
-    // Set up stack pointer to top of allocated stack (grows downward)
     proc.context.sp = @intFromPtr(proc.stack.ptr) + proc.stack.len - config.Process.STACK_ALIGNMENT;
 
-    // Set return address to specified entry point
     proc.context.ra = entry_point;
 
-    // Callee-saved registers already zeroed by Context.zero()
-
-    // Store process pointer in s0 so entry point can access it
     proc.context.s0 = @intFromPtr(proc);
 
-    // Set SATP to kernel page table
     proc.context.satp = csr.SATP_SV39 | memory.kernel_page_table.root_ppn;
 }
 
-// Initialize process context for context switching
 pub fn initProcessContext(proc: *Process) void {
     initContextCommon(proc, @intFromPtr(&processEntryPoint));
 }
 
-// Entry point for newly created processes (called via context switch)
 fn processEntryPoint() noreturn {
-    // Get process pointer from s0 register (passed from context init)
     const proc: *Process = asm volatile ("mv %[proc], s0"
         : [proc] "=r" (-> *Process),
     );
 
-    // Delegate to common entry point
     processEntryPointWithProc(proc);
 }
 
-// Initialize idle process context
+const SPP_BIT: u6 = 8;
+const SPIE_BIT: u6 = 5;
+
 pub fn initIdleContext(proc: *Process) void {
     initContextCommon(proc, @intFromPtr(&scheduler.idleLoop));
 
-    // Set sstatus for supervisor mode (SPP=1)
-    proc.context.sstatus = (1 << 8) | (1 << 5); // SPP | SPIE
+    proc.context.sstatus = (@as(u64, 1) << SPP_BIT) | (@as(u64, 1) << SPIE_BIT);
 }
 
-// Validate that a pointer is in kernel space
 fn validateKernelPointer(ptr: anytype) void {
     if (@intFromPtr(ptr) < config.MemoryLayout.USER_KERNEL_BOUNDARY) {
         while (true) {
@@ -97,28 +72,21 @@ fn validateKernelPointer(ptr: anytype) void {
     }
 }
 
-// Return to user mode with given trap frame
 pub noinline fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
-    // CRITICAL: Ensure GP is 0 before accessing anything
+    // Clear GP to prevent kernel GP-relative addressing in user mode
     asm volatile ("li gp, 0");
 
-    // Double-check frame pointer is in kernel space
+    // Double-check frame is in kernel space for safety
     validateKernelPointer(frame);
 
-    // Set up RISC-V CSRs for return to user mode
-    // SSTATUS: Use RMW to only modify SPP=0, SPIE=1, preserve other flags
     const cur_sstatus = csr.readSstatus();
-    const cleared_spp = cur_sstatus & ~(@as(u64, 1) << 8); // SPP=0
-    const sstatus_val = cleared_spp | (@as(u64, 1) << 5); // SPIE=1
+    const cleared_spp = cur_sstatus & ~(@as(u64, 1) << SPP_BIT);
+    const sstatus_val = cleared_spp | (@as(u64, 1) << SPIE_BIT);
 
-    // Just use the simple assembly version
     asm volatile (
-    // Set up CSRs
         \\csrw sepc, %[pc]
         \\csrw sscratch, %[user_sp]
         \\csrw sstatus, %[sstatus]
-
-        // Restore user registers from trap frame
         \\ld ra, 8(%[frame])
         \\ld gp, 16(%[frame])
         \\ld tp, 24(%[frame])
@@ -149,8 +117,6 @@ pub noinline fn returnToUserMode(frame: *trap.TrapFrame) noreturn {
         \\ld t4, 224(%[frame])
         \\ld t5, 232(%[frame])
         \\ld t6, 240(%[frame])
-
-        // Switch to user stack and return
         \\csrrw sp, sscratch, sp
         \\fence.i
         \\sfence.vma zero, zero
