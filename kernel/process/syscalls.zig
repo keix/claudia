@@ -89,9 +89,9 @@ fn setupChildContext(parent: *Process, child: *Process) !void {
     child.context.ra = @intFromPtr(&forkedChildReturn); // Where to start execution
     child.context.sp = @intFromPtr(child.stack.ptr) + child.stack.len - config.Process.STACK_ALIGNMENT;
     child.context.s0 = @intFromPtr(child); // Process pointer in s0
-    child.context.a0 = 0; // Return value
-    child.context.sstatus = (@as(u64, 1) << SPIE_BIT); // Enable interrupts, user mode
-    child.context.satp = (SV39_MODE << SATP_MODE_SHIFT) | (child.page_table_ppn & SATP_PPN_MASK);
+    // Note: a0 return value (0 for child) is already set in child_frame.a0 above
+    // satp will be set by scheduler when switching to this process based on child.page_table_ppn
+    // sstatus interrupt enable will be managed by scheduler
 }
 
 // Fork system call - create a copy of the current process

@@ -197,10 +197,7 @@ pub export fn trapHandler(frame: *TrapFrame) void {
             const kernel_satp = csr.SATP_SV39 | memory.kernel_page_table.root_ppn;
             csr.writeSatp(kernel_satp);
             csr.sfence_vma();
-
-            if (proc.Scheduler.getCurrentProcess()) |current| {
-                current.context.satp = kernel_satp;
-            }
+            // Note: satp is now managed by scheduler, not stored in context
         }
     }
 
@@ -216,7 +213,28 @@ fn interruptHandler(frame: *TrapFrame, code: u64) void {
     _ = frame;
     switch (code) {
         csr.Interrupt.SupervisorTimer => {
+            // Check for sleeping processes that need to wake up
             timer.checkSleepers();
+
+            // Set next timer interrupt
+            const timer_driver = @import("../driver/timer.zig");
+            const current_time = timer_driver.readTime();
+            const TIMER_INTERVAL_CYCLES: u64 = 10_000_000 * 10 / 1000; // 10ms at 10MHz
+            const next_time = current_time + TIMER_INTERVAL_CYCLES;
+
+            // Use inline assembly for SBI call to set timer
+            asm volatile (
+                \\mv a0, %[val]
+                \\li a7, 0x54494D45  # SBI_EXT_TIME
+                \\li a6, 0           # SBI_EXT_TIME_SET_TIMER
+                \\ecall
+                :
+                : [val] "r" (next_time),
+                : "a0", "a6", "a7", "memory"
+            );
+
+            // Yield to scheduler for preemption
+            proc.Scheduler.yield();
         },
         csr.Interrupt.SupervisorExternal => {
             handlePLICInterrupt();
@@ -335,10 +353,7 @@ fn syscallHandler(frame: *TrapFrame) void {
     // Associate trap frame with current process
     current.user_frame = frame;
 
-    const current_satp = csr.readSatp();
-    if (current.context.satp != current_satp) {
-        current.context.satp = current_satp;
-    }
+    // satp is now managed by scheduler, not stored in context
 
     // Use full dispatcher
     const result = dispatch.call(syscall_num, frame.a0, frame.a1, frame.a2, frame.a3, frame.a4);

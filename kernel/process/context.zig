@@ -35,12 +35,9 @@ pub fn processEntryPointWithProc(proc: *Process) noreturn {
 
 fn initContextCommon(proc: *Process, entry_point: u64) void {
     proc.context.sp = @intFromPtr(proc.stack.ptr) + proc.stack.len - config.Process.STACK_ALIGNMENT;
-
     proc.context.ra = entry_point;
-
     proc.context.s0 = @intFromPtr(proc);
-
-    proc.context.satp = csr.SATP_SV39 | memory.kernel_page_table.root_ppn;
+    // satp will be set by scheduler based on proc.page_table_ppn
 }
 
 pub fn initProcessContext(proc: *Process) void {
@@ -60,8 +57,7 @@ const SPIE_BIT: u6 = 5;
 
 pub fn initIdleContext(proc: *Process) void {
     initContextCommon(proc, @intFromPtr(&scheduler.idleLoop));
-
-    proc.context.sstatus = (@as(u64, 1) << SPP_BIT) | (@as(u64, 1) << SPIE_BIT);
+    // sstatus will be managed by interrupt enable/disable in scheduler
 }
 
 fn validateKernelPointer(ptr: anytype) void {

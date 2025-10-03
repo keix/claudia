@@ -23,34 +23,15 @@ pub const WaitQ = struct {
 };
 
 // RISC-V register context for kernel-level process switching
-// Saved/restored by context_switch assembly routine
+// Minimal implementation - only saves callee-saved registers per RISC-V ABI
+// Caller-saved registers (t0-t6, a0-a7) are handled by the compiler
+// CSRs (satp, sstatus) are managed separately by the scheduler
 pub const Context = struct {
-    // Callee-saved registers (preserved across function calls)
+    // Callee-saved registers that must be preserved across function calls
     ra: u64, // x1  - Return address
     sp: u64, // x2  - Stack pointer
-    gp: u64, // x3  - Global pointer (not used in kernel)
-    tp: u64, // x4  - Thread pointer (per-CPU data)
-
-    // Caller-saved registers (temporary)
-    t0: u64, // x5  - Temporary/alternate return address
-    t1: u64, // x6  - Temporary
-    t2: u64, // x7  - Temporary
-
-    // Callee-saved registers
-    s0: u64, // x8  - Frame pointer / saved register
+    s0: u64, // x8  - Saved register / frame pointer
     s1: u64, // x9  - Saved register
-
-    // Function arguments and return values
-    a0: u64, // x10 - Function arg 0 / return value 0
-    a1: u64, // x11 - Function arg 1 / return value 1
-    a2: u64, // x12 - Function arg 2
-    a3: u64, // x13 - Function arg 3
-    a4: u64, // x14 - Function arg 4
-    a5: u64, // x15 - Function arg 5
-    a6: u64, // x16 - Function arg 6
-    a7: u64, // x17 - Function arg 7
-
-    // More callee-saved registers
     s2: u64, // x18 - Saved register
     s3: u64, // x19 - Saved register
     s4: u64, // x20 - Saved register
@@ -61,17 +42,6 @@ pub const Context = struct {
     s9: u64, // x25 - Saved register
     s10: u64, // x26 - Saved register
     s11: u64, // x27 - Saved register
-
-    // More caller-saved registers
-    t3: u64, // x28 - Temporary
-    t4: u64, // x29 - Temporary
-    t5: u64, // x30 - Temporary
-    t6: u64, // x31 - Temporary
-
-    // Supervisor CSRs
-    satp: u64, // Supervisor Address Translation and Protection
-    sepc: u64, // Supervisor Exception Program Counter
-    sstatus: u64, // Supervisor Status Register
 
     pub fn zero() Context {
         return std.mem.zeroes(Context);
