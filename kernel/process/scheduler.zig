@@ -13,6 +13,8 @@ const types = @import("types.zig");
 const context = @import("context.zig");
 const syscalls = @import("syscalls.zig");
 
+const PAGE_SIZE = @import("../memory/types.zig").PAGE_SIZE;
+
 pub const Process = types.Process;
 pub const ProcessState = types.ProcessState;
 pub const PID = types.PID;
@@ -34,7 +36,6 @@ var ready_queue_tail: ?*Process = null;
 var idle_process: Process = undefined;
 var idle_stack: [config.Process.CHILD_STACK_SIZE]u8 align(config.Process.STACK_ALIGNMENT) = undefined;
 
-const PAGE_SIZE = @import("../memory/types.zig").PAGE_SIZE;
 var child_stack_pool: [config.Process.CHILD_POOL_SIZE][config.Process.CHILD_STACK_SIZE]u8 align(PAGE_SIZE) = undefined;
 var child_stack_used: [config.Process.CHILD_POOL_SIZE]bool = [_]bool{false} ** config.Process.CHILD_POOL_SIZE;
 

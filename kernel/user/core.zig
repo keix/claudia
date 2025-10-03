@@ -52,8 +52,7 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
     if (!new_user_context.verifyMapping(0x8021b000)) return error.KernelMappingFailed;
 
     if (proc.Scheduler.getCurrentProcess()) |current| {
-        const old_satp = current.context.satp;
-        current.context.satp = satp_value;
+        // satp is now managed by setting page_table_ppn, not stored in context
 
         if (current.page_table_ppn != 0) {
             var old_pt = virtual.PageTable{ .root_ppn = current.page_table_ppn };
@@ -64,10 +63,9 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
         current.heap_start = memory.USER_HEAP_BASE;
         current.heap_end = memory.USER_HEAP_BASE;
 
-        if (csr.readSatp() == old_satp) {
-            csr.writeSatp(satp_value);
-            csr.sfence_vma();
-        }
+        // Update satp register to use new page table
+        csr.writeSatp(satp_value);
+        csr.sfence_vma();
     }
 
     switch_to_user_mode(header.e_entry, user_stack, kernel_sp, satp_value);
