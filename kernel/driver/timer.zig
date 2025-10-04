@@ -6,8 +6,8 @@ const csr = @import("../arch/riscv/csr.zig");
 const uart = @import("../driver/uart/core.zig");
 const proc = @import("../process/core.zig");
 
-// Timer frequency (10MHz for QEMU)
-const TIMER_FREQ: u64 = 10_000_000;
+// Timer frequency (5MHz effective on QEMU)
+const TIMER_FREQ: u64 = 5_000_000;
 
 // Timer interval for scheduling (10ms)
 const TIMER_INTERVAL_MS: u64 = 10;
@@ -17,17 +17,16 @@ const TIMER_INTERVAL_CYCLES: u64 = TIMER_FREQ * TIMER_INTERVAL_MS / 1000;
 const SBI_EXT_TIME: i64 = 0x54494D45; // "TIME"
 const SBI_EXT_TIME_SET_TIMER: i64 = 0;
 
-// SBI call for timer
+// SBI call for timer (using legacy SBI call)
 fn sbi_set_timer(stime_value: u64) void {
-    // SBI call: a7 = extension ID, a6 = function ID, a0 = argument
+    // Legacy SBI timer call: a7 = 0, a0 = timer value
     asm volatile (
         \\mv a0, %[val]
-        \\li a7, 0x54494D45  # SBI_EXT_TIME
-        \\li a6, 0           # SBI_EXT_TIME_SET_TIMER
+        \\li a7, 0           # SBI legacy timer extension
         \\ecall
         :
         : [val] "r" (stime_value),
-        : "a0", "a6", "a7"
+        : "a0", "a7", "memory"
     );
 }
 
@@ -54,16 +53,11 @@ pub fn init() void {
     uart.puts("Timer: Initialized\n");
 }
 
-// Global interrupt counter for debugging
-var interrupt_count: u32 = 0;
-
 // Handle timer interrupt - called from trap handler
 pub fn handleInterrupt() void {
-    // Debug: Print on first few interrupts
-    if (interrupt_count < 5) {
-        uart.puts("Timer interrupt!\n");
-        interrupt_count += 1;
-    }
+    // Increment global counter for debugging
+    const counter = @import("../time/counter.zig");
+    counter.increment();
 
     // Set next timer interrupt
     const current_time = readTime();

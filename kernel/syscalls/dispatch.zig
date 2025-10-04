@@ -63,6 +63,10 @@ pub fn call(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) isi
         sysno.sys_unlinkat => dir.sys_unlinkat(a0, a1, a2),
         sysno.sys_wait4 => process.sys_wait4(a0, a1, a2, a3),
         sysno.sys_brk => brk.sys_brk(a0),
+        999 => blk: { // Debug syscall to get timer interrupt count
+            const counter = @import("../time/counter.zig");
+            break :blk @as(isize, @intCast(counter.get()));
+        },
         else => defs.ENOSYS,
     };
 }

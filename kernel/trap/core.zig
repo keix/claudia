@@ -216,25 +216,9 @@ fn interruptHandler(frame: *TrapFrame, code: u64) void {
             // Check for sleeping processes that need to wake up
             timer.checkSleepers();
 
-            // Set next timer interrupt
+            // Handle timer interrupt (increments counter, schedules next, yields)
             const timer_driver = @import("../driver/timer.zig");
-            const current_time = timer_driver.readTime();
-            const TIMER_INTERVAL_CYCLES: u64 = 10_000_000 * 10 / 1000; // 10ms at 10MHz
-            const next_time = current_time + TIMER_INTERVAL_CYCLES;
-
-            // Use inline assembly for SBI call to set timer
-            asm volatile (
-                \\mv a0, %[val]
-                \\li a7, 0x54494D45  # SBI_EXT_TIME
-                \\li a6, 0           # SBI_EXT_TIME_SET_TIMER
-                \\ecall
-                :
-                : [val] "r" (next_time),
-                : "a0", "a6", "a7", "memory"
-            );
-
-            // Yield to scheduler for preemption
-            proc.Scheduler.yield();
+            timer_driver.handleInterrupt();
         },
         csr.Interrupt.SupervisorExternal => {
             handlePLICInterrupt();
