@@ -401,6 +401,13 @@ pub fn build(b: *std.Build) void {
             .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });
+    const timer_simple_mod = b.createModule(.{
+        .root_source_file = b.path("userland/shell/commands/debug/timer_simple.zig"),
+        .imports = &.{
+            .{ .name = "sys", .module = sys_mod },
+            .{ .name = "shell/utils", .module = shell_utils_mod },
+        },
+    });
 
     // Create commands index module
     const commands_index_mod = b.createModule(.{
@@ -427,6 +434,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "brktest.zig", .module = brktest_mod },
             .{ .name = "debug/fork_demo.zig", .module = fork_demo_mod },
             .{ .name = "debug/timer_test.zig", .module = timer_test_mod },
+            .{ .name = "debug/timer_simple.zig", .module = timer_simple_mod },
             .{ .name = "shell/utils", .module = shell_utils_mod },
         },
     });
