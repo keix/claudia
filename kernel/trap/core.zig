@@ -198,9 +198,7 @@ pub export fn trapHandler(frame: *TrapFrame) void {
             csr.writeSatp(kernel_satp);
             csr.sfence_vma();
 
-            if (proc.Scheduler.getCurrentProcess()) |current| {
-                current.context.satp = kernel_satp;
-            }
+            // SATP is now managed by the scheduler, no need to update context
         }
     }
 
@@ -335,10 +333,7 @@ fn syscallHandler(frame: *TrapFrame) void {
     // Associate trap frame with current process
     current.user_frame = frame;
 
-    const current_satp = csr.readSatp();
-    if (current.context.satp != current_satp) {
-        current.context.satp = current_satp;
-    }
+    // SATP is now managed by the scheduler, no need to update context
 
     // Use full dispatcher
     const result = dispatch.call(syscall_num, frame.a0, frame.a1, frame.a2, frame.a3, frame.a4);

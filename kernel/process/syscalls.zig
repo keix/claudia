@@ -128,16 +128,6 @@ pub fn fork() isize {
         child.context.ra = @intFromPtr(&forkedChildReturn);
         child.context.sp = @intFromPtr(child.stack.ptr) + child.stack.len - config.Process.STACK_ALIGNMENT;
         child.context.s0 = @intFromPtr(child); // Process pointer in s0
-        child.context.a0 = 0; // Return value for fork (child returns 0)
-
-        // CRITICAL: Set proper mode in context for return to user mode
-        // SPP=0 (user mode), SPIE=1 (interrupts enabled after sret)
-        child.context.sstatus = (1 << 5); // SPIE only, SPP=0 for user mode
-
-        // CRITICAL: Child must use its own page table
-        // Set satp with the child's page table
-        const mode: u64 = 8; // Sv39
-        child.context.satp = (mode << 60) | (child.page_table_ppn & 0xFFFFFFFFF);
     } else {
         child_pt.deinit();
         return defs.EINVAL; // No user frame

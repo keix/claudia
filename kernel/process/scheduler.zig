@@ -148,18 +148,33 @@ pub fn dequeueRunnable() ?*Process {
     return null;
 }
 
-// Core scheduling function - switches to next runnable process
-// Switch address space to the given process
+// Constants for RISC-V Sv39 page table format
+const SV39_MODE: u64 = 8; // Sv39 mode value for SATP
+const SATP_MODE_SHIFT: u6 = 60; // MODE field position in SATP
+const SATP_PPN_MASK: u64 = 0xFFFFFFFFFFF; // Mask for 44-bit PPN field
+
+// Mark process as current running process
+fn makeProcessCurrent(proc: *Process) void {
+    proc.state = .RUNNING;
+    current_process = proc;
+}
+
+// Perform full context switch from current to next process
+// This includes: state update, address space switch, and register context switch
+fn contextSwitch(current: *Process, next: *Process) void {
+    makeProcessCurrent(next);
+    switchAddressSpace(next);
+    context_switch(&current.context, &next.context);
+}
+
+// Switch to process's address space by updating SATP register
 fn switchAddressSpace(proc: *Process) void {
     if (proc.page_table_ppn != 0) {
-        // Process has its own page table
-        const mode: u64 = 8; // Sv39
-        const satp_value = (mode << 60) | (proc.page_table_ppn & 0xFFFFFFFFF);
+        const satp_value = (SV39_MODE << SATP_MODE_SHIFT) | (proc.page_table_ppn & SATP_PPN_MASK);
 
         csr.writeSatp(satp_value);
-        asm volatile ("sfence.vma" ::: "memory"); // Flush TLB
+        asm volatile ("sfence.vma" ::: "memory");
     }
-    // If page_table_ppn is 0, keep using current page table (kernel or parent's)
 }
 
 // @param make_current_runnable: if true, adds current process to runnable queue
@@ -179,63 +194,35 @@ pub fn schedule(make_current_runnable: bool) ?*Process {
 
         // Find next runnable process
         if (dequeueRunnable()) |next| {
-            next.state = .RUNNING;
-            current_process = next;
-
-            // Switch address space before context switch
-            switchAddressSpace(next);
-            context_switch(&proc.context, &next.context);
-
+            contextSwitch(proc, next);
             return next;
         } else {
             // No other runnable process - switch to idle
-            idle_process.state = .RUNNING;
-            current_process = &idle_process;
-
-            // Switch address space before context switch
-            switchAddressSpace(&idle_process);
-            context_switch(&proc.context, &idle_process.context);
+            contextSwitch(proc, &idle_process);
             return &idle_process;
         }
     }
 
     // No current process - try to find one to run
     if (dequeueRunnable()) |next| {
-        next.state = .RUNNING;
-        current_process = next;
+        makeProcessCurrent(next);
         return next;
     }
 
     // Nothing runnable - use idle process
-    idle_process.state = .RUNNING;
-    current_process = &idle_process;
+    makeProcessCurrent(&idle_process);
     return &idle_process;
 }
 
-// Internal scheduler for exit() - must have current process
+// Internal scheduler for exit() - current process won't return
 fn scheduleInternal() void {
     const proc = current_process orelse unreachable;
 
     // Find next runnable process
     if (dequeueRunnable()) |next| {
-        next.state = .RUNNING;
-        current_process = next;
-
-        // Switch address space before context switch
-        switchAddressSpace(next);
-        // Context switch to next process
-        context_switch(&proc.context, &next.context);
-        // When we return here, this process has been rescheduled
+        contextSwitch(proc, next);
     } else {
-        // No runnable process - switch to idle process
-        idle_process.state = .RUNNING;
-        current_process = &idle_process;
-
-        // Switch address space before context switch
-        switchAddressSpace(&idle_process);
-        // Context switch to idle process
-        context_switch(&proc.context, &idle_process.context);
-        // When we return here, this process has been rescheduled
+        contextSwitch(proc, &idle_process);
     }
 }
 
@@ -245,13 +232,7 @@ pub fn scheduleNext() void {
 
     // Find next runnable process
     if (dequeueRunnable()) |next| {
-        next.state = .RUNNING;
-        current_process = next;
-
-        // Switch address space before context switch
-        switchAddressSpace(next);
-        // Context switch to next process
-        context_switch(&proc.context, &next.context);
+        contextSwitch(proc, next);
         // When we return here, this process has been rescheduled
     } else {
         // No runnable process - wait in a loop checking timers
@@ -405,8 +386,7 @@ pub fn wakeAll(wq: *WaitQ) void {
 pub fn run() noreturn {
     // Find and run the first process
     if (dequeueRunnable()) |proc| {
-        proc.state = .RUNNING;
-        current_process = proc;
+        makeProcessCurrent(proc);
 
         // Jump to the process entry point
         context.processEntryPointWithProc(proc);
@@ -422,8 +402,7 @@ pub fn run() noreturn {
         // Check if any process became runnable
         if (ready_queue_head != null) {
             if (dequeueRunnable()) |proc| {
-                proc.state = .RUNNING;
-                current_process = proc;
+                makeProcessCurrent(proc);
                 context.processEntryPointWithProc(proc);
             }
         }

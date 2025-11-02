@@ -161,12 +161,9 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
         return error.KernelMappingFailed;
     }
 
-    // Update current process's kernel context SATP
+    // Update current process's page table
     // This ensures when we return from interrupts/syscalls, we use the new page table
     if (proc.Scheduler.getCurrentProcess()) |current| {
-        const old_satp = current.context.satp;
-        current.context.satp = satp_value;
-
         // Free old page table if process had one (exec replaces address space)
         if (current.page_table_ppn != 0) {
             var old_page_table = virtual.PageTable{
@@ -182,12 +179,9 @@ pub fn executeUserProgram(code: []const u8, args: []const u8) !noreturn {
         current.heap_start = memory.USER_HEAP_BASE;
         current.heap_end = memory.USER_HEAP_BASE; // Initially, heap is empty
 
-        // Also update the current CPU's SATP immediately if we're running on this process
-        const current_cpu_satp = csr.readSatp();
-        if (current_cpu_satp == old_satp) {
-            csr.writeSatp(satp_value);
-            csr.sfence_vma();
-        }
+        // Update the current CPU's SATP immediately since we're exec'ing
+        csr.writeSatp(satp_value);
+        csr.sfence_vma();
     }
 
     switch_to_user_mode(header.e_entry, user_stack, kernel_sp, satp_value);

@@ -26,43 +26,26 @@ pub const WaitQ = struct {
     }
 };
 
-// RISC-V CPU context for process switching (all general purpose registers)
-// Matches the layout expected by context.S
+// RISC-V register context for kernel-level process switching
+// Minimal implementation - only saves callee-saved registers per RISC-V ABI
+// Caller-saved registers (t0-t6, a0-a7) are handled by the compiler
+// CSRs (satp, sstatus) are managed separately by the scheduler
 pub const Context = struct {
-    ra: u64, // x1 - return address
-    sp: u64, // x2 - stack pointer
-    gp: u64, // x3 - global pointer
-    tp: u64, // x4 - thread pointer
-    t0: u64, // x5 - temporary
-    t1: u64, // x6 - temporary
-    t2: u64, // x7 - temporary
-    s0: u64, // x8 - saved register / frame pointer
-    s1: u64, // x9 - saved register
-    a0: u64, // x10 - function argument/return value
-    a1: u64, // x11 - function argument
-    a2: u64, // x12 - function argument
-    a3: u64, // x13 - function argument
-    a4: u64, // x14 - function argument
-    a5: u64, // x15 - function argument
-    a6: u64, // x16 - function argument
-    a7: u64, // x17 - function argument
-    s2: u64, // x18 - saved register
-    s3: u64, // x19 - saved register
-    s4: u64, // x20 - saved register
-    s5: u64, // x21 - saved register
-    s6: u64, // x22 - saved register
-    s7: u64, // x23 - saved register
-    s8: u64, // x24 - saved register
-    s9: u64, // x25 - saved register
-    s10: u64, // x26 - saved register
-    s11: u64, // x27 - saved register
-    t3: u64, // x28 - temporary
-    t4: u64, // x29 - temporary
-    t5: u64, // x30 - temporary
-    t6: u64, // x31 - temporary
-    satp: u64, // Supervisor Address Translation and Protection register
-    sepc: u64, // Supervisor Exception Program Counter
-    sstatus: u64, // Supervisor Status register
+    // Callee-saved registers that must be preserved across function calls
+    ra: u64, // x1  - Return address
+    sp: u64, // x2  - Stack pointer
+    s0: u64, // x8  - Saved register / frame pointer
+    s1: u64, // x9  - Saved register
+    s2: u64, // x18 - Saved register
+    s3: u64, // x19 - Saved register
+    s4: u64, // x20 - Saved register
+    s5: u64, // x21 - Saved register
+    s6: u64, // x22 - Saved register
+    s7: u64, // x23 - Saved register
+    s8: u64, // x24 - Saved register
+    s9: u64, // x25 - Saved register
+    s10: u64, // x26 - Saved register
+    s11: u64, // x27 - Saved register
 
     pub fn zero() Context {
         return std.mem.zeroes(Context);

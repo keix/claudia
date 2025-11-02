@@ -59,9 +59,6 @@ fn initContextCommon(proc: *Process, entry_point: u64) void {
 
     // Store process pointer in s0 so entry point can access it
     proc.context.s0 = @intFromPtr(proc);
-
-    // Set SATP to kernel page table
-    proc.context.satp = csr.SATP_SV39 | memory.kernel_page_table.root_ppn;
 }
 
 // Initialize process context for context switching
@@ -83,9 +80,6 @@ fn processEntryPoint() noreturn {
 // Initialize idle process context
 pub fn initIdleContext(proc: *Process) void {
     initContextCommon(proc, @intFromPtr(&scheduler.idleLoop));
-
-    // Set sstatus for supervisor mode (SPP=1)
-    proc.context.sstatus = (1 << 8) | (1 << 5); // SPP | SPIE
 }
 
 // Validate that a pointer is in kernel space
