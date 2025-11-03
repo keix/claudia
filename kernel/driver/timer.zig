@@ -65,7 +65,8 @@ pub fn handleInterrupt() void {
     sbi_set_timer(next_time);
 
     // Trigger process scheduling
-    proc.Scheduler.yield();
+    // TODO: Temporarily disabled to debug PAGE FAULT issue
+    // proc.Scheduler.yield();
 }
 
 // Sleep for specified milliseconds (busy wait version)
