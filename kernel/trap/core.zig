@@ -214,7 +214,12 @@ fn interruptHandler(frame: *TrapFrame, code: u64) void {
     _ = frame;
     switch (code) {
         csr.Interrupt.SupervisorTimer => {
+            // Check for sleeping processes that need to wake up
             timer.checkSleepers();
+
+            // Handle timer interrupt (increments counter, schedules next, yields)
+            const timer_driver = @import("../driver/timer.zig");
+            timer_driver.handleInterrupt();
         },
         csr.Interrupt.SupervisorExternal => {
             handlePLICInterrupt();

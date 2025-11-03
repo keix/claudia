@@ -22,15 +22,20 @@ pub fn init() void {
 }
 
 // Schedule the next timer interrupt
-fn scheduleNextInterrupt() void {
-    // In S-mode, we need to use SBI calls or M-mode assistance for timer
-    // For now, we'll rely on periodic checking in trap handler
-    // Real implementation would set stimecmp or use SBI timer extension
+pub fn scheduleNextInterrupt() void {
+    const timer_driver = @import("../driver/timer.zig");
+    const current_time = timer_driver.readTime();
+    const next_time = current_time + CYCLES_PER_TICK;
 
-    // Future: Calculate next interrupt time
-    // const current = csr.readTime();
-    // const next = current + CYCLES_PER_TICK;
-    // sbi.setTimer(next);
+    // Use legacy SBI call to set timer
+    asm volatile (
+        \\mv a0, %[val]
+        \\li a7, 0           # SBI legacy timer extension
+        \\ecall
+        :
+        : [val] "r" (next_time),
+        : "a0", "a7", "memory"
+    );
 }
 
 // Add a process to sleep list
