@@ -52,45 +52,52 @@ pub const Context = struct {
     }
 };
 
-// Process control block
+// Process control block - optimized for cache alignment
 pub const Process = struct {
-    pid: PID, // Process ID
-    state: ProcessState, // Process state
-    context: Context, // CPU context for kernel-level switching
-    user_frame: ?*trap.TrapFrame, // User mode trap frame (null for kernel processes)
-    stack: []u8, // Process stack
-    name: [config.Process.NAME_LENGTH]u8, // Process name (null-terminated)
-    parent: ?*Process, // Parent process
-    exit_code: i32, // Exit code when zombie
-    is_kernel: bool, // Kernel-only process flag
-    cwd: [config.Process.CWD_LENGTH]u8, // Current working directory
-    cwd_len: usize, // Length of current working directory
-    page_table_ppn: u64, // Physical page number of page table root (0 = kernel PT)
+    // Hot data - frequently accessed together (first cache line)
+    state: ProcessState, // Process state (4 bytes)
+    pid: PID, // Process ID (4 bytes)
+    context: Context, // CPU context for kernel-level switching (112 bytes)
 
-    // Heap management
-    heap_start: u64, // Start of heap (fixed)
-    heap_end: u64, // Current end of heap (program break)
+    // Scheduling related (second cache line)
+    next: ?*Process, // Simple linked list for process queue (8 bytes)
+    parent: ?*Process, // Parent process (8 bytes)
+    user_frame: ?*trap.TrapFrame, // User mode trap frame (8 bytes)
 
-    // Simple linked list for process queue
-    next: ?*Process,
+    // Memory management (third cache line)
+    page_table_ppn: u64, // Physical page number of page table root (8 bytes)
+    heap_start: u64, // Start of heap (8 bytes)
+    heap_end: u64, // Current end of heap (8 bytes)
+    stack: []u8, // Process stack (16 bytes)
+
+    // Cold data - rarely accessed
+    exit_code: i32, // Exit code when zombie (4 bytes)
+    is_kernel: bool, // Kernel-only process flag (1 byte)
+    cwd_len: usize, // Length of current working directory (8 bytes)
+    name: [config.Process.NAME_LENGTH]u8, // Process name (16 bytes)
+    cwd: [config.Process.CWD_LENGTH]u8, // Current working directory (256 bytes)
 
     pub fn init(pid: PID, name: []const u8, stack: []u8) Process {
         var proc = Process{
-            .pid = pid,
+            // Hot data
             .state = .EMBRYO,
+            .pid = pid,
             .context = Context.zero(),
-            .user_frame = null,
-            .stack = stack,
-            .name = std.mem.zeroes([config.Process.NAME_LENGTH]u8),
+            // Scheduling related
+            .next = null,
             .parent = null,
-            .exit_code = 0,
-            .is_kernel = false,
-            .cwd = std.mem.zeroes([config.Process.CWD_LENGTH]u8),
-            .cwd_len = 1,
+            .user_frame = null,
+            // Memory management
             .page_table_ppn = 0, // Default to kernel page table
             .heap_start = 0, // Will be initialized when user memory is set up
             .heap_end = 0, // Will be initialized when user memory is set up
-            .next = null,
+            .stack = stack,
+            // Cold data
+            .exit_code = 0,
+            .is_kernel = false,
+            .cwd_len = 1,
+            .name = std.mem.zeroes([config.Process.NAME_LENGTH]u8),
+            .cwd = std.mem.zeroes([config.Process.CWD_LENGTH]u8),
         };
 
         // Initialize with root directory
