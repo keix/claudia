@@ -39,4 +39,5 @@ pub const commands = [_]CommandEntry{
     .{ .name = "sleep", .func = @import("sleep.zig").main },
     .{ .name = "brktest", .func = @import("brktest.zig").main },
     .{ .name = "fork_demo", .func = @import("debug/fork_demo.zig").main },
+    .{ .name = "timer_test", .func = @import("debug/timer_test.zig").main },
 };

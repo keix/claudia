@@ -133,9 +133,8 @@ fn initInterrupts() void {
     plic.init();
 
     // Initialize timer for process scheduling
-    // TODO: Debug timer interrupt issue
-    // const timer = @import("driver/timer.zig");
-    // timer.init();
+    const timer_driver = @import("driver/timer.zig");
+    timer_driver.init();
 }
 
 fn createInitialProcesses() void {
