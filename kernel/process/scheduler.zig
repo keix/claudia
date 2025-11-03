@@ -52,7 +52,7 @@ var child_frame_used: [config.Process.CHILD_POOL_SIZE]bool = [_]bool{false} ** c
 
 // Helper to enqueue a process to the ready queue
 // Must be called with interrupts disabled
-fn enqueueProcess(proc: *Process) void {
+inline fn enqueueProcess(proc: *Process) void {
     proc.next = null;
     if (ready_queue_tail) |tail| {
         tail.next = proc;
@@ -106,28 +106,20 @@ pub fn allocProcess(name: []const u8, stack: []u8) ?*Process {
 }
 
 pub fn makeRunnable(proc: *Process) void {
-    if (proc.state == .RUNNABLE) {
-        return; // Already runnable
-    }
-
-    if (types.isTerminated(proc)) {
-        return; // Not eligible for scheduling
+    // Early exit checks
+    if (proc.state == .RUNNABLE or types.isTerminated(proc)) {
+        return;
     }
 
     // Critical section - protect ready queue manipulation
     csr.disableInterrupts();
     defer csr.enableInterrupts();
 
-    // Double-check not already in queue
-    var p = ready_queue_head;
-    while (p) |current| : (p = current.next) {
-        if (current == proc) {
-            return; // Already in queue
-        }
+    // Only enqueue if not already RUNNABLE (state serves as in-queue flag)
+    if (proc.state != .RUNNABLE) {
+        proc.state = .RUNNABLE;
+        enqueueProcess(proc);
     }
-
-    proc.state = .RUNNABLE;
-    enqueueProcess(proc);
 }
 
 // Remove and return next runnable process
@@ -154,7 +146,7 @@ const SATP_MODE_SHIFT: u6 = 60; // MODE field position in SATP
 const SATP_PPN_MASK: u64 = 0xFFFFFFFFFFF; // Mask for 44-bit PPN field
 
 // Mark process as current running process
-fn makeProcessCurrent(proc: *Process) void {
+inline fn makeProcessCurrent(proc: *Process) void {
     proc.state = .RUNNING;
     current_process = proc;
 }
